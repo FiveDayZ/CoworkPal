@@ -20,10 +20,11 @@ use crate::{
     },
     models::{
         build_rhythm_profile, current_timestamp_ms, today_key, AppSettings, AppSettingsPatch,
-        DailyWorkAssessment, DailyWorkAssessmentSummary, DailyWorkAssessmentTrend, FocusSession,
-        FocusSessionBook, FocusSessionStatus, HardwareSnapshot, RhythmProfile, WorkLogEntry,
-        WorkLogReport, WorkshopState,
+        CatState, DailyWorkAssessment, DailyWorkAssessmentSummary, DailyWorkAssessmentTrend,
+        FocusSession, FocusSessionBook, FocusSessionStatus, HardwareSnapshot, RhythmProfile,
+        WorkLogEntry, WorkLogReport, WorkshopState,
     },
+    pet::FOCUS_NUDGE_HOLD_MS,
     taskbar_embed,
     window_manager,
 };
@@ -377,6 +378,10 @@ pub async fn start_focus_session(
     {
         let mut runtime = state.cat_runtime.write().await;
         runtime.active_focus_session_id = Some(id);
+        runtime.active_focus_started_at = Some(now);
+        runtime.active_focus_planned_duration_ms = Some(duration_seconds as i64 * 1000);
+        runtime.focus_nudge_state = None;
+        runtime.focus_nudge_until = None;
         runtime.last_distraction_at = None;
     }
 
@@ -417,6 +422,10 @@ pub async fn complete_focus_session(
         let mut runtime = state.cat_runtime.write().await;
         if runtime.active_focus_session_id.as_deref() == Some(session_id.as_str()) {
             runtime.active_focus_session_id = None;
+            runtime.active_focus_started_at = None;
+            runtime.active_focus_planned_duration_ms = None;
+            runtime.focus_nudge_state = Some(CatState::NeedsBreak);
+            runtime.focus_nudge_until = Some(now + FOCUS_NUDGE_HOLD_MS);
         }
     }
 
@@ -486,6 +495,10 @@ pub async fn abandon_focus_session(
         let mut runtime = state.cat_runtime.write().await;
         if runtime.active_focus_session_id.as_deref() == Some(session_id.as_str()) {
             runtime.active_focus_session_id = None;
+            runtime.active_focus_started_at = None;
+            runtime.active_focus_planned_duration_ms = None;
+            runtime.focus_nudge_state = Some(CatState::Fatigued);
+            runtime.focus_nudge_until = Some(now + FOCUS_NUDGE_HOLD_MS);
         }
     }
 

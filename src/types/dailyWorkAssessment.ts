@@ -57,7 +57,17 @@ export interface BaselineComparison {
   ioDeltaRatio: number;
   thermalDeltaRatio: number;
   inputDeltaRatio: number;
+  metrics: BaselineMetric[];
   summary: string;
+}
+
+export interface BaselineMetric {
+  key: string;
+  label: string;
+  currentValue: string;
+  baselineValue: string;
+  deltaRatio: number;
+  tone: InsightSeverity;
 }
 
 export interface AssessmentInsight {

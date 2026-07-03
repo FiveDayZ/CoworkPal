@@ -746,7 +746,7 @@ function formatMetricLabel(metric: string) {
   }
 
   if (normalized.startsWith("pet.click_burst.count")) {
-    return "2 秒内快速点击 CoreCat 三连的次数";
+    return "2 秒内快速抚摸猫咪三连次数";
   }
 
   const titleLevel = normalized.match(/^worklog\.title_level\.([a-z]+)$/);
@@ -1022,7 +1022,7 @@ const metricLabels: Record<string, string> = {
   "settings.update.count": "保存设置次数",
   "monitor_bar.open.count": "打开悬浮监控条次数",
   "pet.panel.open.count": "打开 CoreCat 面板次数",
-  "pet.click.count": "点击 CoreCat 次数",
+  "pet.click.count": "抚摸猫咪次数",
   "pet.drag_end.count": "搬动 CoreCat 次数",
   "workshop.module_upgrade.count": "工坊模块升级次数",
   "workshop.level_up.count": "工坊升级次数",

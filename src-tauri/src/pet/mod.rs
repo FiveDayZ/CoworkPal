@@ -20,6 +20,9 @@ const NEEDS_BREAK_AFTER_MS: i64 = 50 * 60 * 1000;
 const CONTINUOUS_WORK_BREAK_MS: i64 = 5 * 60 * 1000;
 /// During a focus session, this much input silence counts as a distraction.
 pub const FOCUS_DISTRACTION_SILENCE_MS: i64 = 90 * 1000;
+pub const FOCUS_NUDGE_HOLD_MS: i64 = 5 * 60 * 1000;
+const FOCUS_FATIGUE_PROGRESS_NUMERATOR: i64 = 4;
+const FOCUS_FATIGUE_PROGRESS_DENOMINATOR: i64 = 5;
 
 pub struct PetStateService;
 
@@ -65,6 +68,10 @@ impl PetStateService {
                 runtime.last_input_at,
                 runtime.continuous_work_since,
                 runtime.active_focus_session_id.as_deref(),
+                runtime.active_focus_started_at,
+                runtime.active_focus_planned_duration_ms,
+                runtime.focus_nudge_state.as_ref(),
+                runtime.focus_nudge_until,
             );
 
             // Always advance the temperature-safe marker; it is derived from the
@@ -109,6 +116,10 @@ fn resolve_candidate_state(
     last_input_at: Option<i64>,
     continuous_work_since: Option<i64>,
     active_focus_session_id: Option<&str>,
+    active_focus_started_at: Option<i64>,
+    active_focus_planned_duration_ms: Option<i64>,
+    focus_nudge_state: Option<&CatState>,
+    focus_nudge_until: Option<i64>,
 ) -> CatState {
     if !settings.is_cat_visible {
         return CatState::Hidden;
@@ -149,11 +160,25 @@ fn resolve_candidate_state(
     if active_focus_session_id.is_some() {
         let distracted = last_input_at
             .is_some_and(|t| now_ms.saturating_sub(t) >= FOCUS_DISTRACTION_SILENCE_MS);
-        return if distracted {
-            CatState::Distracted
-        } else {
-            CatState::DeepWork
-        };
+        if distracted {
+            return CatState::Distracted;
+        }
+
+        if is_focus_fatigued(
+            now_ms,
+            active_focus_started_at,
+            active_focus_planned_duration_ms,
+        ) {
+            return CatState::Fatigued;
+        }
+
+        return CatState::DeepWork;
+    }
+
+    if let (Some(state), Some(until)) = (focus_nudge_state, focus_nudge_until) {
+        if now_ms < until {
+            return state.clone();
+        }
     }
 
     // Health nudges: only when the machine is otherwise calm (no load/thermal
@@ -174,6 +199,21 @@ fn resolve_candidate_state(
     }
 
     CatState::Idle
+}
+
+fn is_focus_fatigued(
+    now_ms: i64,
+    active_focus_started_at: Option<i64>,
+    active_focus_planned_duration_ms: Option<i64>,
+) -> bool {
+    let (Some(started_at), Some(planned_ms)) =
+        (active_focus_started_at, active_focus_planned_duration_ms)
+    else {
+        return false;
+    };
+    let threshold_ms =
+        planned_ms * FOCUS_FATIGUE_PROGRESS_NUMERATOR / FOCUS_FATIGUE_PROGRESS_DENOMINATOR;
+    now_ms.saturating_sub(started_at) >= threshold_ms
 }
 
 fn is_temperature_warning(
@@ -339,6 +379,10 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
+            None,
         )
     }
 
@@ -455,6 +499,10 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
+                None,
+                None,
             ),
             CatState::TemperatureCheck
         );
@@ -465,6 +513,10 @@ mod tests {
                 &CatState::TemperatureCheck,
                 Some(1_000),
                 6_000,
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -553,6 +605,10 @@ mod tests {
                 last_input,
                 None,
                 None,
+                None,
+                None,
+                None,
+                None,
             ),
             CatState::NeedsBreak
         );
@@ -577,6 +633,10 @@ mod tests {
                 last_input,
                 continuous_since,
                 None,
+                None,
+                None,
+                None,
+                None,
             ),
             CatState::Fatigued
         );
@@ -597,6 +657,10 @@ mod tests {
                 now,
                 Some(now - 5_000),
                 Some(0),
+                None,
+                None,
+                None,
+                None,
                 None,
             ),
             CatState::Idle
@@ -619,6 +683,10 @@ mod tests {
                 Some(now - 5_000),
                 None,
                 Some("focus-1"),
+                Some(0),
+                Some(25 * 60 * 1000),
+                None,
+                None,
             ),
             CatState::DeepWork
         );
@@ -640,8 +708,87 @@ mod tests {
                 Some(now - 120_000), // 2 min silence > 90s threshold
                 None,
                 Some("focus-1"),
+                Some(0),
+                Some(25 * 60 * 1000),
+                None,
+                None,
             ),
             CatState::Distracted
+        );
+    }
+
+    #[test]
+    fn active_focus_late_stage_becomes_fatigued() {
+        let settings = AppSettings::default();
+        let snapshot = HardwareSnapshot::default();
+        let now = 20 * 60 * 1000;
+
+        assert_eq!(
+            resolve_candidate_state(
+                &settings,
+                &snapshot,
+                &CatState::Idle,
+                None,
+                now,
+                Some(now - 5_000),
+                None,
+                Some("focus-1"),
+                Some(0),
+                Some(25 * 60 * 1000),
+                None,
+                None,
+            ),
+            CatState::Fatigued
+        );
+    }
+
+    #[test]
+    fn completed_focus_nudge_suggests_break() {
+        let settings = AppSettings::default();
+        let snapshot = HardwareSnapshot::default();
+        let now = 10_000;
+
+        assert_eq!(
+            resolve_candidate_state(
+                &settings,
+                &snapshot,
+                &CatState::Idle,
+                None,
+                now,
+                Some(now - 5_000),
+                None,
+                None,
+                None,
+                None,
+                Some(&CatState::NeedsBreak),
+                Some(now + 1_000),
+            ),
+            CatState::NeedsBreak
+        );
+    }
+
+    #[test]
+    fn expired_focus_nudge_is_ignored() {
+        let settings = AppSettings::default();
+        let snapshot = HardwareSnapshot::default();
+        let now = 10_000;
+
+        assert_eq!(
+            resolve_candidate_state(
+                &settings,
+                &snapshot,
+                &CatState::Idle,
+                None,
+                now,
+                Some(now - 5_000),
+                None,
+                None,
+                None,
+                None,
+                Some(&CatState::NeedsBreak),
+                Some(now),
+            ),
+            CatState::Idle
         );
     }
 }

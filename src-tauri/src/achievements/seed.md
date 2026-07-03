@@ -100,7 +100,7 @@ React 前端
 | `app.active_minute` | Rust 采样聚合 | `seconds` |
 | `page.view` | 前端路由进入 | `pageKey` |
 | `settings.update` | 设置保存成功 | `changedKeys`、`newValuesHash` |
-| `pet.click` | PetWindow | `clickCountInBurst` |
+| `pet.click` | CoreCat 菜单「抚摸猫咪」 | `action` |
 | `pet.drag_end` | PetWindow | `durationMs`、`distancePx` |
 | `pet.panel.open` | Tauri command | `source` |
 | `workshop.level_up` | Rust 工坊保存成功 | `fromLevel`、`toLevel` |
@@ -406,7 +406,7 @@ CREATE TABLE achievement_admin_grants (
 | A024 | 日常使用类 | 三份工况报告 | 10 | 否 | `cwp_badge_daily_3_reports_normal` | `worklog.daily_generated.count >= 3`。 |
 | A025 | 任务效率类 | 三次稳定推进 | 10 | 否 | `cwp_badge_task_score_60_x3_normal` | `calendar.days(report_score >= 60) >= 3`。 |
 | A026 | 功能探索类 | 主界面巡礼 | 10 | 否 | `cwp_badge_explore_all_pages_normal` | `distinct_count(page.view.pageKey in ['dashboard','workshop','devices','worklog','settings','about','achievements']) >= 7`。 |
-| A027 | 日常使用类 | 30 次互动 | 10 | 否 | `cwp_badge_daily_pet_30_normal` | `pet.click.count >= 30`。 |
+| A027 | 日常使用类 | 30 次抚摸 | 10 | 否 | `cwp_badge_daily_pet_30_normal` | `pet.click.count >= 30`。 |
 | A028 | 日常使用类 | 面板常客 | 10 | 否 | `cwp_badge_daily_panel_20_normal` | `pet.panel.open.count >= 20`。 |
 | A029 | 日常使用类 | 桌面搬运练习 | 10 | 否 | `cwp_badge_daily_drag_10_normal` | `pet.drag_end.count >= 10`。 |
 | A030 | 功能探索类 | 三色试验 | 10 | 否 | `cwp_badge_explore_three_themes_normal` | `distinct_count(settings.update.themeName) >= 3`。 |

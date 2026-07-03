@@ -286,7 +286,8 @@ export function PetQuickPanelWindow() {
           {activeFocusSession ? (
             <div className="cwp-panel-focus-active">
               <div className="cwp-panel-focus-task" title={activeFocusSession.taskLabel}>
-                🎯 {activeFocusSession.taskLabel}
+                <PixelIcon name="focus" size={14} className="cwp-panel-focus-task-icon" />
+                <span>{activeFocusSession.taskLabel}</span>
               </div>
               <div className="cwp-panel-focus-timer">
                 {String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:

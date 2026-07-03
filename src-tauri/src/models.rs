@@ -245,6 +245,14 @@ pub struct CatRuntimeState {
     /// id of the currently active focus session, if any. Drives the DeepWork /
     /// Distracted pet states.
     pub active_focus_session_id: Option<String>,
+    /// Focus session timing copied into the runtime so pet ticks can decide
+    /// focus fatigue without locking the persisted focus session book.
+    pub active_focus_started_at: Option<i64>,
+    pub active_focus_planned_duration_ms: Option<i64>,
+    /// Short post-focus wellness nudge. Completed focus asks for a break;
+    /// abandoned focus marks fatigue for a brief period.
+    pub focus_nudge_state: Option<CatState>,
+    pub focus_nudge_until: Option<i64>,
     /// Timestamp of the most recently counted distraction, so a single
     /// continuous distracted stretch only increments distraction_count once.
     pub last_distraction_at: Option<i64>,
@@ -261,6 +269,10 @@ impl Default for CatRuntimeState {
             last_input_at: None,
             continuous_work_since: None,
             active_focus_session_id: None,
+            active_focus_started_at: None,
+            active_focus_planned_duration_ms: None,
+            focus_nudge_state: None,
+            focus_nudge_until: None,
             last_distraction_at: None,
         }
     }
@@ -1222,7 +1234,19 @@ pub struct BaselineComparison {
     pub io_delta_ratio: f64,
     pub thermal_delta_ratio: f64,
     pub input_delta_ratio: f64,
+    pub metrics: Vec<BaselineMetric>,
     pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaselineMetric {
+    pub key: String,
+    pub label: String,
+    pub current_value: String,
+    pub baseline_value: String,
+    pub delta_ratio: f64,
+    pub tone: InsightSeverity,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1424,7 +1448,7 @@ impl DailyWorkAssessment {
         let rarity = build_work_card_rarity(report.total_score, &features, history, &entry.date);
         let title = build_work_day_title(day_type, history);
         let corecat_commentary =
-            build_corecat_commentary(day_type, &features, report.total_score, &rarity, &title);
+            build_corecat_commentary(day_type, &features, &baseline, report.total_score, &rarity, &title);
         let (highlights, risks, suggestions) =
             build_assessment_insights(&features, &baseline, day_type);
         let process_insights = build_process_insights(&entry);
@@ -1682,6 +1706,7 @@ fn build_baseline_comparison(
             io_delta_ratio: 0.0,
             thermal_delta_ratio: 0.0,
             input_delta_ratio: 0.0,
+            metrics: baseline_metrics(features, None),
             summary: "CoreCat 正在积累你的个人工作基线，连续使用几天后会给出更贴近你习惯的对比。"
                 .to_string(),
         };
@@ -1710,8 +1735,105 @@ fn build_baseline_comparison(
         io_delta_ratio: io_delta,
         thermal_delta_ratio: thermal_delta,
         input_delta_ratio: input_delta,
+        metrics: baseline_metrics(
+            features,
+            Some(BaselineAverages {
+                active_seconds: active_avg,
+                load: load_avg,
+                io: io_avg,
+                thermal: thermal_avg,
+                input_per_hour: input_avg,
+            }),
+        ),
         summary: baseline_summary(sample_days, active_delta, load_delta, io_delta, thermal_delta, input_delta),
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BaselineAverages {
+    active_seconds: f64,
+    load: f64,
+    io: f64,
+    thermal: f64,
+    input_per_hour: f64,
+}
+
+fn baseline_metrics(
+    features: &WorkLogFeatures,
+    baseline: Option<BaselineAverages>,
+) -> Vec<BaselineMetric> {
+    let items = [
+        (
+            "active",
+            "陪伴",
+            features.active_seconds as f64,
+            baseline.map(|item| item.active_seconds),
+            format_duration(features.active_seconds),
+            baseline.map(|item| format_duration(item.active_seconds.round().max(0.0) as u64)),
+            false,
+        ),
+        (
+            "load",
+            "火力",
+            features.average_load(),
+            baseline.map(|item| item.load),
+            format!("{:.0}%", features.average_load()),
+            baseline.map(|item| format!("{:.0}%", item.load)),
+            false,
+        ),
+        (
+            "io",
+            "IO",
+            features.io_avg,
+            baseline.map(|item| item.io),
+            format!("{:.0}%", features.io_avg),
+            baseline.map(|item| format!("{:.0}%", item.io)),
+            false,
+        ),
+        (
+            "thermal",
+            "温度",
+            features.thermal_avg,
+            baseline.map(|item| item.thermal),
+            format!("{:.0}%", features.thermal_avg),
+            baseline.map(|item| format!("{:.0}%", item.thermal)),
+            true,
+        ),
+        (
+            "input",
+            "输入",
+            features.input_per_hour(),
+            baseline.map(|item| item.input_per_hour),
+            format!("{:.0}/h", features.input_per_hour()),
+            baseline.map(|item| format!("{:.0}/h", item.input_per_hour)),
+            false,
+        ),
+    ];
+
+    items
+        .into_iter()
+        .map(
+            |(key, label, current, baseline_value, current_text, baseline_text, inverse)| {
+                let delta = baseline_value.map_or(0.0, |value| ratio_delta(current, value));
+                let tone = if baseline_value.is_none() || delta.abs() < 0.12 {
+                    InsightSeverity::Neutral
+                } else if (inverse && delta < 0.0) || (!inverse && delta > 0.0) {
+                    InsightSeverity::Positive
+                } else {
+                    InsightSeverity::Warning
+                };
+
+                BaselineMetric {
+                    key: key.to_string(),
+                    label: label.to_string(),
+                    current_value: current_text,
+                    baseline_value: baseline_text.unwrap_or_else(|| "--".to_string()),
+                    delta_ratio: delta,
+                    tone,
+                }
+            },
+        )
+        .collect()
 }
 
 fn build_workprint(day_type: WorkDayType, features: &WorkLogFeatures) -> WorkprintSummary {
@@ -2009,6 +2131,7 @@ fn work_day_title_pool(day_type: WorkDayType) -> [&'static str; 5] {
 fn build_corecat_commentary(
     day_type: WorkDayType,
     features: &WorkLogFeatures,
+    baseline: &BaselineComparison,
     score: u32,
     rarity: &WorkCardRarity,
     title: &WorkDayTitle,
@@ -2024,39 +2147,41 @@ fn build_corecat_commentary(
         CoreCatCommentTone::Encouragement
     };
 
+    let diagnostic = work_condition_diagnostic(features, baseline);
     let (comment_title, body) = match tone {
         CoreCatCommentTone::Celebration => (
             "CoreCat 战报：这张卡有收藏价值",
             format!(
-                "喵，今天的{}拿到 {}，{} 已经升到 Lv.{}。这类节奏可以收进你的工况图鉴里。",
+                "喵，今天的{}拿到 {}，{} 已经升到 Lv.{}。{}",
                 work_day_type_title(day_type),
                 rarity.label,
                 title.title,
-                title.level
+                title.level,
+                diagnostic
             ),
         ),
         CoreCatCommentTone::Warning => (
             "CoreCat 警报：机器有点烫爪",
             format!(
-                "今天压力信号偏高，热压力约 {:.0}%，内存高占用片段也值得留意。CoreCat 建议下次高负载前先给机器留点余量。",
-                features.thermal_avg
+                "今天压力信号偏高，热压力约 {:.0}%。{}",
+                features.thermal_avg, diagnostic
             ),
         ),
         CoreCatCommentTone::Tease => (
             "CoreCat 吐槽：这张卡还在孵化",
             format!(
-                "今天样本还不够厚，CoreCat 只抓到 {} 的轮廓。再多陪伴一会儿，明天的卡面会更像样。",
-                title.title
+                "今天样本还不够厚，CoreCat 只抓到 {} 的轮廓。{}",
+                title.title, diagnostic
             ),
         ),
         CoreCatCommentTone::Encouragement => (
             "CoreCat 点评：节奏已经成型",
             format!(
-                "今天的{}比较清楚，负载 {:.0}、输入节奏 {:.0}/h。CoreCat 已经把它整理成 {}。",
+                "今天的{}比较清楚，负载 {:.0}、输入节奏 {:.0}/h。{}",
                 work_day_type_title(day_type),
                 features.average_load(),
                 features.input_per_hour(),
-                rarity.label
+                diagnostic
             ),
         ),
     };
@@ -2066,6 +2191,64 @@ fn build_corecat_commentary(
         title: comment_title.to_string(),
         body,
     }
+}
+
+fn work_condition_diagnostic(
+    features: &WorkLogFeatures,
+    baseline: &BaselineComparison,
+) -> String {
+    if features.sample_count == 0 || features.active_seconds < 60 {
+        return "再多陪伴一会儿，明天的卡面会更像样。".to_string();
+    }
+
+    if features.thermal_warning_ratio() >= 0.03 || features.thermal_avg >= 52.0 {
+        return format!(
+            "工况解释：主要异常来自热压力，温度压力指数约 {:.0}%，高负载前先留散热余量。",
+            features.thermal_avg
+        );
+    }
+
+    if features.memory_over_70_ratio >= 0.35 || features.memory_avg >= 78.0 {
+        return format!(
+            "工况解释：主要瓶颈像是内存拥挤，RAM 均值约 {:.0}%，多任务切换前适合关掉闲置大应用。",
+            features.memory_avg
+        );
+    }
+
+    if features.gpu_over_70_ratio >= 0.30 {
+        return format!(
+            "工况解释：GPU 高占用持续约 {}，更像渲染、视频或图形任务在拉高压力。",
+            format_duration((features.gpu_over_70_ratio * features.active_seconds as f64) as u64)
+        );
+    }
+
+    if features.io_avg >= 45.0 || (baseline.sample_days > 0 && baseline.io_delta_ratio >= 0.35) {
+        if baseline.sample_days > 0 {
+            return format!(
+                "工况解释：磁盘和网络流动偏活跃，资料流动强度比你的近期基线{}。",
+                format_delta(baseline.io_delta_ratio)
+            );
+        }
+
+        return "工况解释：磁盘和网络流动偏活跃，更像同步、下载、构建或归档任务。"
+            .to_string();
+    }
+
+    if baseline.sample_days > 0 && baseline.load_delta_ratio >= 0.28 {
+        return format!(
+            "工况解释：今天整体火力比你的近期基线{}，更像构建、批处理或长任务日。",
+            format_delta(baseline.load_delta_ratio)
+        );
+    }
+
+    if baseline.sample_days > 0 && baseline.input_delta_ratio >= 0.28 {
+        return format!(
+            "工况解释：输入节奏比你的近期基线{}，更像连续操作或高频切换。",
+            format_delta(baseline.input_delta_ratio)
+        );
+    }
+
+    "工况解释：没有明显异常，今天更接近你的常规运行区间。".to_string()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3179,6 +3362,7 @@ mod assessment_tests {
 
         assert_eq!(assessment.day_type, WorkDayType::Unknown);
         assert_eq!(assessment.baseline.sample_days, 0);
+        assert_eq!(assessment.baseline.metrics.len(), 5);
         assert!(!assessment.highlights.is_empty());
         assert!(!assessment.suggestions.is_empty());
     }
@@ -3235,7 +3419,14 @@ mod assessment_tests {
         let assessment = DailyWorkAssessment::from_entry(entry, &history);
 
         assert_eq!(assessment.baseline.sample_days, 1);
+        assert_eq!(assessment.baseline.metrics.len(), 5);
+        assert!(assessment
+            .baseline
+            .metrics
+            .iter()
+            .any(|metric| metric.key == "io" && metric.baseline_value != "--"));
         assert!(assessment.baseline.io_delta_ratio > 1.0);
+        assert!(assessment.corecat_commentary.body.contains("工况解释"));
         assert!(assessment
             .baseline
             .summary

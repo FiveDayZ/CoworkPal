@@ -13,15 +13,12 @@ import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
 import { useThemedIcons } from "../../ui/assets";
-import { playAudioFeedback } from "../../services/audioFeedback";
 import { calculateSystemStability } from "../../services/systemStability";
 import { PixelIcon } from "../../ui/PixelIcon";
-import { rewardCoreCatInteraction } from "../../services/tauriCommands";
 
 export function DashboardPage() {
   const snapshot = useHardwareStore((state) => state.snapshot);
   const workshop = useWorkshopStore((state) => state.state);
-  const setWorkshopState = useWorkshopStore((state) => state.setWorkshopState);
   const settings = useSettingsStore((state) => state.settings);
   const catState = usePetStore((state) => state.catState);
   const catMessage = usePetStore((state) => state.catMessage);
@@ -32,7 +29,6 @@ export function DashboardPage() {
   const completeFocus = useFocusStore((state) => state.complete);
   const abandonFocus = useFocusStore((state) => state.abandon);
 
-  const [localBubble, setLocalBubble] = useState<string | null>(null);
   const [focusTask, setFocusTask] = useState("");
   const [focusMinutes, setFocusMinutes] = useState(25);
   const [focusError, setFocusError] = useState<string | null>(null);
@@ -94,28 +90,6 @@ export function DashboardPage() {
     }
   };
 
-  const handlePetCat = async () => {
-    playAudioFeedback("meow", settings?.enableSound ?? false);
-    setLocalBubble("喵呜~ 今天也要加油工作呀！");
-    setTimeout(() => setLocalBubble(null), 3000);
-    try {
-      setWorkshopState(await rewardCoreCatInteraction("pet"));
-    } catch (error) {
-      console.error("Failed to reward CoreCat pet interaction:", error);
-    }
-  };
-
-  const handleCleanParts = async () => {
-    playAudioFeedback("click", settings?.enableSound ?? false);
-    setLocalBubble("零件仓库已整理。");
-    setTimeout(() => setLocalBubble(null), 3000);
-    try {
-      setWorkshopState(await rewardCoreCatInteraction("sortParts"));
-    } catch (error) {
-      console.error("Failed to reward CoreCat sort-parts interaction:", error);
-    }
-  };
-
   const cpuVal = snapshot?.cpuUsagePercent ?? 0;
   const { label: cpuBadge, className: cpuClass } = loadBadge(
     snapshot?.cpuUsagePercent ?? null,
@@ -174,13 +148,14 @@ export function DashboardPage() {
       </div>
 
       <div className="cwp-dashboard-content">
-          <div className="cwp-dashboard-grid">
+        <div className="cwp-dashboard-grid">
+          <div className="cwp-dashboard-side">
             {/* Left Hero Card */}
             <div className="cwp-hero-card">
               <div className="cwp-hero-base-light" />
               <div className="cwp-hero-speech-container">
                 <div className="cwp-hero-bubble">
-                  {localBubble || catMessage || "正在全力监控您的工作区..."}
+                  {catMessage || "正在全力监控您的工作区..."}
                 </div>
               </div>
               <div className="cwp-hero-pet-canvas">
@@ -194,24 +169,20 @@ export function DashboardPage() {
                 <span>当前状态:</span>
                 <span className="cwp-hero-status-tag">{getCatStatusText()}</span>
               </div>
-              <div className="cwp-hero-quick-actions">
-                <button className="cwp-hero-btn" onClick={handlePetCat} type="button">
-                  抚摸猫咪
-                </button>
-                <button className="cwp-hero-btn" onClick={handleCleanParts} type="button">
-                  整理零件
-                </button>
-              </div>
             </div>
 
-            {/* Focus ritual card: deliver a task to CoreCat and commit to a
-                focus block. Visible here on the dashboard for discoverability
-                (also available in the pet panel). */}
+            {/* Focus ritual card: lives under the CoreCat avatar so it does not
+                consume the metric workspace. */}
             <div className="cwp-dashboard-focus">
               {activeFocusSession ? (
                 <div className="cwp-dashboard-focus-active">
                   <div className="cwp-dashboard-focus-task">
-                    🎯 {activeFocusSession.taskLabel}
+                    <PixelIcon
+                      name="focus"
+                      size={14}
+                      className="cwp-dashboard-focus-task-icon"
+                    />
+                    <span>{activeFocusSession.taskLabel}</span>
                   </div>
                   <div className="cwp-dashboard-focus-timer">
                     {String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:
@@ -286,6 +257,7 @@ export function DashboardPage() {
                 </div>
               )}
             </div>
+          </div>
 
             {/* Right 6 Metric Cards */}
             <div className="cwp-metric-grid">

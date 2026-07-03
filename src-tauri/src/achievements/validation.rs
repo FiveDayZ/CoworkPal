@@ -19,6 +19,7 @@ pub enum AchievementValidationError {
         actual: u32,
     },
     InvalidRepeatPolicy(String),
+    EmptyTitle(String),
     EmptyConditionSummary(String),
 }
 
@@ -46,6 +47,7 @@ impl fmt::Display for AchievementValidationError {
                 difficulty
             ),
             Self::InvalidRepeatPolicy(id) => write!(formatter, "invalid repeat policy for {id}"),
+            Self::EmptyTitle(id) => write!(formatter, "empty title for {id}"),
             Self::EmptyConditionSummary(id) => {
                 write!(formatter, "empty condition summary for {id}")
             }
@@ -105,6 +107,9 @@ pub fn validate_definitions(
             return Err(AchievementValidationError::InvalidRepeatPolicy(
                 definition.id.clone(),
             ));
+        }
+        if definition.title.trim().is_empty() {
+            return Err(AchievementValidationError::EmptyTitle(definition.id.clone()));
         }
         if definition.condition_summary.trim().is_empty() {
             return Err(AchievementValidationError::EmptyConditionSummary(

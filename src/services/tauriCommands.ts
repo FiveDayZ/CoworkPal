@@ -494,12 +494,12 @@ function createBrowserDailyWorkAssessment(date = todayKey()): DailyWorkAssessmen
       ? {
           tone: "encouragement",
           title: "CoreCat 点评：节奏已经成型",
-          body: "预览数据里这张卡偏稳定，正式运行后 CoreCat 会用真实硬件和输入节奏生成更准确的点评。",
+          body: "预览数据里这张卡偏稳定。工况解释：正式运行后 CoreCat 会用真实硬件、历史基线和输入节奏判断异常来源。",
         }
       : {
           tone: "tease",
           title: "CoreCat 吐槽：这张卡还在孵化",
-          body: "这一天暂时没有足够采样，CoreCat 只能先把它记成观察卡。",
+          body: "这一天暂时没有足够采样，CoreCat 只能先把它记成观察卡。工况解释：样本不足时不做异常判断。",
         },
     score: report.totalScore,
     corecatSummary: isToday
@@ -514,6 +514,48 @@ function createBrowserDailyWorkAssessment(date = todayKey()): DailyWorkAssessmen
       ioDeltaRatio: 0,
       thermalDeltaRatio: 0,
       inputDeltaRatio: 0,
+      metrics: [
+        {
+          key: "active",
+          label: "陪伴",
+          currentValue: "2h 0m",
+          baselineValue: "--",
+          deltaRatio: 0,
+          tone: "neutral",
+        },
+        {
+          key: "load",
+          label: "火力",
+          currentValue: "42%",
+          baselineValue: "--",
+          deltaRatio: 0,
+          tone: "neutral",
+        },
+        {
+          key: "io",
+          label: "IO",
+          currentValue: "18%",
+          baselineValue: "--",
+          deltaRatio: 0,
+          tone: "neutral",
+        },
+        {
+          key: "thermal",
+          label: "温度",
+          currentValue: "24%",
+          baselineValue: "--",
+          deltaRatio: 0,
+          tone: "neutral",
+        },
+        {
+          key: "input",
+          label: "输入",
+          currentValue: "1200/h",
+          baselineValue: "--",
+          deltaRatio: 0,
+          tone: "neutral",
+        },
+      ],
       summary: "浏览器预览暂不包含历史基线；Tauri 运行几天后会生成近 7 日对比。",
     },
     timeline,

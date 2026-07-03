@@ -4,6 +4,11 @@ import type { AppSettings } from "../types/settings";
 
 const minStateHoldMs = 3000;
 export const idleSleepAfterMs = 15 * 60 * 1000;
+export const fatiguedAfterMs = 90 * 60 * 1000;
+export const needsBreakAfterMs = 50 * 60 * 1000;
+export const continuousWorkBreakMs = 5 * 60 * 1000;
+export const focusNudgeHoldMs = 5 * 60 * 1000;
+const focusFatigueProgress = 0.8;
 const repairLightLoadThreshold = 76;
 const repairHeavyLoadThreshold = 92;
 export const temperatureCheckEnterMinCelsius = 75;
@@ -12,6 +17,11 @@ export const temperatureCheckExitStableMs = 5000;
 
 export interface HardwareCatStateContext {
   cleanupSucceeded?: boolean;
+  activeFocusPlannedDurationSeconds?: number | null;
+  activeFocusStartedAt?: number | null;
+  continuousWorkSince?: number | null;
+  focusNudgeState?: Extract<CatState, "NeedsBreak" | "Fatigued"> | null;
+  focusNudgeUntil?: number | null;
   lastUserActivityAt?: number;
   now?: Date;
   temperatureSafeSince?: number | null;
@@ -83,6 +93,30 @@ export function resolveHardwareCatState(
 
   if (context.cleanupSucceeded) {
     return "Celebrate";
+  }
+
+  if (isActiveFocusDistracted(context)) {
+    return "Distracted";
+  }
+
+  if (isActiveFocusFatigued(context)) {
+    return "Fatigued";
+  }
+
+  if (isActiveFocusSession(context)) {
+    return "DeepWork";
+  }
+
+  if (isFocusNudgeActive(context)) {
+    return context.focusNudgeState ?? "NeedsBreak";
+  }
+
+  if (isInactiveForBreakNudge(context)) {
+    return "NeedsBreak";
+  }
+
+  if (isFatiguedFromContinuousWork(context)) {
+    return "Fatigued";
   }
 
   if (settings.enableSleepMode && isInactiveForSleep(context)) {
@@ -259,4 +293,63 @@ function isInactiveForSleep(context: HardwareCatStateContext) {
 
   const now = context.timestamp ?? context.now?.getTime() ?? Date.now();
   return now - context.lastUserActivityAt >= idleSleepAfterMs;
+}
+
+function isInactiveForBreakNudge(context: HardwareCatStateContext) {
+  if (context.lastUserActivityAt == null) {
+    return false;
+  }
+
+  const now = context.timestamp ?? context.now?.getTime() ?? Date.now();
+  return now - context.lastUserActivityAt >= needsBreakAfterMs;
+}
+
+function isActiveFocusSession(context: HardwareCatStateContext) {
+  return (
+    context.activeFocusStartedAt != null &&
+    context.activeFocusPlannedDurationSeconds != null
+  );
+}
+
+function isActiveFocusDistracted(context: HardwareCatStateContext) {
+  if (!isActiveFocusSession(context) || context.lastUserActivityAt == null) {
+    return false;
+  }
+
+  const now = context.timestamp ?? context.now?.getTime() ?? Date.now();
+  return now - context.lastUserActivityAt >= 90 * 1000;
+}
+
+function isActiveFocusFatigued(context: HardwareCatStateContext) {
+  if (!isActiveFocusSession(context)) {
+    return false;
+  }
+
+  const plannedMs = Math.max(
+    1,
+    (context.activeFocusPlannedDurationSeconds ?? 0) * 1000,
+  );
+  const now = context.timestamp ?? context.now?.getTime() ?? Date.now();
+  return (
+    now - (context.activeFocusStartedAt ?? now) >=
+    plannedMs * focusFatigueProgress
+  );
+}
+
+function isFocusNudgeActive(context: HardwareCatStateContext) {
+  if (!context.focusNudgeState || context.focusNudgeUntil == null) {
+    return false;
+  }
+
+  const now = context.timestamp ?? context.now?.getTime() ?? Date.now();
+  return now < context.focusNudgeUntil;
+}
+
+function isFatiguedFromContinuousWork(context: HardwareCatStateContext) {
+  if (context.continuousWorkSince == null) {
+    return false;
+  }
+
+  const now = context.timestamp ?? context.now?.getTime() ?? Date.now();
+  return now - context.continuousWorkSince >= fatiguedAfterMs;
 }

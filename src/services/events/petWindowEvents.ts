@@ -1,14 +1,18 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
+  continuousWorkBreakMs,
   deriveCatStatusFromHardware,
+  focusNudgeHoldMs,
   isTemperatureAboveEnterThreshold,
   isTemperatureBelowExitThreshold,
   shouldApplyCatStateTransition,
 } from "../catStateRules";
 import { getLastUserActivityAt } from "../userActivityTracker";
+import { useFocusStore } from "../../stores/focusStore";
 import { useHardwareStore } from "../../stores/hardwareStore";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import type { FocusSessionBook } from "../../types/focus";
 import type { HardwareMetricsSnapshot } from "../../types/hardware";
 import type { CatState } from "../../types/pet";
 import type { AppSettings } from "../../types/settings";
@@ -23,6 +27,9 @@ let lastDerivedCatState: CatState = "Idle";
 let lastDerivedChangedAt = 0;
 let pendingCleanupSucceeded = false;
 let temperatureSafeSince: number | null = null;
+let continuousWorkSince: number | null = null;
+let focusNudgeState: Extract<CatState, "NeedsBreak" | "Fatigued"> | null = null;
+let focusNudgeUntil: number | null = null;
 
 export function registerPetWindowEvents() {
   const unlisteners: Array<Promise<UnlistenFn>> = [];
@@ -39,6 +46,35 @@ export function registerPetWindowEvents() {
   );
 
   registerPetStateListeners(unlisteners);
+
+  unlisteners.push(
+    listen<FocusSessionBook>("focus:session-updated", (event) => {
+      const previousActive = useFocusStore.getState().activeSession;
+      useFocusStore.getState().setBook(event.payload);
+      const nextActive = useFocusStore.getState().activeSession;
+
+      if (nextActive) {
+        focusNudgeState = null;
+        focusNudgeUntil = null;
+        return;
+      }
+
+      if (!previousActive) {
+        return;
+      }
+
+      const ended = event.payload.sessions.find(
+        (session) => session.id === previousActive.id,
+      );
+      if (ended?.status === "completed") {
+        focusNudgeState = "NeedsBreak";
+        focusNudgeUntil = Date.now() + focusNudgeHoldMs;
+      } else if (ended?.status === "abandoned") {
+        focusNudgeState = "Fatigued";
+        focusNudgeUntil = Date.now() + focusNudgeHoldMs;
+      }
+    }),
+  );
 
   unlisteners.push(
     listen("cleanup:succeeded", () => {
@@ -67,10 +103,23 @@ function applyHardwareDerivedPetFallback(snapshot: HardwareMetricsSnapshot) {
     lastDerivedCatState,
     temperatureSafeSince,
   );
+  const lastUserActivityAt = getLastUserActivityAt();
+  const activeFocusSession = useFocusStore.getState().activeSession;
+  continuousWorkSince = nextContinuousWorkSince(
+    snapshot.timestamp,
+    lastUserActivityAt,
+    continuousWorkSince,
+  );
   const event = deriveCatStatusFromHardware(snapshot, settings, {
+    activeFocusPlannedDurationSeconds:
+      activeFocusSession?.plannedDurationSeconds ?? null,
+    activeFocusStartedAt: activeFocusSession?.startedAt ?? null,
     cleanupSucceeded: pendingCleanupSucceeded,
+    continuousWorkSince,
     currentCatState: lastDerivedCatState,
-    lastUserActivityAt: getLastUserActivityAt(),
+    focusNudgeState,
+    focusNudgeUntil,
+    lastUserActivityAt,
     temperatureSafeSince: nextSafeSince,
     timestamp: snapshot.timestamp,
   });
@@ -109,6 +158,21 @@ function nextTemperatureSafeSince(
     isTemperatureBelowExitThreshold(snapshot)
   ) {
     return currentSafeSince ?? snapshot.timestamp;
+  }
+
+  return null;
+}
+
+function nextContinuousWorkSince(
+  timestamp: number,
+  lastUserActivityAt: number | null,
+  currentSince: number | null,
+) {
+  if (
+    lastUserActivityAt != null &&
+    timestamp - lastUserActivityAt < continuousWorkBreakMs
+  ) {
+    return currentSince ?? timestamp;
   }
 
   return null;

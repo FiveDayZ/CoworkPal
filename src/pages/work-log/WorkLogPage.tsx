@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type {
   AssessmentInsight,
+  BaselineMetric,
   DailyWorkAssessment,
   DailyWorkAssessmentSummary,
   DailyWorkAssessmentTrend,
@@ -573,6 +574,8 @@ function WorkprintAndBaseline({
   onSelect: (date: string) => void;
   selectedDate: string;
 }) {
+  const baselineMetrics = assessment?.baseline.metrics ?? [];
+
   return (
     <>
       <section className="cwp-daily-report-grid">
@@ -607,24 +610,9 @@ function WorkprintAndBaseline({
               "连续使用几天后，CoreCat 会用近 7 日记录对比今天的节奏。"}
           </p>
           <div className="cwp-baseline-pill-grid">
-            <BaselinePill
-              label="陪伴"
-              value={assessment?.baseline.activeSecondsDeltaRatio}
-            />
-            <BaselinePill
-              label="火力"
-              value={assessment?.baseline.loadDeltaRatio}
-            />
-            <BaselinePill label="IO" value={assessment?.baseline.ioDeltaRatio} />
-            <BaselinePill
-              label="温度"
-              inverse
-              value={assessment?.baseline.thermalDeltaRatio}
-            />
-            <BaselinePill
-              label="输入"
-              value={assessment?.baseline.inputDeltaRatio}
-            />
+            {baselineMetrics.map((metric) => (
+              <BaselinePill key={metric.key} metric={metric} />
+            ))}
           </div>
         </article>
       </section>
@@ -1069,26 +1057,13 @@ function WorkprintGrid({
   );
 }
 
-function BaselinePill({
-  inverse = false,
-  label,
-  value,
-}: {
-  inverse?: boolean;
-  label: string;
-  value?: number;
-}) {
-  const safeValue = value ?? 0;
-  const isPositive = inverse ? safeValue < -0.04 : safeValue > 0.04;
-  const isWarning = inverse ? safeValue > 0.12 : safeValue < -0.12;
-
+function BaselinePill({ metric }: { metric: BaselineMetric }) {
   return (
-    <div
-      className={`cwp-baseline-pill ${isPositive ? "is-positive" : isWarning ? "is-warning" : ""
-        }`}
-    >
-      <span>{label}</span>
-      <strong>{formatDelta(safeValue)}</strong>
+    <div className={`cwp-baseline-pill is-${metric.tone}`}>
+      <span>{metric.label}</span>
+      <strong>{metric.currentValue}</strong>
+      <em>基线 {metric.baselineValue}</em>
+      <small>{formatDelta(metric.deltaRatio)}</small>
     </div>
   );
 }

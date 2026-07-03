@@ -255,6 +255,14 @@ assert.equal(
   "dataSorting",
 );
 assert.equal(
+  resolveCoreCatAnimationState(input({ catState: "Fatigued" })),
+  "fatigued",
+);
+assert.equal(
+  resolveCoreCatAnimationState(input({ catState: "NeedsBreak" })),
+  "needsBreak",
+);
+assert.equal(
   resolveCoreCatAnimationState(input({ catState: "Celebrate" })),
   "celebrate",
 );
@@ -791,6 +799,76 @@ assert.equal(
     { timestamp: 15 * 60 * 1000, lastUserActivityAt: 0 },
   ),
   "Sleep",
+);
+assert.equal(
+  resolveHardwareCatState(
+    snapshot,
+    settings,
+    { timestamp: 55 * 60 * 1000, lastUserActivityAt: 0 },
+  ),
+  "NeedsBreak",
+);
+assert.equal(
+  resolveHardwareCatState(
+    snapshot,
+    settings,
+    {
+      continuousWorkSince: 0,
+      lastUserActivityAt: 100 * 60 * 1000 - 10_000,
+      timestamp: 100 * 60 * 1000,
+    },
+  ),
+  "Fatigued",
+);
+assert.equal(
+  resolveHardwareCatState(
+    snapshot,
+    settings,
+    {
+      activeFocusPlannedDurationSeconds: 25 * 60,
+      activeFocusStartedAt: 0,
+      lastUserActivityAt: 20 * 60 * 1000 - 10_000,
+      timestamp: 20 * 60 * 1000,
+    },
+  ),
+  "Fatigued",
+);
+assert.equal(
+  resolveHardwareCatState(
+    snapshot,
+    settings,
+    {
+      activeFocusPlannedDurationSeconds: 25 * 60,
+      activeFocusStartedAt: 0,
+      lastUserActivityAt: 5_000,
+      timestamp: 10_000,
+    },
+  ),
+  "DeepWork",
+);
+assert.equal(
+  resolveHardwareCatState(
+    snapshot,
+    settings,
+    {
+      focusNudgeState: "NeedsBreak",
+      focusNudgeUntil: 10_000,
+      timestamp: 9_000,
+    },
+  ),
+  "NeedsBreak",
+);
+assert.equal(
+  resolveHardwareCatState(
+    snapshot,
+    settings,
+    {
+      focusNudgeState: "NeedsBreak",
+      focusNudgeUntil: 10_000,
+      timestamp: 10_000,
+    },
+  ),
+  "Idle",
 );
 assert.equal(
   resolveHardwareCatState(snapshot, settings, { cleanupSucceeded: true }),
