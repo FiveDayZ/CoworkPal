@@ -4,6 +4,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     achievements::AchievementBook,
+    memory_release::MemoryReleaseState,
     models::{AppSettings, CatRuntimeState, FocusSessionBook, HardwareSnapshot, LayoutState, WorkLogBook, WorkshopState},
     monitoring::{create_default_adapter, HardwareSensorAdapter},
     storage::StorageService,
@@ -23,6 +24,8 @@ pub struct AppState {
     /// `Arc` so the adapter can be cloned into `spawn_blocking` closures,
     /// keeping subprocess work (nvidia-smi / powershell) off the async runtime.
     pub hardware_adapter: Arc<Mutex<Box<dyn HardwareSensorAdapter>>>,
+    /// Memory release watcher cooldown state (auto-trigger only).
+    pub memory_release: MemoryReleaseState,
 }
 
 impl AppState {
@@ -46,6 +49,7 @@ impl AppState {
             cat_runtime: RwLock::new(CatRuntimeState::default()),
             storage,
             hardware_adapter: Arc::new(Mutex::new(create_default_adapter())),
+            memory_release: MemoryReleaseState::default(),
         })
     }
 }

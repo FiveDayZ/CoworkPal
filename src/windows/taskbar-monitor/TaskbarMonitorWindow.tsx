@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useEffect, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useHardwareStore } from "../../stores/hardwareStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { HardwareSnapshot } from "../../types/hardware";
 import type { MonitorBarMode, MonitorMetric } from "../../types/settings";
 import { getDisplayedMetrics } from "../../services/monitorMetrics";
+import { showTaskbarContextMenu } from "../../services/tauriCommands";
 
 const defaultTaskbarMetrics: MonitorMetric[] = ["Cpu", "Ram", "Gpu", "Network"];
 
@@ -17,11 +18,10 @@ type TaskbarMetricCell = {
 export function TaskbarMonitorWindow() {
   const snapshot = useHardwareStore((state) => state.snapshot);
   const settings = useSettingsStore((state) => state.settings);
-  const textRef = useRef<HTMLDivElement | null>(null);
   const showTaskbarData = settings?.showMonitorDataInTaskbar ?? false;
   const metrics = settings?.visibleTaskbarMetrics ?? defaultTaskbarMetrics;
   const taskbarMode = settings?.taskbarMonitorMode ?? "Default";
-  const displayedMetrics = getDisplayedMetrics(metrics, taskbarMode);
+  const displayedMetrics = getDisplayedMetrics(metrics, taskbarMode).slice(0, 3);
   const taskbarCells = useMemo(
     () => displayedMetrics.map((metric) => getTaskbarMetricCell(metric, snapshot)),
     [displayedMetrics, snapshot],
@@ -30,7 +30,6 @@ export function TaskbarMonitorWindow() {
     () => taskbarCells.map((cell) => `${cell.top} ${cell.bottom}`).join(" "),
     [taskbarCells],
   );
-  const metricCount = Math.max(1, taskbarCells.length);
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) {
@@ -67,19 +66,24 @@ export function TaskbarMonitorWindow() {
     };
   }, [showTaskbarData, taskbarText]);
 
+  // Right-click shows the native context menu (built on the backend via the
+  // same shared menu the tray icon uses). A native popup is required because
+  // this window is only ~36px tall and embedded as a WS_CHILD of the shell
+  // taskbar — an HTML overlay menu would be clipped by the window rect.
+  const handleContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    void showTaskbarContextMenu();
+  };
+
   if (!showTaskbarData) {
     return <div className="cwp-taskbar-monitor-root" />;
   }
 
   return (
-    <div className="cwp-taskbar-monitor-root">
-      <div
-        className="cwp-taskbar-data-pill"
-        ref={textRef}
-        style={{ "--taskbar-metric-count": metricCount } as CSSProperties}
-      >
+    <div className="cwp-taskbar-monitor-root" onContextMenu={handleContextMenu}>
+      <div className="cwp-taskbar-data-text">
         {taskbarCells.length === 0 ? (
-          <div className="cwp-taskbar-data-empty">未选择</div>
+          "未选择"
         ) : (
           taskbarCells.map((cell) => (
             <div className="cwp-taskbar-data-cell" key={cell.key}>
@@ -131,8 +135,8 @@ function getTaskbarMetricCell(
 
   return {
     key: metric,
-      top: `NET ${formatCompactSpeed(snapshot?.networkDownloadBytesPerSecond ?? null)}`,
-      bottom: `U ${formatCompactSpeed(snapshot?.networkUploadBytesPerSecond ?? null)}`,
+    top: `NET ${formatCompactSpeed(snapshot?.networkDownloadBytesPerSecond ?? null)}`,
+    bottom: `U ${formatCompactSpeed(snapshot?.networkUploadBytesPerSecond ?? null)}`,
   };
 }
 

@@ -3,6 +3,7 @@ pub mod achievements;
 mod commands;
 pub mod events;
 mod input_activity;
+pub mod memory_release;
 mod models;
 mod monitoring;
 mod pet;
@@ -69,6 +70,7 @@ pub fn run() {
             });
             start_hardware_snapshot_pump(app.handle().clone());
             start_input_activity_pump(app.handle().clone());
+            start_memory_auto_release_pump(app.handle().clone());
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 window_manager::apply_saved_window_positions(&app_handle).await;
@@ -115,6 +117,9 @@ pub fn run() {
             commands::complete_focus_session,
             commands::abandon_focus_session,
             commands::get_rhythm_profile,
+            commands::get_memory_status,
+            commands::trigger_memory_release,
+            commands::show_taskbar_context_menu,
             commands::updater::check_update,
             commands::updater::download_update,
             commands::updater::install_update
@@ -155,4 +160,65 @@ async fn apply_saved_visibility(app: &tauri::AppHandle) {
     }
 
     taskbar_embed::sync_taskbar_monitor(app).await;
+}
+
+/// Auto-release watcher. Every 10s it samples system memory pressure and, when
+/// both `memory_release_enabled` and `memory_auto_release_enabled` are on and
+/// used memory exceeds the configured GiB threshold, runs the light tier —
+/// but only if the 60s cooldown (held in `AppState.memory_release`) has
+/// elapsed. The light tier never elevates, so this loop never disturbs the
+/// user with a UAC prompt.
+fn start_memory_auto_release_pump(app: tauri::AppHandle) {
+    use commands::perform_release;
+    use memory_release::{sysinfo_query, ReleaseKind};
+
+    tauri::async_runtime::spawn(async move {
+        // A 10s cadence balances responsiveness against overhead — sampling is
+        // a single `GlobalMemoryStatusEx` call, well under a millisecond.
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            if IS_EXITING.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+
+            let Some(state) = app.try_state::<AppState>() else {
+                continue;
+            };
+
+            let (enabled, auto_enabled, threshold_gib) = {
+                let settings = state.settings.read().await;
+                (
+                    settings.memory_release_enabled,
+                    settings.memory_auto_release_enabled,
+                    settings.memory_auto_release_threshold_gib,
+                )
+            };
+            if !enabled || !auto_enabled {
+                continue;
+            }
+
+            let Some(pressure) = sysinfo_query::sample_pressure() else {
+                continue;
+            };
+            if pressure.used_gib() < threshold_gib {
+                continue;
+            }
+
+            // Cooldown check — only one auto release per 60s window.
+            if state.memory_release.try_acquire().await.is_none() {
+                continue;
+            }
+
+            tracing::info!(
+                "auto memory release triggered: used {:.2} GiB >= threshold {:.2} GiB",
+                pressure.used_gib(),
+                threshold_gib
+            );
+            if let Err(error) = perform_release(&state, &app, ReleaseKind::AutoLight).await {
+                tracing::warn!("auto memory release failed: {error}");
+            }
+        }
+    });
 }

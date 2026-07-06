@@ -13,6 +13,7 @@ import type { FocusSessionBook } from "../../types/focus";
 import type { AppSettings } from "../../types/settings";
 import type { WorkLogReport } from "../../types/workLog";
 import type { WorkshopState } from "../../types/workshop";
+import type { MemoryReleaseResult } from "../tauriCommands";
 import {
   cleanupEventListeners,
   emptyEventCleanup,
@@ -83,5 +84,39 @@ export function registerMainWindowEvents() {
     }),
   );
 
+  unlisteners.push(
+    listen<MemoryReleaseResult>("memory:release-completed", (event) => {
+      // Toast mirrors the pet-state notifications: only when the user has
+      // enabled notifications. The settings card's "last release" line is
+      // driven by the settings:updated event (the backend persists
+      // memoryLastRelease), so the toast only carries the summary text.
+      // The CoreCat speech bubble is updated separately in petWindowEvents
+      // (each window owns its own store instance).
+      maybeNotifyMemoryRelease(event.payload);
+    }),
+  );
+
   return cleanupEventListeners(unlisteners);
+}
+
+function maybeNotifyMemoryRelease(result: MemoryReleaseResult) {
+  const settings = useSettingsStore.getState().settings;
+  if (!settings?.enableNotifications || typeof window === "undefined") {
+    return;
+  }
+  if (!("Notification" in window)) {
+    return;
+  }
+  const title = result.fullTier ? "内存已全量释放" : "内存已轻量释放";
+  if (Notification.permission === "granted") {
+    new Notification(title, { body: result.note });
+    return;
+  }
+  if (Notification.permission === "default") {
+    void Notification.requestPermission().then((permission) => {
+      if (permission === "granted") {
+        new Notification(title, { body: result.note });
+      }
+    });
+  }
 }

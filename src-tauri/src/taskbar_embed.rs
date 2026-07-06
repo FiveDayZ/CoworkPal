@@ -53,7 +53,9 @@ pub async fn sync_taskbar_monitor(app: &AppHandle) {
 fn resolve_taskbar_width(settings: &AppSettings) -> i32 {
     let metric_count = match settings.taskbar_monitor_mode {
         MonitorBarMode::Micro => settings.visible_taskbar_metrics.len().min(2),
-        MonitorBarMode::Default | MonitorBarMode::Expanded => settings.visible_taskbar_metrics.len(),
+        MonitorBarMode::Default | MonitorBarMode::Expanded => {
+            settings.visible_taskbar_metrics.len().min(3)
+        }
     }
     .max(1) as i32;
 
@@ -137,7 +139,7 @@ mod imp {
 
         let taskbar_width = (client.right - client.left).max(TASKBAR_MIN_WIDTH);
         let taskbar_height = (client.bottom - client.top).max(24);
-        let height = (taskbar_height - 2).max(22);
+        let height = taskbar_height;
         let tray_left = find_notification_area_left(taskbar_hwnd).unwrap_or(taskbar_width);
         let available_width =
             (tray_left - NOTIFICATION_AREA_GAP - TASKBAR_EDGE_PADDING).max(TASKBAR_MIN_WIDTH);
@@ -145,7 +147,7 @@ mod imp {
             .clamp(TASKBAR_MIN_WIDTH, TASKBAR_MAX_WIDTH)
             .min(available_width);
         let x = (tray_left - width - NOTIFICATION_AREA_GAP).max(TASKBAR_EDGE_PADDING);
-        let y = ((taskbar_height - height) / 2).max(0);
+        let y = 0;
 
         (x, y, width, height)
     }

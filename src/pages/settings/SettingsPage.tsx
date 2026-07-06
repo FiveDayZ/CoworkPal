@@ -1,9 +1,13 @@
+import { useEffect, useState } from "react";
 import {
   hideMonitorBar,
   hidePetWindow,
   showMonitorBar,
   showPetWindow,
   exitApp,
+  getMemoryStatus,
+  triggerMemoryRelease,
+  type MemoryStatus,
 } from "../../services/tauriCommands";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -38,6 +42,61 @@ export function SettingsPage() {
     settings?.visibleTaskbarMetrics ?? settings?.visibleMonitorMetrics ?? [];
   const isTauriRuntime =
     typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+  // Live system memory snapshot for the memory-release card. Refreshed every
+  // 5s while the settings page is mounted. `null` until the first sample.
+  const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null);
+  // True while a manual release is in flight (UAC prompt + helper run). Keeps
+  // the button from being double-clicked and gives affordance feedback.
+  const [releasing, setReleasing] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    async function refresh() {
+      try {
+        const status = await getMemoryStatus();
+        if (active) {
+          setMemoryStatus(status);
+        }
+      } catch (error) {
+        console.warn("failed to read memory status", error);
+      }
+    }
+    void refresh();
+    timer = setInterval(() => void refresh(), 5000);
+    return () => {
+      active = false;
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, []);
+
+  async function handleReleaseMemory() {
+    if (releasing) {
+      return;
+    }
+    setReleasing(true);
+    try {
+      await triggerMemoryRelease();
+      // Refresh the live reading so the "current usage" line updates after
+      // the release; the "last release" line is driven by settings:updated.
+      try {
+        const status = await getMemoryStatus();
+        setMemoryStatus(status);
+      } catch {
+        // best-effort — the toast still fires from the event listener
+      }
+    } catch (error) {
+      console.error("memory release failed", error);
+      if (!isTauriRuntime) {
+        alert("内存释放失败，请稍后重试。");
+      }
+    } finally {
+      setReleasing(false);
+    }
+  }
 
   function setCatVisible(checked: boolean) {
     if (!isTauriRuntime) {
@@ -364,79 +423,24 @@ export function SettingsPage() {
                 </select>
               </div>
             </div>
+
+            {/* Card 4: Security */}
+            <div className="cwp-settings-card cwp-settings-card-security">
+              <div className="cwp-settings-card-title">
+                <PixelIcon name="shield" size={14} style={{ marginRight: "6px" }} /> 安全与隐私
+              </div>
+              <div className="cwp-safety-notes-box" style={{ padding: "4px 6px", gap: "2px" }}>
+                <div className="cwp-safety-note-item">轻量绿色免安装</div>
+                <div className="cwp-safety-note-item">本地离线不联网</div>
+                <div className="cwp-safety-note-item">后台无静默占用</div>
+                <div className="cwp-safety-note-item">用户数据不上传</div>
+              </div>
+            </div>
           </div>
 
           {/* Column 2: Run settings and Safety notes */}
           <div className="cwp-settings-column">
-            {/* Card 3: Taskbar data settings */}
-            <div className="cwp-settings-card cwp-settings-card-taskbar">
-              <div className="cwp-settings-card-title">
-                <PixelIcon name="puzzle" size={14} style={{ marginRight: "6px" }} /> 任务栏数据
-              </div>
-              <div className="cwp-settings-switches-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "4px" }}>
-                <div className="cwp-switch-item-inline">
-                  <span className="cwp-settings-label">显示任务栏</span>
-                  <label className="cwp-switch-label">
-                    <input
-                      type="checkbox"
-                      checked={settings?.showMonitorDataInTaskbar ?? false}
-                      onChange={(e) =>
-                        void updateSettings({
-                          showMonitorDataInTaskbar: e.target.checked,
-                        })
-                      }
-                    />
-                    <span className="cwp-switch-slider" />
-                  </label>
-                </div>
-              </div>
-
-              <div className="cwp-settings-row" style={{ marginTop: "2px" }}>
-                <span className="cwp-settings-label" style={{ fontSize: "11px" }}>任务栏模式</span>
-                <div className="cwp-settings-metric-grid is-compact" style={{ gap: "4px", marginTop: "2px" }}>
-                  {monitorModeOptions.map((mode) => {
-                    const active = (settings?.taskbarMonitorMode ?? "Default") === mode.key;
-                    return (
-                      <button
-                        className={`cwp-metric-select ${active ? "is-active" : ""}`}
-                        key={mode.key}
-                        onClick={() => void updateSettings({ taskbarMonitorMode: mode.key })}
-                        type="button"
-                      >
-                        {mode.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="cwp-settings-row" style={{ marginTop: "2px" }}>
-                <span className="cwp-settings-label" style={{ fontSize: "11px" }}>显示指标</span>
-                <div className="cwp-settings-metric-grid" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "2px", marginTop: "2px" }}>
-                  {monitorMetricOptions.map((metric) => {
-                    const checked = visibleTaskbarMetrics.includes(metric.key);
-                    return (
-                      <button
-                        className={`cwp-metric-select ${checked ? "is-active" : ""}`}
-                        key={metric.key}
-                        onClick={() => {
-                          const nextMetrics = checked
-                            ? visibleTaskbarMetrics.filter((item) => item !== metric.key)
-                            : [...visibleTaskbarMetrics, metric.key];
-                          void updateSettings({ visibleTaskbarMetrics: nextMetrics });
-                        }}
-                        style={{ fontSize: "9px" }}
-                        type="button"
-                      >
-                        {metric.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-            </div>
-
+            {/* Card: Thresholds (action trigger values) */}
             <div className="cwp-settings-card cwp-settings-card-thresholds">
               <div className="cwp-settings-card-title">
                 <PixelIcon name="slider" size={14} style={{ marginRight: "6px" }} /> 动作触发值
@@ -540,16 +544,170 @@ export function SettingsPage() {
               </div>
             </div>
 
-            {/* Card 4: Security */}
-            <div className="cwp-settings-card cwp-settings-card-security">
+            {/* Card: Taskbar data settings */}
+            <div className="cwp-settings-card cwp-settings-card-taskbar">
               <div className="cwp-settings-card-title">
-                <PixelIcon name="shield" size={14} style={{ marginRight: "6px" }} /> 安全与隐私
+                <PixelIcon name="puzzle" size={14} style={{ marginRight: "6px" }} /> 任务栏数据
               </div>
-              <div className="cwp-safety-notes-box" style={{ padding: "4px 6px", gap: "2px" }}>
-                <div className="cwp-safety-note-item">轻量绿色免安装</div>
-                <div className="cwp-safety-note-item">本地离线不联网</div>
-                <div className="cwp-safety-note-item">后台无静默占用</div>
-                <div className="cwp-safety-note-item">用户数据不上传</div>
+              <div className="cwp-settings-switches-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "4px" }}>
+                <div className="cwp-switch-item-inline">
+                  <span className="cwp-settings-label">显示任务栏</span>
+                  <label className="cwp-switch-label">
+                    <input
+                      type="checkbox"
+                      checked={settings?.showMonitorDataInTaskbar ?? false}
+                      onChange={(e) =>
+                        void updateSettings({
+                          showMonitorDataInTaskbar: e.target.checked,
+                        })
+                      }
+                    />
+                    <span className="cwp-switch-slider" />
+                  </label>
+                </div>
+              </div>
+
+              <div className="cwp-settings-row" style={{ marginTop: "2px" }}>
+                <span className="cwp-settings-label" style={{ fontSize: "11px" }}>任务栏模式</span>
+                <div className="cwp-settings-metric-grid is-compact" style={{ gap: "4px", marginTop: "2px" }}>
+                  {monitorModeOptions.map((mode) => {
+                    const active = (settings?.taskbarMonitorMode ?? "Default") === mode.key;
+                    return (
+                      <button
+                        className={`cwp-metric-select ${active ? "is-active" : ""}`}
+                        key={mode.key}
+                        onClick={() => void updateSettings({ taskbarMonitorMode: mode.key })}
+                        type="button"
+                      >
+                        {mode.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="cwp-settings-row" style={{ marginTop: "2px" }}>
+                <span className="cwp-settings-label" style={{ fontSize: "11px" }}>显示指标</span>
+                <div className="cwp-settings-metric-grid" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "2px", marginTop: "2px" }}>
+                  {monitorMetricOptions.map((metric) => {
+                    const checked = visibleTaskbarMetrics.includes(metric.key);
+                    return (
+                      <button
+                        className={`cwp-metric-select ${checked ? "is-active" : ""}`}
+                        key={metric.key}
+                        onClick={() => {
+                          const nextMetrics = checked
+                            ? visibleTaskbarMetrics.filter((item) => item !== metric.key)
+                            : [...visibleTaskbarMetrics, metric.key];
+                          void updateSettings({ visibleTaskbarMetrics: nextMetrics });
+                        }}
+                        style={{ fontSize: "9px" }}
+                        type="button"
+                      >
+                        {metric.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Card: Memory Release */}
+            <div className="cwp-settings-card cwp-settings-card-memory">
+              <div className="cwp-settings-card-title">
+                <PixelIcon name="ram" size={14} style={{ marginRight: "6px" }} /> 内存释放
+              </div>
+              <div className="cwp-settings-row-inline">
+                <span className="cwp-settings-label">启用内存释放</span>
+                <label className="cwp-switch-label">
+                  <input
+                    type="checkbox"
+                    checked={settings?.memoryReleaseEnabled ?? true}
+                    onChange={(e) =>
+                      void updateSettings({ memoryReleaseEnabled: e.target.checked })
+                    }
+                  />
+                  <span className="cwp-switch-slider"></span>
+                </label>
+              </div>
+              <div className="cwp-settings-row-inline">
+                <span className="cwp-settings-label">超过阈值自动释放</span>
+                <label className="cwp-switch-label">
+                  <input
+                    type="checkbox"
+                    checked={settings?.memoryAutoReleaseEnabled ?? false}
+                    onChange={(e) =>
+                      void updateSettings({
+                        memoryAutoReleaseEnabled: e.target.checked,
+                      })
+                    }
+                  />
+                  <span className="cwp-switch-slider"></span>
+                </label>
+              </div>
+              <div className="cwp-settings-row-inline">
+                <span className="cwp-settings-label">自动释放阈值</span>
+                <input
+                  className="custom-range"
+                  max="64"
+                  min="1"
+                  onChange={(e) =>
+                    void updateSettings({
+                      memoryAutoReleaseThresholdGib: Number(e.target.value),
+                    })
+                  }
+                  step="0.5"
+                  type="range"
+                  value={settings?.memoryAutoReleaseThresholdGib ?? 8}
+                />
+                <span className="slider-val">
+                  {(settings?.memoryAutoReleaseThresholdGib ?? 8).toFixed(1)} GB
+                </span>
+              </div>
+              <div
+                className="cwp-settings-row-inline"
+                style={{ flexWrap: "wrap", gap: "4px 12px" }}
+              >
+                <span className="cwp-settings-label">当前系统占用</span>
+                <span className="slider-val">
+                  {memoryStatus
+                    ? `${memoryStatus.usedGib.toFixed(1)} / ${(memoryStatus.totalBytes / 1024 / 1024 / 1024).toFixed(0)} GB (${memoryStatus.loadPercent}%)`
+                    : "采样中…"}
+                </span>
+              </div>
+              {settings?.memoryLastRelease ? (
+                <div
+                  className="cwp-settings-row-inline"
+                  style={{ flexWrap: "wrap", gap: "4px 12px" }}
+                >
+                  <span className="cwp-settings-label">上次释放</span>
+                  <span className="slider-val">
+                    {new Date(settings.memoryLastRelease.timestampMs).toLocaleString()}
+                    {" · 释放 "}
+                    {(
+                      settings.memoryLastRelease.releasedBytes /
+                      1024 /
+                      1024 /
+                      1024
+                    ).toFixed(2)}{" "}
+                    GB
+                    {settings.memoryLastRelease.fullTier ? "（全量）" : "（轻量）"}
+                  </span>
+                </div>
+              ) : null}
+              <div className="cwp-settings-row-inline" style={{ marginTop: "2px" }}>
+                <button
+                  type="button"
+                  className="cwp-metric-select is-active"
+                  disabled={
+                    releasing || !(settings?.memoryReleaseEnabled ?? true)
+                  }
+                  onClick={() => void handleReleaseMemory()}
+                  style={{ flex: 1, justifyContent: "center", cursor: releasing ? "wait" : "pointer" }}
+                >
+                  {releasing ? "释放中…" : "立即释放内存"}
+                </button>
               </div>
             </div>
           </div>

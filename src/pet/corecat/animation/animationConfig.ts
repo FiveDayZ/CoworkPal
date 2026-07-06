@@ -141,6 +141,7 @@ export const CORE_CAT_ANIMATION_CONFIG = {
     workshopUpgrade: 80,
     moduleUpgrade: 80,
     celebrate: 78,
+    freeMemory: 77,
     achievementPop: 76,
     updateInstalling: 72,
     repairing: 68,

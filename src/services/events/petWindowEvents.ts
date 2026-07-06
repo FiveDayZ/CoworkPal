@@ -12,6 +12,7 @@ import { useFocusStore } from "../../stores/focusStore";
 import { useHardwareStore } from "../../stores/hardwareStore";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import type { MemoryReleaseResult } from "../tauriCommands";
 import type { FocusSessionBook } from "../../types/focus";
 import type { HardwareMetricsSnapshot } from "../../types/hardware";
 import type { CatState } from "../../types/pet";
@@ -85,6 +86,17 @@ export function registerPetWindowEvents() {
   unlisteners.push(
     listen<AppSettings>("settings:updated", (event) => {
       useSettingsStore.getState().setSettings(event.payload);
+    }),
+  );
+
+  unlisteners.push(
+    listen<MemoryReleaseResult>("memory:release-completed", (event) => {
+      // Surface the release result in the CoreCat speech bubble. The bubble's
+      // visibility is gated by `enablePetBubble` in PetWindow; updating
+      // catMessage here retriggers its show/hide timer so the user sees how
+      // much memory was freed. Runs in the pet window's own JS context so the
+      // store update is visible to the bubble renderer.
+      usePetStore.getState().setCatMessage(event.payload.note);
     }),
   );
 

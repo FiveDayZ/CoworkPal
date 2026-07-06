@@ -1413,29 +1413,45 @@ label {
   pointer-events: none;
 }
 
-.cwp-taskbar-data-pill {
+html:has(.cwp-taskbar-monitor-root),
+body:has(.cwp-taskbar-monitor-root),
+body:has(.cwp-taskbar-monitor-root) #root {
+  background: transparent;
+}
+
+.cwp-taskbar-data-text {
   box-sizing: border-box;
   width: max-content;
   max-width: 100%;
   min-width: 0;
-  height: 100%;
-  padding: 0 6px 0 2px;
+  padding: 0 4px 0 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  color: #000000;
+  gap: 4px;
+  color: rgba(18, 18, 18, 0.94);
   background: transparent;
   border: 0;
   box-shadow: none;
   font-family: "Segoe UI", var(--font-sans);
   font-size: 10.5px;
-  font-weight: 400;
-  line-height: 0.96;
+  font-weight: 600;
+  line-height: 1.16;
   white-space: nowrap;
   overflow: visible;
   text-overflow: clip;
-  text-shadow: none;
+  text-shadow:
+    0 0 2px rgba(255, 255, 255, 0.75),
+    0 1px 1px rgba(255, 255, 255, 0.7);
+}
+
+@media (prefers-color-scheme: dark) {
+  .cwp-taskbar-data-text {
+    color: rgba(255, 255, 255, 0.94);
+    text-shadow:
+      0 0 2px rgba(0, 0, 0, 0.85),
+      0 1px 1px rgba(0, 0, 0, 0.75);
+  }
 }
 
 .cwp-taskbar-data-cell {
@@ -1452,17 +1468,15 @@ label {
 }
 
 .cwp-taskbar-data-cell span,
-.cwp-taskbar-data-empty {
+.cwp-taskbar-data-text {
   width: max-content;
-  display: block;
   overflow: visible;
-  text-align: center;
   text-overflow: clip;
-  font-weight: 400;
 }
 
-.cwp-taskbar-data-empty {
-  grid-column: 1 / -1;
+.cwp-taskbar-data-cell span {
+  display: block;
+  text-align: center;
 }
 
 .cwp-monitor-content {
@@ -3204,22 +3218,25 @@ label {
 .cwp-settings-cards-scroll {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: auto;
-  align-content: start;
+  grid-auto-rows: minmax(0, 1fr);
+  align-content: stretch;
   gap: 4px;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   padding-right: 3px;
   min-height: 0;
   height: 100%;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(214, 233, 244, 0.35) transparent;
 }
 
 .cwp-settings-column {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Allow the column to be compressed by the grid track instead of pushing it
+     taller than the viewport (which would force a scroll). Combined with
+     `grid-auto-rows: minmax(0,1fr)` above, both columns fit the viewport. */
+  min-height: 0;
+  height: 100%;
 }
 
 .cwp-settings-card {
@@ -3234,29 +3251,10 @@ label {
   overflow: visible;
 }
 
-.cwp-settings-card-desktop {
-  order: 1;
-}
-
-.cwp-settings-card-thresholds {
-  order: 2;
-}
-
-.cwp-settings-card-runtime {
-  order: 5;
-}
-
-.cwp-settings-card-monitor {
-  order: 4;
-}
-
-.cwp-settings-card-taskbar {
-  order: 3;
-}
-
-.cwp-settings-card-security {
-  order: 6;
-}
+/* Order rules removed: cards now rely on DOM order within their respective
+   `.cwp-settings-column` flex container, which matches the JSX source order.
+   The previous cross-column order values became meaningless once cards were
+   split into two independent columns and actually mis-sorted column 2. */
 
 .cwp-settings-card-title {
   font-size: 9px;

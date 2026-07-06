@@ -36,3 +36,8 @@ pub const UPDATE_PROGRESS: &str = "update:progress";
 /// Payload is the updated `FocusSessionBook` (so the frontend always has the
 /// full list + the live active session in one shape).
 pub const FOCUS_SESSION_UPDATED: &str = "focus:session-updated";
+
+/// Emitted when a memory release (manual or auto) completes. Payload is the
+/// `ReleaseResult` with released bytes and a human-facing note. The frontend
+/// uses this to show a toast notification when `enableNotifications` is on.
+pub const MEMORY_RELEASE_COMPLETED: &str = "memory:release-completed";

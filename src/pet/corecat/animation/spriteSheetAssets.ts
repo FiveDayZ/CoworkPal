@@ -81,6 +81,7 @@ const STATE_TO_STEM: Record<CoreCatAnimationState, string> = {
   lowPowerStatic: "Sleep_Low_Power",
   fatigued: "Fatigued",
   needsBreak: "NeedsBreak",
+  freeMemory: "Free_Memory",
 };
 
 /** File stem for the rapid-click dizzy variant. */
@@ -110,6 +111,7 @@ const ONE_SHOT_STATES = new Set<CoreCatAnimationState>([
   "moduleUpgrade",
   "achievementPop",
   "errorGlitch",
+  "freeMemory",
 ]);
 
 /**

@@ -1,6 +1,13 @@
 export type MonitorMetric = "Cpu" | "Ram" | "Disk" | "Network" | "Gpu";
 export type MonitorBarMode = "Micro" | "Default" | "Expanded";
 
+/** Last successful memory release, surfaced in the settings card. */
+export interface LastMemoryRelease {
+  timestampMs: number;
+  releasedBytes: number;
+  fullTier: boolean;
+}
+
 export interface AppSettings {
   schemaVersion: number;
   launchAtStartup: boolean;
@@ -33,6 +40,12 @@ export interface AppSettings {
   visibleTaskbarMetrics: MonitorMetric[];
   taskbarMonitorMode: MonitorBarMode;
   catId: string;
+  // Memory release module.
+  memoryReleaseEnabled: boolean;
+  memoryAutoReleaseEnabled: boolean;
+  /** System used-memory threshold in GiB that triggers auto light-tier release. */
+  memoryAutoReleaseThresholdGib: number;
+  memoryLastRelease: LastMemoryRelease | null;
 }
 
 export type AppSettingsPatch = Partial<AppSettings>;

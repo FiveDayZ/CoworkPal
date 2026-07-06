@@ -18,11 +18,12 @@ use crate::{
         ACHIEVEMENT_UNLOCKED, CORECAT_INTERACTION_STATE, FOCUS_SESSION_UPDATED, SETTINGS_UPDATED,
         UI_NAVIGATE_MAIN, WORKSHOP_UPDATED,
     },
+    memory_release::{self, ReleaseKind, ReleaseResult},
     models::{
         build_rhythm_profile, current_timestamp_ms, today_key, AppSettings, AppSettingsPatch,
         CatState, DailyWorkAssessment, DailyWorkAssessmentSummary, DailyWorkAssessmentTrend,
-        FocusSession, FocusSessionBook, FocusSessionStatus, HardwareSnapshot, RhythmProfile,
-        WorkLogEntry, WorkLogReport, WorkshopState,
+        FocusSession, FocusSessionBook, FocusSessionStatus, HardwareSnapshot, LastMemoryRelease,
+        RhythmProfile, WorkLogEntry, WorkLogReport, WorkshopState,
     },
     pet::FOCUS_NUDGE_HOLD_MS,
     taskbar_embed,
@@ -1194,4 +1195,119 @@ async fn record_module_upgrade_event(
     {
         tracing::warn!("failed to record module upgrade achievement event: {error}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Memory release
+// ---------------------------------------------------------------------------
+
+/// Live system memory snapshot shown in the settings card so users can pick a
+/// sensible auto-release threshold.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryStatus {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub used_gib: f64,
+    pub load_percent: u32,
+}
+
+#[tauri::command]
+pub async fn get_memory_status() -> Result<MemoryStatus, String> {
+    let Some(pressure) = memory_release::sysinfo_query::sample_pressure() else {
+        return Err("memory status unavailable on this platform".to_string());
+    };
+    Ok(MemoryStatus {
+        total_bytes: pressure.total_bytes,
+        used_bytes: pressure.used_bytes,
+        used_gib: pressure.used_gib(),
+        load_percent: pressure.load_percent,
+    })
+}
+
+#[tauri::command]
+pub async fn trigger_memory_release(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<ReleaseResult, String> {
+    perform_release(&state, &app, ReleaseKind::ManualFull).await
+}
+
+/// Shared entry point for manual and auto triggers. Runs the appropriate tier,
+/// persists `memory_last_release`, and emits `MEMORY_RELEASE_COMPLETED`.
+pub async fn perform_release(
+    state: &State<'_, AppState>,
+    app: &AppHandle,
+    kind: ReleaseKind,
+) -> Result<ReleaseResult, String> {
+    let result = match kind {
+        ReleaseKind::ManualFull => memory_release::run_full_clean_via_helper().await,
+        ReleaseKind::AutoLight => {
+            let released = memory_release::run_light_clean();
+            ReleaseResult::light(released)
+        }
+    };
+
+    // Persist the last-release record (only when something was actually freed;
+    // a 0-byte release isn't worth surfacing as "last release").
+    if result.released_bytes > 0 {
+        let patch = AppSettingsPatch {
+            memory_last_release: Some(LastMemoryRelease {
+                timestamp_ms: current_timestamp_ms(),
+                released_bytes: result.released_bytes,
+                full_tier: result.full_tier,
+            }),
+            ..Default::default()
+        };
+        let settings = {
+            let mut settings = state.settings.write().await;
+            settings.apply_patch(patch);
+            state.storage.save_settings(&settings)?;
+            settings.clone()
+        };
+        app.emit(SETTINGS_UPDATED, settings)
+            .map_err(|error| format!("failed to emit {SETTINGS_UPDATED}: {error}"))?;
+    }
+
+    memory_release::emit_result(app, &result);
+
+    // Trigger the one-shot Free_Memory CoreCat animation so the user sees the
+    // pet react to every release (manual, tray, or auto-threshold).
+    let _ = emit_corecat_interaction_state(app, "freeMemory");
+
+    Ok(result)
+}
+
+/// Show the shared context menu as a native popup on the taskbar monitor window.
+///
+/// The taskbar window is only ~36px tall and embedded as a WS_CHILD of the
+/// shell taskbar, so an HTML overlay menu would be clipped by the window's
+/// rect. A native popup menu (Win32 `TrackPopupMenuEx` under the hood) is not
+/// bound by the window rect, so it displays fully above the taskbar — matching
+/// how the tray icon's own right-click menu behaves.
+///
+/// Clicks are dispatched by the same `on_menu_event` handler registered on the
+/// tray icon (Tauri routes *all* menu events there), so item ids match the tray
+/// menu exactly.
+#[tauri::command]
+pub async fn show_taskbar_context_menu(app: AppHandle) -> Result<(), String> {
+    // Build the menu and resolve the window on the async runtime, then run the
+    // blocking native popup off-thread so it doesn't stall the async runtime.
+    let menu = crate::tray::build_shared_menu(&app)
+        .map_err(|error| format!("failed to build taskbar context menu: {error}"))?;
+    let window = app
+        .get_webview_window("taskbar-monitor")
+        .ok_or_else(|| "taskbar-monitor window not found".to_string())?;
+
+    tokio::task::spawn_blocking(move || {
+        // popup_menu blocks until the user clicks an item or dismisses; that's
+        // why it runs in spawn_blocking. It pops up at the cursor position.
+        window
+            .popup_menu(&menu)
+            .map_err(|error| format!("failed to popup taskbar context menu: {error}"))
+    })
+    .await
+    .map_err(|join_error| format!("taskbar menu task failed: {join_error}"))??;
+
+    Ok(())
 }

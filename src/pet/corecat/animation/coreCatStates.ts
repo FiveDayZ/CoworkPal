@@ -28,6 +28,7 @@ export const coreCatAnimationStates: CoreCatAnimationState[] = [
   "lowPowerStatic",
   "fatigued",
   "needsBreak",
+  "freeMemory",
 ];
 
 export const coreCatStatePriority: Record<CoreCatAnimationState, number> =

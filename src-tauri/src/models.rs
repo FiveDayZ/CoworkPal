@@ -312,6 +312,38 @@ pub struct AppSettings {
     pub visible_taskbar_metrics: Vec<MonitorMetric>,
     pub taskbar_monitor_mode: MonitorBarMode,
     pub cat_id: String,
+    // Memory release module (manual tray action + auto threshold trigger).
+    pub memory_release_enabled: bool,
+    pub memory_auto_release_enabled: bool,
+    /// System used-memory threshold in GiB that triggers the light-tier
+    /// auto-release. Clamped to [1.0, 64.0] on patch.
+    pub memory_auto_release_threshold_gib: f64,
+    /// Last successful release, surfaced in the settings card. `None` until
+    /// the first release occurs.
+    pub memory_last_release: Option<LastMemoryRelease>,
+}
+
+/// Persisted record of the most recent memory release, shown in the settings
+/// panel ("上次释放：…"). Written by the release command after each success.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LastMemoryRelease {
+    /// Wall-clock millis (matches `current_timestamp_ms`).
+    pub timestamp_ms: i64,
+    /// Bytes of available memory gained, as reported by the helper/light tier.
+    pub released_bytes: u64,
+    /// True when the full tier ran elevated (UAC accepted).
+    pub full_tier: bool,
+}
+
+impl Default for LastMemoryRelease {
+    fn default() -> Self {
+        Self {
+            timestamp_ms: 0,
+            released_bytes: 0,
+            full_tier: false,
+        }
+    }
 }
 
 pub const APP_SETTINGS_SCHEMA_VERSION: u32 = 2;
@@ -360,6 +392,10 @@ impl Default for AppSettings {
             ],
             taskbar_monitor_mode: MonitorBarMode::Default,
             cat_id: String::new(),
+            memory_release_enabled: true,
+            memory_auto_release_enabled: false,
+            memory_auto_release_threshold_gib: 8.0,
+            memory_last_release: None,
         }
     }
 }
@@ -397,6 +433,10 @@ pub struct AppSettingsPatch {
     pub visible_taskbar_metrics: Option<Vec<MonitorMetric>>,
     pub taskbar_monitor_mode: Option<MonitorBarMode>,
     pub cat_id: Option<String>,
+    pub memory_release_enabled: Option<bool>,
+    pub memory_auto_release_enabled: Option<bool>,
+    pub memory_auto_release_threshold_gib: Option<f64>,
+    pub memory_last_release: Option<LastMemoryRelease>,
 }
 
 impl AppSettings {
@@ -490,6 +530,18 @@ impl AppSettings {
         }
         if let Some(value) = patch.cat_id {
             self.cat_id = value;
+        }
+        if let Some(value) = patch.memory_release_enabled {
+            self.memory_release_enabled = value;
+        }
+        if let Some(value) = patch.memory_auto_release_enabled {
+            self.memory_auto_release_enabled = value;
+        }
+        if let Some(value) = patch.memory_auto_release_threshold_gib {
+            self.memory_auto_release_threshold_gib = value.clamp(1.0, 64.0);
+        }
+        if let Some(value) = patch.memory_last_release {
+            self.memory_last_release = Some(value);
         }
     }
 }

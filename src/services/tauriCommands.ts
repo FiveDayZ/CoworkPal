@@ -56,6 +56,10 @@ const browserSettings: AppSettings = {
   visibleTaskbarMetrics: ["Cpu", "Ram", "Gpu", "Network"],
   taskbarMonitorMode: "Default",
   catId: "DEV_CAT_ID",
+  memoryReleaseEnabled: true,
+  memoryAutoReleaseEnabled: false,
+  memoryAutoReleaseThresholdGib: 8,
+  memoryLastRelease: null,
 };
 
 const browserWorkshop: WorkshopState = {
@@ -1136,4 +1140,70 @@ export async function installUpdate(packagePath: string): Promise<void> {
   }
 
   return invoke<void>("install_update", { packagePath });
+}
+
+// ---------------------------------------------------------------------------
+// Memory release module
+// ---------------------------------------------------------------------------
+
+export interface MemoryStatus {
+  totalBytes: number;
+  usedBytes: number;
+  usedGib: number;
+  loadPercent: number;
+}
+
+export interface MemoryReleaseResult {
+  releasedBytes: number;
+  fullTier: boolean;
+  note: string;
+}
+
+/**
+ * Live system memory snapshot for the settings card. Returns a mock reading in
+ * browser preview mode so the UI can render the "current usage" line.
+ */
+export async function getMemoryStatus(): Promise<MemoryStatus> {
+  if (!isTauriRuntime()) {
+    // Mock: 38% of 16 GiB used.
+    const total = 16 * 1024 * 1024 * 1024;
+    const loadPercent = 38;
+    const used = Math.round((total * loadPercent) / 100);
+    return {
+      totalBytes: total,
+      usedBytes: used,
+      usedGib: used / (1024 * 1024 * 1024),
+      loadPercent,
+    };
+  }
+  return invoke<MemoryStatus>("get_memory_status");
+}
+
+/**
+ * Trigger a manual full-tier memory release. Shows a UAC prompt (Windows); on
+ * decline the backend degrades to a light-tier sweep. Resolves with the result
+ * and a human-facing note. The backend also emits `memory:release-completed`.
+ */
+export async function triggerMemoryRelease(): Promise<MemoryReleaseResult> {
+  if (!isTauriRuntime()) {
+    return {
+      releasedBytes: 1200 * 1024 * 1024,
+      fullTier: true,
+      note: "浏览器预览：模拟释放 1.2 GB",
+    };
+  }
+  return invoke<MemoryReleaseResult>("trigger_memory_release");
+}
+
+/**
+ * Show the native context menu on the taskbar monitor window. The backend
+ * builds the same menu the tray icon uses and pops it up via the native
+ * TrackPopupMenuEx, so it isn't clipped by the 36px-tall embedded window.
+ * No-op in browser preview (no Tauri runtime).
+ */
+export async function showTaskbarContextMenu(): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invoke<void>("show_taskbar_context_menu");
 }

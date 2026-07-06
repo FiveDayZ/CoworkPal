@@ -48,7 +48,8 @@ export type CoreCatAnimationState =
   | "errorGlitch"
   | "lowPowerStatic"
   | "fatigued"
-  | "needsBreak";
+  | "needsBreak"
+  | "freeMemory";
 
 export interface BoneTransform {
   x?: number;

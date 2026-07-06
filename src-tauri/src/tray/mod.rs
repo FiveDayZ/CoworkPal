@@ -9,6 +9,7 @@ use crate::{
     app_state::AppState,
     events::{SETTINGS_UPDATED, UI_NAVIGATE_MAIN},
     models::{AppSettings, AppSettingsPatch},
+    taskbar_embed,
     window_manager,
 };
 
@@ -16,12 +17,19 @@ const TRAY_ID: &str = "coreworkpal";
 const MENU_OPEN_MAIN: &str = "open-main";
 const MENU_TOGGLE_CAT: &str = "toggle-cat";
 const MENU_TOGGLE_MONITOR: &str = "toggle-monitor";
+const MENU_TOGGLE_TASKBAR_MONITOR: &str = "toggle-taskbar-monitor";
 const MENU_TOGGLE_PRODUCTION: &str = "toggle-production";
+const MENU_RELEASE_MEMORY: &str = "release-memory";
 const MENU_OPEN_SETTINGS: &str = "open-settings";
 const MENU_OPEN_ABOUT: &str = "open-about";
 const MENU_QUIT: &str = "quit";
 
-pub fn setup_tray(app: &App) -> tauri::Result<()> {
+/// Build the shared menu used both by the tray icon and by the taskbar
+/// monitor's right-click context menu. Both use the same item ids, so the
+/// single `on_menu_event` handler registered on the tray icon dispatches clicks
+/// from either source (Tauri's tray menu handler receives *all* menu events,
+/// including those from popup menus, per its documentation).
+pub fn build_shared_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let open_main = MenuItem::with_id(app, MENU_OPEN_MAIN, "打开主界面", true, None::<&str>)?;
     let toggle_cat = MenuItem::with_id(
         app,
@@ -37,10 +45,24 @@ pub fn setup_tray(app: &App) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
+    let toggle_taskbar_monitor = MenuItem::with_id(
+        app,
+        MENU_TOGGLE_TASKBAR_MONITOR,
+        "显示/隐藏任务栏",
+        true,
+        None::<&str>,
+    )?;
     let toggle_production = MenuItem::with_id(
         app,
         MENU_TOGGLE_PRODUCTION,
         "暂停/继续产出",
+        true,
+        None::<&str>,
+    )?;
+    let release_memory = MenuItem::with_id(
+        app,
+        MENU_RELEASE_MEMORY,
+        "释放内存",
         true,
         None::<&str>,
     )?;
@@ -50,20 +72,26 @@ pub fn setup_tray(app: &App) -> tauri::Result<()> {
     let separator_a = PredefinedMenuItem::separator(app)?;
     let separator_b = PredefinedMenuItem::separator(app)?;
 
-    let menu = Menu::with_items(
+    Menu::with_items(
         app,
         &[
             &open_main,
             &separator_a,
             &toggle_cat,
             &toggle_monitor,
+            &toggle_taskbar_monitor,
             &toggle_production,
+            &release_memory,
             &separator_b,
             &open_settings,
             &open_about,
             &quit,
         ],
-    )?;
+    )
+}
+
+pub fn setup_tray(app: &App) -> tauri::Result<()> {
+    let menu = build_shared_menu(app.handle())?;
 
     let state = app.state::<AppState>();
     let theme_name = tauri::async_runtime::block_on(async {
@@ -147,11 +175,27 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                 }
             });
         }
+        MENU_TOGGLE_TASKBAR_MONITOR => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = toggle_taskbar_monitor_visibility(app).await {
+                    tracing::warn!("failed to toggle taskbar monitor from tray: {error}");
+                }
+            });
+        }
         MENU_TOGGLE_PRODUCTION => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = toggle_production(app).await {
                     tracing::warn!("failed to toggle production from tray: {error}");
+                }
+            });
+        }
+        MENU_RELEASE_MEMORY => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = release_memory_from_tray(app).await {
+                    tracing::warn!("failed to release memory from tray: {error}");
                 }
             });
         }
@@ -200,6 +244,26 @@ async fn toggle_monitor_visibility(app: AppHandle) -> Result<(), String> {
     .map(|_| ())
 }
 
+async fn toggle_taskbar_monitor_visibility(app: AppHandle) -> Result<(), String> {
+    let show_monitor_data_in_taskbar = {
+        let state = app.state::<AppState>();
+        let settings = state.settings.read().await;
+        !settings.show_monitor_data_in_taskbar
+    };
+
+    apply_settings_patch(
+        &app,
+        AppSettingsPatch {
+            show_monitor_data_in_taskbar: Some(show_monitor_data_in_taskbar),
+            ..Default::default()
+        },
+    )
+    .await?;
+
+    taskbar_embed::sync_taskbar_monitor(&app).await;
+    Ok(())
+}
+
 async fn toggle_production(app: AppHandle) -> Result<(), String> {
     let is_production_paused = {
         let state = app.state::<AppState>();
@@ -216,6 +280,21 @@ async fn toggle_production(app: AppHandle) -> Result<(), String> {
     )
     .await
     .map(|_| ())
+}
+
+/// Tray "release memory" handler. Respects the `memory_release_enabled` master
+/// switch — when off, the menu item is a no-op (a future iteration could also
+/// hide/disable the item, but Tauri's static menu doesn't refresh easily).
+async fn release_memory_from_tray(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let enabled = state.settings.read().await.memory_release_enabled;
+    if !enabled {
+        tracing::debug!("memory release disabled in settings — skipping tray action");
+        return Ok(());
+    }
+    crate::commands::perform_release(&state, &app, crate::memory_release::ReleaseKind::ManualFull)
+        .await
+        .map(|_| ())
 }
 
 async fn apply_settings_patch(
