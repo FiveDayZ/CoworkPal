@@ -70,6 +70,7 @@ pub fn start_hardware_snapshot_pump(app: AppHandle) {
                 tracing::warn!("failed to emit {HARDWARE_METRICS}: {error}");
             }
 
+            crate::taskbar_embed::sync_taskbar_monitor(&app).await;
             update_workshop_for_snapshot(&app, &snapshot).await;
             update_work_log_for_snapshot(&app, &snapshot).await;
             PetStateService::update_for_snapshot(&app, &snapshot).await;
