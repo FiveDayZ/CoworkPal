@@ -31,6 +31,17 @@ const monitorModeOptions: Array<{ key: MonitorBarMode; label: string }> = [
   { key: "Expanded", label: "Expanded" },
 ];
 
+/** Compact `MM-DD HH:mm` format for the "last release" line so the whole value
+ *  fits on a single row inside the narrow settings card. */
+function formatLastReleaseTime(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  return `${mm}-${dd} ${hh}:${min}`;
+}
+
 export function SettingsPage() {
   const settings = useSettingsStore((state) => state.settings);
   const icons = useThemedIcons();
@@ -667,7 +678,7 @@ export function SettingsPage() {
               </div>
               <div
                 className="cwp-settings-row-inline"
-                style={{ flexWrap: "nowrap", whiteSpace: "nowrap", overflow: "hidden", gap: "4px 12px" }}
+                style={{ flexWrap: "nowrap", whiteSpace: "nowrap", gap: "4px 12px" }}
               >
                 <span className="cwp-settings-label">当前系统占用</span>
                 <span className="slider-val">
@@ -679,20 +690,13 @@ export function SettingsPage() {
               {settings?.memoryLastRelease ? (
                 <div
                   className="cwp-settings-row-inline"
-                  style={{ flexWrap: "nowrap", whiteSpace: "nowrap", overflow: "hidden", gap: "4px 12px" }}
+                  style={{ flexWrap: "nowrap", whiteSpace: "nowrap", gap: "4px 12px" }}
                 >
                   <span className="cwp-settings-label">上次释放</span>
                   <span className="slider-val">
-                    {new Date(settings.memoryLastRelease.timestampMs).toLocaleString()}
-                    {" · 释放 "}
-                    {(
-                      settings.memoryLastRelease.releasedBytes /
-                      1024 /
-                      1024 /
-                      1024
-                    ).toFixed(2)}{" "}
-                    GB
-                    {settings.memoryLastRelease.fullTier ? "（全量）" : "（轻量）"}
+                    {formatLastReleaseTime(settings.memoryLastRelease.timestampMs)}
+                    {` · ${(settings.memoryLastRelease.releasedBytes / 1024 / 1024 / 1024).toFixed(2)}GB`}
+                    {settings.memoryLastRelease.fullTier ? " 全量" : " 轻量"}
                   </span>
                 </div>
               ) : null}
