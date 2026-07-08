@@ -279,6 +279,7 @@ fn run_full_via_self_restart_blocking() -> Result<u64, HelperError> {
 /// Parse the relaunched process's result JSON: `{"releasedBytes": N}`.
 fn read_helper_result(path: &std::path::Path) -> Result<u64, HelperError> {
     #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct HelperOutput {
         #[serde(default)]
         released_bytes: u64,

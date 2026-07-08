@@ -667,7 +667,7 @@ export function SettingsPage() {
               </div>
               <div
                 className="cwp-settings-row-inline"
-                style={{ flexWrap: "wrap", gap: "4px 12px" }}
+                style={{ flexWrap: "nowrap", whiteSpace: "nowrap", overflow: "hidden", gap: "4px 12px" }}
               >
                 <span className="cwp-settings-label">当前系统占用</span>
                 <span className="slider-val">
@@ -679,7 +679,7 @@ export function SettingsPage() {
               {settings?.memoryLastRelease ? (
                 <div
                   className="cwp-settings-row-inline"
-                  style={{ flexWrap: "wrap", gap: "4px 12px" }}
+                  style={{ flexWrap: "nowrap", whiteSpace: "nowrap", overflow: "hidden", gap: "4px 12px" }}
                 >
                   <span className="cwp-settings-label">上次释放</span>
                   <span className="slider-val">

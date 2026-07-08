@@ -12,6 +12,7 @@ import {
   showMainRoute,
   showPetPanel,
   trackAchievementEvent,
+  triggerMemoryRelease,
 } from "../../services/tauriCommands";
 import {
   startDraggingCurrentWindow,
@@ -836,6 +837,11 @@ export function PetWindow() {
               key: "sort-parts",
               label: "整理零件",
               onClick: () => runContextMenuAction(() => triggerRewardAction("sortParts")),
+            },
+            {
+              key: "release-memory",
+              label: "释放内存",
+              onClick: () => runContextMenuAction(() => void triggerMemoryRelease()),
             },
             {
               key: "hide",
