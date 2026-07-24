@@ -46,6 +46,9 @@ export interface AppSettings {
   /** System used-memory threshold in GiB that triggers auto light-tier release. */
   memoryAutoReleaseThresholdGib: number;
   memoryLastRelease: LastMemoryRelease | null;
+  /** Probe a running LibreHardwareMonitor for high-precision CPU temperature.
+   *  No effect unless LHM is installed and running elevated; falls back silently. */
+  libreHardwareMonitorEnabled: boolean;
 }
 
 export type AppSettingsPatch = Partial<AppSettings>;

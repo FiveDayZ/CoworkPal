@@ -54,7 +54,7 @@ export function HealthPage() {
 
   return (
     <div className="cwp-page">
-      <div className="page-title-row">
+      <div className="page-title-row cwp-health-title-row">
         <h2 className="page-title">健康体检报告</h2>
         <div className="cwp-health-range-tabs">
           {RANGE_OPTIONS.map((opt) => (
@@ -157,7 +157,10 @@ function ScoreTrendChart({
           {series.filter((p) => p.hasData).length}/{series.length} 天有记录
         </span>
       </div>
-      <div className="cwp-health-chart">
+      <div
+        className="cwp-health-chart"
+        style={{ gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))` }}
+      >
         {series.map((point, index) => (
           <div
             key={point.date}

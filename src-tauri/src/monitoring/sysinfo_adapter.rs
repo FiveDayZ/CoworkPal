@@ -20,8 +20,16 @@ use super::windows_perf::{
     query_primary_gpu_info, WindowsGpuInfo, WindowsPerformanceCounters,
 };
 
+use super::libre_hardware_monitor;
+
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// How long a cached `libre_hardware_monitor_enabled` reading from settings.json
+/// is trusted before the file is re-read. The adapter has no access to the live
+/// settings state (its `sample()` takes no args), so it polls the file on disk.
+const LHM_SETTINGS_RECHECK_INTERVAL: Duration = Duration::from_secs(30);
+const LHM_QUERY_INTERVAL: Duration = Duration::from_secs(5);
 
 pub struct SysinfoAdapter {
     system: System,
@@ -35,6 +43,17 @@ pub struct SysinfoAdapter {
     gpu_info: WindowsGpuInfo,
     #[cfg(windows)]
     performance_counters: Option<WindowsPerformanceCounters>,
+    /// LibreHardwareMonitor probe result, refreshed at most every
+    /// `LHM_QUERY_INTERVAL`. `None` may mean "disabled", "not running", or
+    /// "queried but no CPU temp available" — `lhm_last_query_at` distinguishes
+    /// "not yet / disabled" (never queried) from a genuine miss.
+    cached_lhm_temperature: Option<f32>,
+    last_lhm_query_at: Option<Instant>,
+    /// Whether the user enabled the LHM data source in settings. Re-read from
+    /// settings.json every `LHM_SETTINGS_RECHECK_INTERVAL` so toggling the
+    /// switch takes effect without a restart.
+    lhm_enabled: bool,
+    lhm_settings_checked_at: Option<Instant>,
 }
 
 impl SysinfoAdapter {
@@ -58,6 +77,10 @@ impl SysinfoAdapter {
             gpu_info: query_primary_gpu_info(),
             #[cfg(windows)]
             performance_counters: WindowsPerformanceCounters::new(),
+            cached_lhm_temperature: None,
+            last_lhm_query_at: None,
+            lhm_enabled: read_libre_hardware_monitor_enabled(),
+            lhm_settings_checked_at: Some(Instant::now()),
         }
     }
 
@@ -115,6 +138,45 @@ impl SysinfoAdapter {
         }
 
         self.cached_nvidia_sample.clone()
+    }
+
+    /// Probes LibreHardwareMonitor (REST first, WMI fallback) for the CPU
+    /// package temperature. Returns `None` when the source is disabled in
+    /// settings, not installed, not running, or yielded no plausible value —
+    /// in every such case the caller falls back to sysinfo / thermal zone.
+    ///
+    /// Throttled to `LHM_QUERY_INTERVAL`; within a window the cached value is
+    /// returned so a 1s dashboard tick never hammers the LHM REST endpoint.
+    fn sample_libre_hardware_monitor(&mut self) -> Option<f32> {
+        let now = Instant::now();
+
+        // Re-read the settings flag periodically so toggling the switch in the
+        // UI takes effect without restarting CoreWorkPal.
+        if self
+            .lhm_settings_checked_at
+            .is_some_and(|checked| now.duration_since(checked) >= LHM_SETTINGS_RECHECK_INTERVAL)
+            || self.lhm_settings_checked_at.is_none()
+        {
+            self.lhm_enabled = read_libre_hardware_monitor_enabled();
+            self.lhm_settings_checked_at = Some(now);
+        }
+
+        if !self.lhm_enabled {
+            self.cached_lhm_temperature = None;
+            return None;
+        }
+
+        let due = self
+            .last_lhm_query_at
+            .is_none_or(|previous| now.duration_since(previous) >= LHM_QUERY_INTERVAL);
+        if due {
+            self.last_lhm_query_at = Some(now);
+            self.cached_lhm_temperature =
+                libre_hardware_monitor::query_libre_hardware_monitor()
+                    .and_then(|sample| sample.cpu_package_temperature);
+        }
+
+        self.cached_lhm_temperature
     }
 
     fn sample_processes(&mut self, elapsed_seconds: f32) -> Vec<ProcessUsageSnapshot> {
@@ -214,6 +276,25 @@ impl HardwareSensorAdapter for SysinfoAdapter {
         #[cfg(not(windows))]
         let performance_sample = EmptyPerformanceSample::default();
 
+        // CPU temperature merge chain, highest precision first:
+        //   LibreHardwareMonitor (core MSR) → sysinfo → ACPI thermal zone.
+        // `cpu_temperature_source` records which probe won so the UI can flag
+        // whether the reading is high-precision or an ACPI estimate.
+        let lhm_temperature = self.sample_libre_hardware_monitor();
+        let (cpu_temperature, cpu_temperature_source) = match lhm_temperature {
+            Some(value) => (Some(value), Some("librehardwaremonitor".to_string())),
+            None => match cpu_temperature_celsius {
+                Some(value) => (Some(value), Some("sysinfo".to_string())),
+                None => match &performance_sample.cpu_temperature_celsius {
+                    Some(_) => (
+                        performance_sample.cpu_temperature_celsius,
+                        Some("thermalzone".to_string()),
+                    ),
+                    None => (None, None),
+                },
+            },
+        };
+
         HardwareSnapshot {
             timestamp: current_timestamp_ms(),
             cpu_usage_percent: Some(self.system.global_cpu_info().cpu_usage()),
@@ -222,8 +303,8 @@ impl HardwareSensorAdapter for SysinfoAdapter {
                 .and_then(|sample| sample.usage_percent)
                 .or(performance_sample.gpu_usage_percent),
             memory_usage_percent,
-            cpu_temperature_celsius: cpu_temperature_celsius
-                .or(performance_sample.cpu_temperature_celsius),
+            cpu_temperature_celsius: cpu_temperature,
+            cpu_temperature_source,
             gpu_temperature_celsius: nvidia_sample
                 .as_ref()
                 .and_then(|sample| sample.temperature_celsius),
@@ -483,4 +564,36 @@ struct EmptyPerformanceSample {
     disk_write_bytes_per_second: Option<f32>,
     gpu_usage_percent: Option<f32>,
     gpu_memory_used_bytes: Option<u64>,
+}
+
+/// Reads the `libreHardwareMonitorEnabled` flag from settings.json without
+/// pulling in the full `AppSettings` type. The adapter polls this on a 30s
+/// cadence (see `LHM_SETTINGS_RECHECK_INTERVAL`) so a UI toggle propagates
+/// without a restart. Any read/parse failure defaults to `true` (the setting's
+/// own default), matching pre-feature behaviour where the probe always ran.
+fn read_libre_hardware_monitor_enabled() -> bool {
+    let Some(root) = app_data_root() else {
+        return true;
+    };
+    let path = root.join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return true;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return true;
+    };
+    value
+        .get("libreHardwareMonitorEnabled")
+        .and_then(|flag| flag.as_bool())
+        .unwrap_or(true)
+}
+
+/// Resolves the per-user app data directory (`%APPDATA%\CoreWorkPal` on
+/// Windows, `$XDG_DATA_HOME/CoreWorkPal` elsewhere), mirroring
+/// `storage::app_data_root` without the cross-module dependency.
+fn app_data_root() -> Option<std::path::PathBuf> {
+    std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("XDG_DATA_HOME"))
+        .map(std::path::PathBuf::from)
+        .map(|base| base.join("CoreWorkPal"))
 }

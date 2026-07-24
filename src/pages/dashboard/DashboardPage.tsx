@@ -6,6 +6,7 @@ import {
   formatParts,
   formatPercent,
   formatTemperature,
+  temperatureSourceLabel,
 } from "../../services/formatters";
 import { useFocusStore } from "../../stores/focusStore";
 import { useHardwareStore } from "../../stores/hardwareStore";
@@ -15,8 +16,6 @@ import { useWorkshopStore } from "../../stores/workshopStore";
 import { useThemedIcons } from "../../ui/assets";
 import { calculateSystemStability } from "../../services/systemStability";
 import { PixelIcon } from "../../ui/PixelIcon";
-import { ProcessListPanel } from "./ProcessListPanel";
-import { TodaySuggestionsStrip } from "./TodaySuggestionsStrip";
 
 export function DashboardPage() {
   const snapshot = useHardwareStore((state) => state.snapshot);
@@ -123,6 +122,11 @@ export function DashboardPage() {
     55,
     75,
     ["安全", "预警", "高温"],
+  );
+  // Precision badge: "高精度" when sourced from LibreHardwareMonitor core
+  // MSR readings, "估算" for ACPI thermal-zone estimates. Empty when unknown.
+  const tempSourceText = temperatureSourceLabel(
+    snapshot?.cpuTemperatureSource ?? null,
   );
 
   const gpuMemoryText = formatMemoryUsage(
@@ -281,7 +285,10 @@ export function DashboardPage() {
                     <div className="cwp-card-progress-fill" style={{ width: `${cpuVal}%` }} />
                   </div>
                   <div className="cwp-card-subtext">
-                    <span>温度: {formatTemperature(snapshot?.cpuTemperatureCelsius ?? null)}</span>
+                    <span>
+                      温度: {formatTemperature(snapshot?.cpuTemperatureCelsius ?? null)}
+                      {tempSourceText ? ` · ${tempSourceText}` : ""}
+                    </span>
                     <span>线程活跃</span>
                   </div>
                 </div>
@@ -379,7 +386,10 @@ export function DashboardPage() {
                     <div className="cwp-card-progress-fill" style={{ width: `${clampPercent(tempLevel)}%`, background: "var(--color-brand-orange)" }} />
                   </div>
                   <div className="cwp-card-subtext">
-                    <span>CPU: {formatTemperature(snapshot?.cpuTemperatureCelsius ?? null)}</span>
+                    <span>
+                      CPU: {formatTemperature(snapshot?.cpuTemperatureCelsius ?? null)}
+                      {tempSourceText ? ` · ${tempSourceText}` : ""}
+                    </span>
                     <span>GPU: {formatTemperature(snapshot?.gpuTemperatureCelsius ?? null)}</span>
                   </div>
                 </div>
@@ -410,12 +420,6 @@ export function DashboardPage() {
               </div>
             </div>
           </div>
-
-          {/* Today's suggestions */}
-          <TodaySuggestionsStrip />
-
-          {/* Live Top Processes */}
-          <ProcessListPanel />
 
           {/* Bottom Output Strip */}
         <div className="cwp-output-strip">

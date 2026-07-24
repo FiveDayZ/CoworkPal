@@ -28,6 +28,10 @@ pub struct HardwareSnapshot {
     pub used_memory_bytes: Option<u64>,
     pub cpu_physical_core_count: Option<u32>,
     pub cpu_logical_core_count: Option<u32>,
+    /// Which probe produced `cpu_temperature_celsius`, for UI reliability
+    /// hints: "librehardwaremonitor" (core MSR, high precision) vs
+    /// "sysinfo"/"thermalzone" (ACPI estimate). `None` when no probe succeeded.
+    pub cpu_temperature_source: Option<String>,
     pub device_inventory: HardwareDeviceInventory,
     pub processes: Vec<ProcessUsageSnapshot>,
 }
@@ -53,6 +57,9 @@ pub struct HardwareMetricsSnapshot {
     pub used_memory_bytes: Option<u64>,
     pub cpu_physical_core_count: Option<u32>,
     pub cpu_logical_core_count: Option<u32>,
+    /// Mirrors `HardwareSnapshot::cpu_temperature_source`. Identifies which
+    /// probe produced the temperature so the UI can flag precision.
+    pub cpu_temperature_source: Option<String>,
     /// Live top-process samples (already filtered/scored/truncated to 32 by the
     /// adapter). Surfaced on the `hardware:metrics` event so the Dashboard can
     /// render a Top-Processes panel. Pure-local data; never leaves the machine.
@@ -80,6 +87,7 @@ impl Default for HardwareMetricsSnapshot {
             used_memory_bytes: None,
             cpu_physical_core_count: None,
             cpu_logical_core_count: None,
+            cpu_temperature_source: None,
             processes: Vec::new(),
         }
     }
@@ -106,6 +114,7 @@ impl From<&HardwareSnapshot> for HardwareMetricsSnapshot {
             used_memory_bytes: snapshot.used_memory_bytes,
             cpu_physical_core_count: snapshot.cpu_physical_core_count,
             cpu_logical_core_count: snapshot.cpu_logical_core_count,
+            cpu_temperature_source: snapshot.cpu_temperature_source.clone(),
             processes: snapshot.processes.clone(),
         }
     }
@@ -132,6 +141,7 @@ impl Default for HardwareSnapshot {
             used_memory_bytes: None,
             cpu_physical_core_count: None,
             cpu_logical_core_count: None,
+            cpu_temperature_source: None,
             device_inventory: HardwareDeviceInventory::default(),
             processes: Vec::new(),
         }
@@ -327,6 +337,11 @@ pub struct AppSettings {
     /// Last successful release, surfaced in the settings card. `None` until
     /// the first release occurs.
     pub memory_last_release: Option<LastMemoryRelease>,
+    /// Probe a running LibreHardwareMonitor (REST first, WMI fallback) for a
+    /// higher-precision CPU temperature than the ACPI thermal-zone sources can
+    /// provide. No effect unless LHM is installed and running elevated; falls
+    /// back silently otherwise. CoreWorkPal itself never requests elevation.
+    pub libre_hardware_monitor_enabled: bool,
 }
 
 /// Persisted record of the most recent memory release, shown in the settings
@@ -352,7 +367,7 @@ impl Default for LastMemoryRelease {
     }
 }
 
-pub const APP_SETTINGS_SCHEMA_VERSION: u32 = 2;
+pub const APP_SETTINGS_SCHEMA_VERSION: u32 = 3;
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -402,6 +417,7 @@ impl Default for AppSettings {
             memory_auto_release_enabled: false,
             memory_auto_release_threshold_gib: 8.0,
             memory_last_release: None,
+            libre_hardware_monitor_enabled: true,
         }
     }
 }
@@ -443,6 +459,7 @@ pub struct AppSettingsPatch {
     pub memory_auto_release_enabled: Option<bool>,
     pub memory_auto_release_threshold_gib: Option<f64>,
     pub memory_last_release: Option<LastMemoryRelease>,
+    pub libre_hardware_monitor_enabled: Option<bool>,
 }
 
 impl AppSettings {
@@ -548,6 +565,9 @@ impl AppSettings {
         }
         if let Some(value) = patch.memory_last_release {
             self.memory_last_release = Some(value);
+        }
+        if let Some(value) = patch.libre_hardware_monitor_enabled {
+            self.libre_hardware_monitor_enabled = value;
         }
     }
 }

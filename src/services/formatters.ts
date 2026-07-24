@@ -6,6 +6,21 @@ export function formatTemperature(value: number | null): string {
   return value == null ? "N/A" : `${value.toFixed(1)} C`;
 }
 
+/** Human-readable label for which probe produced the CPU temperature, used as a
+ *  small precision badge next to the reading. Returns an empty string when no
+ *  source is reported (older snapshot or no reading at all). */
+export function temperatureSourceLabel(source: string | null): string {
+  switch (source) {
+    case "librehardwaremonitor":
+      return "高精度";
+    case "sysinfo":
+    case "thermalzone":
+      return "估算";
+    default:
+      return "";
+  }
+}
+
 export function formatBytesPerSecond(value: number | null): string {
   if (value == null) {
     return "N/A";

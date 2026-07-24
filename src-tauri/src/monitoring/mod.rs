@@ -1,4 +1,5 @@
 mod fake;
+mod libre_hardware_monitor;
 mod sysinfo_adapter;
 #[cfg(windows)]
 mod windows_perf;

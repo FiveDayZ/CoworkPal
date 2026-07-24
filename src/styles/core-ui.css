@@ -1813,7 +1813,7 @@ body:has(.cwp-taskbar-monitor-root) #root {
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 6px;
   overflow: hidden;
 }
@@ -3216,37 +3216,57 @@ body:has(.cwp-taskbar-monitor-root) #root {
 }
 
 .cwp-settings-cards-scroll {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: minmax(0, 1fr);
-  align-content: stretch;
-  gap: 4px;
+  /* Single-column flow: cards stack vertically at their natural height. The
+     previous 2-column grid stretched cards to a shared row height, which
+     crushed taller cards (memory release, thresholds, …) and let their content
+     overflow the card border. A single column sidesteps that entirely. */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 233, 244, 0.4) transparent;
   padding-right: 3px;
   min-height: 0;
   height: 100%;
 }
 
+.cwp-settings-cards-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.cwp-settings-cards-scroll::-webkit-scrollbar-thumb {
+  background: rgba(214, 233, 244, 0.4);
+  border-radius: 2px;
+}
+
+.cwp-settings-cards-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.cwp-settings-cards-scroll::-webkit-scrollbar-thumb {
+  background: rgba(214, 233, 244, 0.4);
+  border-radius: 2px;
+}
+
+/* Each column is a flex child of the (single-column) cards-scroll. It stacks
+   its own cards vertically; the parent handles scrolling. */
 .cwp-settings-column {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  /* Allow the column to be compressed by the grid track instead of pushing it
-     taller than the viewport (which would force a scroll). Combined with
-     `grid-auto-rows: minmax(0,1fr)` above, both columns fit the viewport. */
-  min-height: 0;
-  height: 100%;
+  gap: 8px;
+  min-width: 0;
 }
 
 .cwp-settings-card {
   background: var(--color-bg-850);
   border: 2px solid var(--color-border-soft);
   border-radius: 0px;
-  padding: 3px 5px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 6px;
   min-height: 0;
   overflow: visible;
 }
@@ -3257,12 +3277,12 @@ body:has(.cwp-taskbar-monitor-root) #root {
    split into two independent columns and actually mis-sorted column 2. */
 
 .cwp-settings-card-title {
-  font-size: 9px;
+  font-size: 10px;
   font-family: var(--font-pixel-title);
   font-weight: 700;
   color: var(--color-brand-orange-strong);
   border-bottom: 1px solid var(--color-border-soft);
-  padding-bottom: 1px;
+  padding-bottom: 5px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -3347,8 +3367,8 @@ body:has(.cwp-taskbar-monitor-root) #root {
 .cwp-settings-threshold-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
-  margin-top: 1px;
+  gap: 5px;
+  margin-top: 2px;
 }
 
 .cwp-settings-threshold-grid .cwp-settings-row-inline {
@@ -3440,31 +3460,6 @@ body:has(.cwp-taskbar-monitor-root) #root {
 
 .cwp-custom-select:focus {
   border-color: var(--color-brand-orange);
-}
-
-.cwp-safety-notes-box {
-  background: rgba(94, 208, 255, 0.05);
-  border: 1px solid rgba(94, 208, 255, 0.15);
-  border-radius: 0px;
-  padding: 2px 4px;
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 1px 6px;
-}
-
-.cwp-safety-note-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 8px;
-  color: var(--color-text-secondary);
-}
-
-.cwp-safety-note-item::before {
-  content: '✓';
-  color: var(--color-tech-cyan);
-  font-weight: 700;
 }
 
 .cwp-worklog-page {
@@ -5697,6 +5692,68 @@ body:has(.cwp-taskbar-monitor-root) #root {
   margin: 2px 0 0 0;
 }
 
+/* Scrollable content region: the about page now packs hero + repo + safety,
+   so it scrolls vertically inside the cwp-page track instead of overflowing. */
+.cwp-about-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 233, 244, 0.4) transparent;
+  padding-right: 2px;
+}
+
+/* Children keep their natural height: the flex column must not shrink the hero
+   (which has overflow:hidden and would clip its title/subtitle/version). The
+   container scrolls instead. */
+.cwp-about-content > * {
+  flex-shrink: 0;
+}
+
+.cwp-about-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.cwp-about-content::-webkit-scrollbar-thumb {
+  background: rgba(214, 233, 244, 0.4);
+  border-radius: 2px;
+}
+
+/* Safety & privacy list (migrated from settings). */
+.cwp-about-safety-list {
+  list-style: none;
+  margin: 6px 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.cwp-about-safety-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: rgba(94, 208, 255, 0.05);
+  border-left: 2px solid var(--color-tech-cyan);
+}
+
+.cwp-about-safety-list strong {
+  font-size: 11px;
+  font-family: var(--font-pixel-title);
+  color: var(--color-tech-cyan);
+  line-height: 1.2;
+}
+
+.cwp-about-safety-list span {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
 .cwp-about-actions-list {
   display: flex;
   flex-direction: column;
@@ -6664,11 +6721,46 @@ input[type="range"]::-moz-range-thumb,
 }
 
 /* ── Health trend / 体检报告 page ──────────────────────────────────── */
+/* Title row: put the range tabs on the right of the title. The global
+   .page-title-row has no layout, so we scope a flex here rather than touch the
+   shared class. */
+.cwp-health-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* The global .cwp-section-title carries margin-bottom:7px, which double-counts
+   against the flex `gap` on .cwp-health-section. Neutralize it here. */
+.cwp-health-section .cwp-section-title,
+.cwp-suggestions-strip .cwp-section-title {
+  margin-bottom: 0;
+}
+
 .cwp-health-content {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  /* The page packs many sections; let this block scroll vertically inside the
+     cwp-page grid track (which is minmax(0,1fr)) instead of overflowing the
+     viewport. min-height:0 is required for a grid child to scroll. */
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 233, 244, 0.4) transparent;
+  padding-right: 2px;
+}
+
+.cwp-health-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.cwp-health-content::-webkit-scrollbar-thumb {
+  background: rgba(214, 233, 244, 0.4);
+  border-radius: 2px;
 }
 
 .cwp-health-empty {
@@ -6786,7 +6878,8 @@ input[type="range"]::-moz-range-thumb,
 /* Score trend bar chart */
 .cwp-health-chart {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6px, 1fr));
+  /* gridTemplateColumns is set inline (= day count) so every day always renders
+     its own column, regardless of container width. */
   gap: 2px;
   height: 120px;
   align-items: end;

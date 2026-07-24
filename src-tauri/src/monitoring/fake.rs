@@ -42,6 +42,7 @@ impl HardwareSensorAdapter for FakeHardwareSensorAdapter {
             used_memory_bytes: Some(((memory / 100.0) * 16.0 * 1024.0 * 1024.0 * 1024.0) as u64),
             cpu_physical_core_count: Some(8),
             cpu_logical_core_count: Some(16),
+            cpu_temperature_source: None,
             device_inventory: fake_device_inventory(),
             processes: vec![
                 ProcessUsageSnapshot {

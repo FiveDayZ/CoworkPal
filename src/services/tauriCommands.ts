@@ -31,7 +31,7 @@ function isTauriRuntime() {
 }
 
 const browserSettings: AppSettings = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   launchAtStartup: false,
   isCatVisible: true,
   isMonitorBarVisible: false,
@@ -66,6 +66,7 @@ const browserSettings: AppSettings = {
   memoryAutoReleaseEnabled: false,
   memoryAutoReleaseThresholdGib: 8,
   memoryLastRelease: null,
+  libreHardwareMonitorEnabled: true,
 };
 
 const browserWorkshop: WorkshopState = {
@@ -101,6 +102,7 @@ const browserSnapshot: HardwareSnapshot = {
   usedMemoryBytes: null,
   cpuPhysicalCoreCount: null,
   cpuLogicalCoreCount: null,
+  cpuTemperatureSource: null,
   deviceInventory: {
     motherboard: [],
     memoryModules: [],

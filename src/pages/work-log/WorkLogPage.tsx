@@ -17,6 +17,7 @@ import { trackAchievementEvent } from "../../services/tauriCommands";
 import { useWorkLogStore } from "../../stores/workLogStore";
 import { PixelIcon, type PixelIconName } from "../../ui/PixelIcon";
 import { WorkProfileAvatar } from "../../components/WorkProfileAvatar";
+import { TodaySuggestionsStrip } from "./TodaySuggestionsStrip";
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -65,7 +66,8 @@ type WorkLogTab =
   | "timeline"
   | "insights"
   | "dimensions"
-  | "rhythm";
+  | "rhythm"
+  | "suggestions";
 
 const workLogTabs: Array<{ id: WorkLogTab; label: string }> = [
   { id: "overview", label: "概览" },
@@ -76,6 +78,7 @@ const workLogTabs: Array<{ id: WorkLogTab; label: string }> = [
   { id: "insights", label: "进程" },
   { id: "dimensions", label: "五维" },
   { id: "rhythm", label: "节律" },
+  { id: "suggestions", label: "今日建议" },
 ];
 
 const WORKLOG_HISTORY_LIMIT = 370;
@@ -312,6 +315,10 @@ export function WorkLogPage() {
 
         {activeTab === "rhythm" && (
           <RhythmHeatmapPanel profile={rhythmProfile} />
+        )}
+
+        {activeTab === "suggestions" && (
+          <TodaySuggestionsStrip />
         )}
       </div>
 

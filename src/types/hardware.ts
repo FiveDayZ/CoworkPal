@@ -17,6 +17,10 @@ export interface HardwareMetricsSnapshot {
   usedMemoryBytes: number | null;
   cpuPhysicalCoreCount: number | null;
   cpuLogicalCoreCount: number | null;
+  /** Which probe produced the CPU temperature, for UI precision hints:
+   * "librehardwaremonitor" (core MSR, high precision) vs "sysinfo"/"thermalzone"
+   * (ACPI estimate). null when no probe succeeded. */
+  cpuTemperatureSource: string | null;
   /** Live top-process samples pushed on the `hardware:metrics` event. */
   processes: ProcessUsageSnapshot[];
 }

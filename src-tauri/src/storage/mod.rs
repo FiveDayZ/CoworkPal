@@ -255,6 +255,9 @@ fn migrate_settings(settings: &mut AppSettings, smbios_uuid: Option<String>) -> 
             settings.is_monitor_bar_visible = false;
             settings.show_monitor_data_in_taskbar = false;
         }
+        // v3 added `libre_hardware_monitor_enabled`. Its value is supplied by
+        // serde's `#[serde(default)]` (true) during deserialization of older
+        // files, so no explicit assignment is needed here.
         settings.schema_version = APP_SETTINGS_SCHEMA_VERSION;
         changed = true;
     }

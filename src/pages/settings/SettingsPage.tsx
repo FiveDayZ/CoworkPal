@@ -378,6 +378,75 @@ export function SettingsPage() {
 
             </div>
 
+            {/* Card: Taskbar settings */}
+            <div className="cwp-settings-card cwp-settings-card-taskbar">
+              <div className="cwp-settings-card-title">
+                <PixelIcon name="puzzle" size={14} style={{ marginRight: "6px" }} /> 任务栏设置
+              </div>
+              <div className="cwp-settings-switches-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "4px" }}>
+                <div className="cwp-switch-item-inline">
+                  <span className="cwp-settings-label">显示任务栏</span>
+                  <label className="cwp-switch-label">
+                    <input
+                      type="checkbox"
+                      checked={settings?.showMonitorDataInTaskbar ?? false}
+                      onChange={(e) =>
+                        void updateSettings({
+                          showMonitorDataInTaskbar: e.target.checked,
+                        })
+                      }
+                    />
+                    <span className="cwp-switch-slider" />
+                  </label>
+                </div>
+              </div>
+
+              <div className="cwp-settings-row" style={{ marginTop: "2px" }}>
+                <span className="cwp-settings-label" style={{ fontSize: "11px" }}>任务栏模式</span>
+                <div className="cwp-settings-metric-grid is-compact" style={{ gap: "4px", marginTop: "2px" }}>
+                  {monitorModeOptions.map((mode) => {
+                    const active = (settings?.taskbarMonitorMode ?? "Default") === mode.key;
+                    return (
+                      <button
+                        className={`cwp-metric-select ${active ? "is-active" : ""}`}
+                        key={mode.key}
+                        onClick={() => void updateSettings({ taskbarMonitorMode: mode.key })}
+                        type="button"
+                      >
+                        {mode.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="cwp-settings-row" style={{ marginTop: "2px" }}>
+                <span className="cwp-settings-label" style={{ fontSize: "11px" }}>显示指标</span>
+                <div className="cwp-settings-metric-grid" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "2px", marginTop: "2px" }}>
+                  {monitorMetricOptions.map((metric) => {
+                    const checked = visibleTaskbarMetrics.includes(metric.key);
+                    return (
+                      <button
+                        className={`cwp-metric-select ${checked ? "is-active" : ""}`}
+                        key={metric.key}
+                        onClick={() => {
+                          const nextMetrics = checked
+                            ? visibleTaskbarMetrics.filter((item) => item !== metric.key)
+                            : [...visibleTaskbarMetrics, metric.key];
+                          void updateSettings({ visibleTaskbarMetrics: nextMetrics });
+                        }}
+                        style={{ fontSize: "9px" }}
+                        type="button"
+                      >
+                        {metric.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+            </div>
+
             {/* Card 3: Running setup */}
             <div className="cwp-settings-card cwp-settings-card-runtime">
               <div className="cwp-settings-card-title">
@@ -432,19 +501,6 @@ export function SettingsPage() {
                   <option value="none">静音</option>
                   <option value="enabled">开启音效</option>
                 </select>
-              </div>
-            </div>
-
-            {/* Card 4: Security */}
-            <div className="cwp-settings-card cwp-settings-card-security">
-              <div className="cwp-settings-card-title">
-                <PixelIcon name="shield" size={14} style={{ marginRight: "6px" }} /> 安全与隐私
-              </div>
-              <div className="cwp-safety-notes-box" style={{ padding: "4px 6px", gap: "2px" }}>
-                <div className="cwp-safety-note-item">轻量绿色免安装</div>
-                <div className="cwp-safety-note-item">本地离线不联网</div>
-                <div className="cwp-safety-note-item">后台无静默占用</div>
-                <div className="cwp-safety-note-item">用户数据不上传</div>
               </div>
             </div>
           </div>
@@ -555,75 +611,6 @@ export function SettingsPage() {
               </div>
             </div>
 
-            {/* Card: Taskbar data settings */}
-            <div className="cwp-settings-card cwp-settings-card-taskbar">
-              <div className="cwp-settings-card-title">
-                <PixelIcon name="puzzle" size={14} style={{ marginRight: "6px" }} /> 任务栏数据
-              </div>
-              <div className="cwp-settings-switches-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "4px" }}>
-                <div className="cwp-switch-item-inline">
-                  <span className="cwp-settings-label">显示任务栏</span>
-                  <label className="cwp-switch-label">
-                    <input
-                      type="checkbox"
-                      checked={settings?.showMonitorDataInTaskbar ?? false}
-                      onChange={(e) =>
-                        void updateSettings({
-                          showMonitorDataInTaskbar: e.target.checked,
-                        })
-                      }
-                    />
-                    <span className="cwp-switch-slider" />
-                  </label>
-                </div>
-              </div>
-
-              <div className="cwp-settings-row" style={{ marginTop: "2px" }}>
-                <span className="cwp-settings-label" style={{ fontSize: "11px" }}>任务栏模式</span>
-                <div className="cwp-settings-metric-grid is-compact" style={{ gap: "4px", marginTop: "2px" }}>
-                  {monitorModeOptions.map((mode) => {
-                    const active = (settings?.taskbarMonitorMode ?? "Default") === mode.key;
-                    return (
-                      <button
-                        className={`cwp-metric-select ${active ? "is-active" : ""}`}
-                        key={mode.key}
-                        onClick={() => void updateSettings({ taskbarMonitorMode: mode.key })}
-                        type="button"
-                      >
-                        {mode.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="cwp-settings-row" style={{ marginTop: "2px" }}>
-                <span className="cwp-settings-label" style={{ fontSize: "11px" }}>显示指标</span>
-                <div className="cwp-settings-metric-grid" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "2px", marginTop: "2px" }}>
-                  {monitorMetricOptions.map((metric) => {
-                    const checked = visibleTaskbarMetrics.includes(metric.key);
-                    return (
-                      <button
-                        className={`cwp-metric-select ${checked ? "is-active" : ""}`}
-                        key={metric.key}
-                        onClick={() => {
-                          const nextMetrics = checked
-                            ? visibleTaskbarMetrics.filter((item) => item !== metric.key)
-                            : [...visibleTaskbarMetrics, metric.key];
-                          void updateSettings({ visibleTaskbarMetrics: nextMetrics });
-                        }}
-                        style={{ fontSize: "9px" }}
-                        type="button"
-                      >
-                        {metric.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-            </div>
-
             {/* Card: Memory Release */}
             <div className="cwp-settings-card cwp-settings-card-memory">
               <div className="cwp-settings-card-title">
@@ -712,6 +699,33 @@ export function SettingsPage() {
                 >
                   {releasing ? "释放中…" : "立即释放内存"}
                 </button>
+              </div>
+            </div>
+
+            {/* Card: Hardware Monitoring — LibreHardwareMonitor data source */}
+            <div className="cwp-settings-card">
+              <div className="cwp-settings-card-title">
+                <PixelIcon name="monitor" size={14} style={{ marginRight: "6px" }} /> 硬件监控
+              </div>
+              <div className="cwp-settings-row-inline">
+                <span className="cwp-settings-label">高精度温度（LibreHardwareMonitor）</span>
+                <label className="cwp-switch-label">
+                  <input
+                    type="checkbox"
+                    checked={settings?.libreHardwareMonitorEnabled ?? true}
+                    onChange={(e) =>
+                      void updateSettings({
+                        libreHardwareMonitorEnabled: e.target.checked,
+                      })
+                    }
+                  />
+                  <span className="cwp-switch-slider"></span>
+                </label>
+              </div>
+              <div className="cwp-settings-row-inline" style={{ flexWrap: "wrap", whiteSpace: "normal", gap: "2px 12px" }}>
+                <span className="cwp-settings-desc">
+                  检测到 LibreHardwareMonitor 运行时，自动使用其更精确的 CPU 核心温度。需先以管理员身份运行 LibreHardwareMonitor。未检测到时回退到系统热区传感器。CPU 面板的温度角标会显示当前来源（高精度/估算）。
+                </span>
               </div>
             </div>
           </div>
