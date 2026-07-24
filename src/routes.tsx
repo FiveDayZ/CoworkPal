@@ -47,6 +47,15 @@ export const mainRoutes: Array<{
     ),
   },
   {
+    key: "health",
+    label: "Health",
+    element: lazy(() =>
+      import("./pages/health/HealthPage").then((module) => ({
+        default: module.HealthPage,
+      })),
+    ),
+  },
+  {
     key: "settings",
     label: "Settings",
     element: lazy(() =>

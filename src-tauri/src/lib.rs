@@ -8,6 +8,7 @@ mod models;
 mod monitoring;
 mod pet;
 mod storage;
+mod suggestions;
 mod taskbar_embed;
 mod tray;
 mod window_manager;
@@ -117,6 +118,8 @@ pub fn run() {
             commands::complete_focus_session,
             commands::abandon_focus_session,
             commands::get_rhythm_profile,
+            commands::get_health_trend,
+            commands::get_today_suggestions,
             commands::get_memory_status,
             commands::trigger_memory_release,
             commands::show_taskbar_context_menu,

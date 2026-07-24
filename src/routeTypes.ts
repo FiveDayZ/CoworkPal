@@ -4,6 +4,7 @@ export const mainRouteKeys = [
   "devices",
   "settings",
   "workLog",
+  "health",
   "achievements",
   "about",
 ] as const;

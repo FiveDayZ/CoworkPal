@@ -16,6 +16,12 @@ import type { AppSettings, AppSettingsPatch } from "../types/settings";
 import type { WorkLogReport } from "../types/workLog";
 import type { FocusSessionBook } from "../types/focus";
 import type { RhythmProfile } from "../types/rhythm";
+import {
+  TREND_RANGE_VALUES,
+  type HealthTrendReport,
+  type TrendRange,
+} from "../types/health";
+import type { TodaySuggestions } from "../types/suggestions";
 import { defaultModuleLevels, type WorkshopState } from "../types/workshop";
 
 export type CoreCatInteractionAction = "pet" | "sortParts";
@@ -1038,6 +1044,81 @@ export async function getRhythmProfile(): Promise<RhythmProfile> {
     };
   }
   return invoke<RhythmProfile>("get_rhythm_profile");
+}
+
+/** Browser-preview fallback: an empty-but-well-shaped report so the UI renders. */
+function createBrowserHealthTrend(range: TrendRange): HealthTrendReport {
+  const days = range === "days7" ? 7 : range === "days90" ? 90 : 30;
+  return {
+    windowDays: 0,
+    range,
+    scoreSeries: Array.from({ length: days }, (_, i) => ({
+      date: `2026-01-${String(i + 1).padStart(2, "0")}`,
+      totalScore: 0,
+      durationScore: 0,
+      loadScore: 0,
+      complexityScore: 0,
+      stabilityScore: 0,
+      continuityScore: 0,
+      activeSeconds: 0,
+      hasData: false,
+    })),
+    averages: {
+      score: 0,
+      activeHours: 0,
+      cpuAvg: 0,
+      memoryAvg: 0,
+      thermalAvg: 0,
+      highLoadRatio: 0,
+    },
+    peaks: {
+      bestScoreDate: null,
+      bestScore: null,
+      longestDayDate: null,
+      longestHours: null,
+      hottestDayDate: null,
+      hottestThermal: null,
+    },
+    weekdayBreakdown: Array.from({ length: 7 }, (_, weekday) => ({
+      weekday,
+      avgScore: 0,
+      avgHours: 0,
+      sampleDays: 0,
+    })),
+    streaks: { current: 0, longest: 0, totalActiveDays: 0 },
+    deltaVsPrev: { scoreDelta: 0, hoursDelta: 0, tone: "neutral" },
+    healthScore: 0,
+    healthGrade: "C",
+    summary: "浏览器预览模式下暂无健康趋势数据。",
+  };
+}
+
+export async function getHealthTrend(
+  range: TrendRange = "days30",
+): Promise<HealthTrendReport> {
+  if (!isTauriRuntime()) {
+    return createBrowserHealthTrend(range);
+  }
+  return invoke<HealthTrendReport>("get_health_trend", {
+    range: TREND_RANGE_VALUES[range],
+  });
+}
+
+/** Browser-preview fallback: no suggestions in the browser. */
+function createBrowserTodaySuggestions(): TodaySuggestions {
+  return {
+    date: new Date().toISOString().slice(0, 10),
+    top: [],
+    all: [],
+    generatedAt: Date.now(),
+  };
+}
+
+export async function getTodaySuggestions(): Promise<TodaySuggestions> {
+  if (!isTauriRuntime()) {
+    return createBrowserTodaySuggestions();
+  }
+  return invoke<TodaySuggestions>("get_today_suggestions");
 }
 
 export async function showMainWindow(): Promise<void> {

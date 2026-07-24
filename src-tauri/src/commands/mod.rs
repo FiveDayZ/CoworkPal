@@ -22,8 +22,9 @@ use crate::{
     models::{
         build_rhythm_profile, current_timestamp_ms, today_key, AppSettings, AppSettingsPatch,
         CatState, DailyWorkAssessment, DailyWorkAssessmentSummary, DailyWorkAssessmentTrend,
-        FocusSession, FocusSessionBook, FocusSessionStatus, HardwareSnapshot, LastMemoryRelease,
-        RhythmProfile, WorkLogEntry, WorkLogReport, WorkshopState,
+        FocusSession, FocusSessionBook, FocusSessionStatus, HardwareSnapshot, HealthTrendReport,
+        LastMemoryRelease, RhythmProfile, TrendRange, TodaySuggestions, WorkLogEntry, WorkLogReport,
+        WorkshopState,
     },
     pet::FOCUS_NUDGE_HOLD_MS,
     taskbar_embed,
@@ -607,6 +608,39 @@ pub async fn get_rhythm_profile(
     let work_logs = state.work_logs.read().await;
     let summaries = build_assessment_summaries(&work_logs.entries, 90);
     Ok(build_rhythm_profile(&work_logs, &summaries))
+}
+
+#[tauri::command]
+pub async fn get_health_trend(
+    range: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<HealthTrendReport, String> {
+    let trend_range = parse_trend_range(range.as_deref());
+    let work_logs = state.work_logs.read().await;
+    Ok(HealthTrendReport::from_book(&work_logs.entries, trend_range))
+}
+
+/// Map the frontend range string ("7" | "30" | "90") to the enum, defaulting
+/// to 30 days. Unknown values fall back to the default rather than erroring,
+/// so a stale client cannot break the endpoint.
+fn parse_trend_range(range: Option<&str>) -> TrendRange {
+    match range {
+        Some("7") => TrendRange::Days7,
+        Some("90") => TrendRange::Days90,
+        _ => TrendRange::Days30,
+    }
+}
+
+#[tauri::command]
+pub async fn get_today_suggestions(
+    state: State<'_, AppState>,
+) -> Result<TodaySuggestions, String> {
+    let work_logs = state.work_logs.read().await;
+    let current = state.last_snapshot.read().await.clone();
+    Ok(TodaySuggestions::from_local(
+        &work_logs,
+        current.as_ref(),
+    ))
 }
 
 fn build_assessment_summaries(

@@ -1219,6 +1219,188 @@ pub struct DailyWorkAssessmentTrend {
     pub insights: Vec<AssessmentInsight>,
 }
 
+// ---------------------------------------------------------------------------
+// Health trend report — multi-day aggregation for the "体检报告" page.
+//
+// Unlike `DailyWorkAssessment` (which recomputes a per-day baseline over up to
+// 90 days of history, O(n*history)), every point here is derived from the
+// lightweight `WorkLogReport::from_entry` (pure single-day arithmetic, O(1)).
+// This keeps a 90-day aggregation at millisecond cost.
+// ---------------------------------------------------------------------------
+
+/// Aggregation window requested by the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TrendRange {
+    Days7,
+    #[default]
+    Days30,
+    Days90,
+}
+
+impl TrendRange {
+    pub fn day_count(self) -> usize {
+        match self {
+            Self::Days7 => 7,
+            Self::Days30 => 30,
+            Self::Days90 => 90,
+        }
+    }
+}
+
+/// One day's contribution to a trend series. `has_data` is false for calendar
+/// days with no recorded activity (so the chart can render gaps).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendDayPoint {
+    pub date: String,
+    pub total_score: u32,
+    pub duration_score: u32,
+    pub load_score: u32,
+    pub complexity_score: u32,
+    pub stability_score: u32,
+    pub continuity_score: u32,
+    pub active_seconds: u64,
+    pub has_data: bool,
+}
+
+/// Period averages over the trend window. Averages are taken over days that
+/// actually have data (`window_days`), not over the full calendar range.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendAverages {
+    pub score: f64,
+    pub active_hours: f64,
+    pub cpu_avg: f64,
+    pub memory_avg: f64,
+    pub thermal_avg: f64,
+    pub high_load_ratio: f64,
+}
+
+/// Notable extremes within the window.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendPeaks {
+    pub best_score_date: Option<String>,
+    pub best_score: Option<u32>,
+    pub longest_day_date: Option<String>,
+    pub longest_hours: Option<f64>,
+    pub hottest_day_date: Option<String>,
+    pub hottest_thermal: Option<f64>,
+}
+
+/// Per-weekday average (index 0 = Monday .. 6 = Sunday). Drives the "which day
+/// am I most productive" breakdown.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendWeekdayStat {
+    /// 0 = Monday .. 6 = Sunday
+    pub weekday: u8,
+    pub avg_score: f64,
+    pub avg_hours: f64,
+    pub sample_days: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendStreaks {
+    /// Consecutive days-with-data ending today (0 if today has no data).
+    pub current: u32,
+    /// Longest run of consecutive days-with-data in the window.
+    pub longest: u32,
+    /// Total days with data in the window.
+    pub total_active_days: u32,
+}
+
+/// Period-over-period delta (this window vs the immediately preceding window of
+/// the same length). `tone` drives the UI color.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendDelta {
+    pub score_delta: f64,
+    pub hours_delta: f64,
+    pub tone: String,
+}
+
+/// The full multi-day health-trend payload returned by `get_health_trend`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthTrendReport {
+    /// How many days in the window actually had recorded activity.
+    pub window_days: u32,
+    pub range: TrendRange,
+    /// Oldest -> newest chronological order.
+    pub score_series: Vec<TrendDayPoint>,
+    pub averages: TrendAverages,
+    pub peaks: TrendPeaks,
+    pub weekday_breakdown: Vec<TrendWeekdayStat>,
+    pub streaks: TrendStreaks,
+    pub delta_vs_prev: TrendDelta,
+    /// 0-100 composite health score (independent of the per-day work score).
+    pub health_score: u32,
+    /// Letter grade derived from `health_score`: S / A / B / C.
+    pub health_grade: String,
+    pub summary: String,
+}
+
+// ---------------------------------------------------------------------------
+// Smart suggestions — local rule-based advice generated from history + the
+// current snapshot. Pure functions; no network, no telemetry.
+// ---------------------------------------------------------------------------
+
+/// Coarse kind of advice, used for icon + grouping in the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SuggestionCategory {
+    /// Focus / break rhythm (专注仪式相关).
+    FocusHabit,
+    /// Thermal pressure (散热/高温).
+    Thermal,
+    /// Memory pressure (内存拥挤).
+    Memory,
+    /// Circadian rhythm drift (节律偏移).
+    Rhythm,
+    /// Sustained workload (持续高负载).
+    Workload,
+    /// Activity streak / consistency (打卡/坚持).
+    Streak,
+}
+
+/// Severity drives tone + whether the suggestion can bubble up to CoreCat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SuggestionSeverity {
+    Positive,
+    Neutral,
+    Warning,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Suggestion {
+    /// Stable id so the UI can dedupe / key entries.
+    pub id: String,
+    pub category: SuggestionCategory,
+    /// Higher = more important; used for "today's top N" selection.
+    pub priority: u8,
+    pub title: String,
+    pub body: String,
+    /// A concrete next step the user can take.
+    pub action_hint: String,
+    pub severity: SuggestionSeverity,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodaySuggestions {
+    pub date: String,
+    /// Top-priority picks (≤3) for the dashboard strip + CoreCat bubble.
+    pub top: Vec<Suggestion>,
+    /// Full ranked list (≤5) for the detail panel.
+    pub all: Vec<Suggestion>,
+    pub generated_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkCardRarity {
@@ -1620,6 +1802,382 @@ impl DailyWorkAssessmentTrend {
             insights,
         }
     }
+}
+
+impl HealthTrendReport {
+    /// Build a trend report over the last `range` calendar days.
+    ///
+    /// Each calendar day with data is scored via the lightweight
+    /// `WorkLogReport::from_entry` (O(1) single-day arithmetic). Days without
+    /// data are kept as gap markers (`has_data = false`) so the chart can render
+    /// the full calendar span.
+    pub fn from_book(
+        entries: &BTreeMap<String, WorkLogEntry>,
+        range: TrendRange,
+    ) -> Self {
+        let day_count = range.day_count();
+        let dates = recent_calendar_date_keys(day_count);
+
+        // Build the per-day series (oldest -> newest).
+        let mut score_series: Vec<TrendDayPoint> = Vec::with_capacity(day_count);
+        for date in &dates {
+            let point = match entries.get(date) {
+                Some(entry) if entry_has_signal(entry) => {
+                    let report = WorkLogReport::from_entry(entry.clone());
+                    let dim = |key: &str| {
+                        report
+                            .dimensions
+                            .iter()
+                            .find(|d| d.key == key)
+                            .map(|d| d.score)
+                            .unwrap_or(0)
+                    };
+                    TrendDayPoint {
+                        date: date.clone(),
+                        total_score: report.total_score,
+                        duration_score: dim("duration"),
+                        load_score: dim("load"),
+                        complexity_score: dim("complexity"),
+                        stability_score: dim("stability"),
+                        continuity_score: dim("continuity"),
+                        active_seconds: report.active_seconds,
+                        has_data: true,
+                    }
+                }
+                _ => TrendDayPoint {
+                    date: date.clone(),
+                    total_score: 0,
+                    duration_score: 0,
+                    load_score: 0,
+                    complexity_score: 0,
+                    stability_score: 0,
+                    continuity_score: 0,
+                    active_seconds: 0,
+                    has_data: false,
+                },
+            };
+            score_series.push(point);
+        }
+
+        let data_points: Vec<&TrendDayPoint> =
+            score_series.iter().filter(|p| p.has_data).collect();
+        let window_days = data_points.len() as u32;
+
+        let averages = compute_trend_averages(entries, &data_points);
+        let peaks = compute_trend_peaks(entries, &data_points);
+        let weekday_breakdown = compute_weekday_breakdown(&data_points);
+        let streaks = compute_streaks(&score_series);
+        let delta_vs_prev = compute_delta_vs_prev(entries, range, &averages);
+        let (health_score, health_grade) = compute_health_grade(&averages, &streaks);
+        let summary = health_summary(
+            range,
+            window_days,
+            &averages,
+            &peaks,
+            &streaks,
+            health_score,
+        );
+
+        Self {
+            window_days,
+            range,
+            score_series,
+            averages,
+            peaks,
+            weekday_breakdown,
+            streaks,
+            delta_vs_prev,
+            health_score,
+            health_grade,
+            summary,
+        }
+    }
+}
+
+/// Whether an entry has any meaningful signal worth scoring.
+fn entry_has_signal(entry: &WorkLogEntry) -> bool {
+    entry.sample_count > 0
+        || entry.active_seconds > 0
+        || entry.mouse_click_count > 0
+        || entry.keyboard_press_count > 0
+}
+
+/// Last `n` calendar dates as YYYY-MM-DD keys, oldest first.
+fn recent_calendar_date_keys(n: usize) -> Vec<String> {
+    let today = Local::now().date_naive();
+    (0..n)
+        .map(|offset| {
+            (today - Duration::days((n - 1 - offset) as i64))
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .collect()
+}
+
+fn weekday_of(date: &str) -> Option<u8> {
+    NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .ok()
+        .map(|d| d.weekday().num_days_from_monday() as u8)
+}
+
+fn avg_metric<F>(
+    entries: &BTreeMap<String, WorkLogEntry>,
+    points: &[&TrendDayPoint],
+    pick: F,
+) -> f64
+where
+    F: Fn(&WorkLogEntry) -> f64,
+{
+    if points.is_empty() {
+        return 0.0;
+    }
+    let sum: f64 = points
+        .iter()
+        .filter_map(|p| entries.get(&p.date).map(|e| pick(e)))
+        .sum();
+    sum / points.len() as f64
+}
+
+fn compute_trend_averages(
+    entries: &BTreeMap<String, WorkLogEntry>,
+    points: &[&TrendDayPoint],
+) -> TrendAverages {
+    if points.is_empty() {
+        return TrendAverages::default();
+    }
+    let score = points.iter().map(|p| p.total_score as f64).sum::<f64>()
+        / points.len() as f64;
+    let active_hours = points.iter().map(|p| p.active_seconds as f64 / 3600.0).sum::<f64>()
+        / points.len() as f64;
+    let cpu_avg = avg_metric(entries, points, avg_cpu_from_entry);
+    let memory_avg = avg_metric(entries, points, avg_memory_from_entry);
+    let thermal_avg = avg_metric(entries, points, avg_thermal_from_entry);
+    let high_load_ratio = avg_metric(entries, points, high_load_ratio_from_entry);
+    TrendAverages {
+        score,
+        active_hours,
+        cpu_avg,
+        memory_avg,
+        thermal_avg,
+        high_load_ratio,
+    }
+}
+
+fn avg_cpu_from_entry(entry: &WorkLogEntry) -> f64 {
+    let samples = entry.sample_count.max(1) as f64;
+    entry.cpu_load_points / samples
+}
+
+fn avg_memory_from_entry(entry: &WorkLogEntry) -> f64 {
+    let samples = entry.sample_count.max(1) as f64;
+    entry.memory_load_points / samples
+}
+
+fn avg_thermal_from_entry(entry: &WorkLogEntry) -> f64 {
+    let samples = entry.sample_count.max(1) as f64;
+    entry.thermal_pressure_points / samples
+}
+
+fn high_load_ratio_from_entry(entry: &WorkLogEntry) -> f64 {
+    if entry.active_seconds == 0 {
+        0.0
+    } else {
+        entry.high_load_seconds as f64 / entry.active_seconds as f64
+    }
+}
+
+fn compute_trend_peaks(
+    entries: &BTreeMap<String, WorkLogEntry>,
+    points: &[&TrendDayPoint],
+) -> TrendPeaks {
+    let mut peaks = TrendPeaks::default();
+    let best = points.iter().max_by_key(|p| p.total_score);
+    if let Some(b) = best {
+        peaks.best_score_date = Some(b.date.clone());
+        peaks.best_score = Some(b.total_score);
+    }
+    let longest = points.iter().max_by_key(|p| p.active_seconds);
+    if let Some(l) = longest {
+        peaks.longest_day_date = Some(l.date.clone());
+        peaks.longest_hours = Some(l.active_seconds as f64 / 3600.0);
+    }
+    let hottest = points
+        .iter()
+        .filter_map(|p| entries.get(&p.date).map(|e| (p, e)))
+        .max_by(|a, b| {
+            avg_thermal_from_entry(a.1)
+                .partial_cmp(&avg_thermal_from_entry(b.1))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    if let Some((p, e)) = hottest {
+        peaks.hottest_day_date = Some(p.date.clone());
+        peaks.hottest_thermal = Some(avg_thermal_from_entry(e));
+    }
+    peaks
+}
+
+fn compute_weekday_breakdown(points: &[&TrendDayPoint]) -> Vec<TrendWeekdayStat> {
+    let mut buckets: [(f64, f64, u32); 7] = [(0.0, 0.0, 0); 7];
+    for p in points {
+        if let Some(wd) = weekday_of(&p.date) {
+            let i = wd as usize;
+            buckets[i].0 += p.total_score as f64;
+            buckets[i].1 += p.active_seconds as f64 / 3600.0;
+            buckets[i].2 += 1;
+        }
+    }
+    (0..7)
+        .map(|i| {
+            let (score_sum, hours_sum, count) = buckets[i];
+            let n = count.max(1) as f64;
+            TrendWeekdayStat {
+                weekday: i as u8,
+                avg_score: if count == 0 { 0.0 } else { score_sum / n },
+                avg_hours: if count == 0 { 0.0 } else { hours_sum / n },
+                sample_days: count,
+            }
+        })
+        .collect()
+}
+
+fn compute_streaks(series: &[TrendDayPoint]) -> TrendStreaks {
+    // Walk newest -> oldest counting the trailing run of data-days.
+    let current = series
+        .iter()
+        .rev()
+        .take_while(|p| p.has_data)
+        .count() as u32;
+
+    // Longest run of consecutive data-days across the whole series.
+    let mut longest: u32 = 0;
+    let mut run: u32 = 0;
+    for p in series {
+        if p.has_data {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    let total_active_days = series.iter().filter(|p| p.has_data).count() as u32;
+    TrendStreaks {
+        current,
+        longest,
+        total_active_days,
+    }
+}
+
+/// Compare this window's averages against the immediately preceding window of
+/// the same length. Positive deltas are good; tone colors accordingly.
+fn compute_delta_vs_prev(
+    entries: &BTreeMap<String, WorkLogEntry>,
+    range: TrendRange,
+    current: &TrendAverages,
+) -> TrendDelta {
+    let n = range.day_count();
+    let today = Local::now().date_naive();
+    // Previous window: days [n, 2n) before today.
+    let prev_dates: Vec<String> = (0..n)
+        .map(|offset| {
+            (today - Duration::days((n + offset) as i64))
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .collect();
+
+    let prev_points: Vec<&WorkLogEntry> = prev_dates
+        .iter()
+        .filter_map(|d| entries.get(d))
+        .filter(|e| entry_has_signal(e))
+        .collect();
+
+    if prev_points.is_empty() {
+        return TrendDelta {
+            score_delta: 0.0,
+            hours_delta: 0.0,
+            tone: "neutral".to_string(),
+        };
+    }
+
+    let prev_score_avg: f64 = prev_points
+        .iter()
+        .map(|e| WorkLogReport::from_entry((*e).clone()).total_score as f64)
+        .sum::<f64>()
+        / prev_points.len() as f64;
+    let prev_hours_avg: f64 = prev_points
+        .iter()
+        .map(|e| e.active_seconds as f64 / 3600.0)
+        .sum::<f64>()
+        / prev_points.len() as f64;
+
+    let score_delta = current.score - prev_score_avg;
+    let hours_delta = current.active_hours - prev_hours_avg;
+    let tone = if score_delta >= 3.0 {
+        "positive"
+    } else if score_delta <= -3.0 {
+        "warning"
+    } else {
+        "neutral"
+    };
+    TrendDelta {
+        score_delta,
+        hours_delta,
+        tone: tone.to_string(),
+    }
+}
+
+/// Composite 0-100 health score, blending sustained activity, stability, and
+/// consistency — independent of the per-day work score which rewards raw load.
+fn compute_health_grade(avg: &TrendAverages, streaks: &TrendStreaks) -> (u32, String) {
+    // Activity component (0-40): up to 6h/day is healthy; more is neutral.
+    let activity = ((avg.active_hours / 6.0) * 40.0).clamp(0.0, 40.0);
+    // Stability component (0-30): less thermal pressure and high-load is better.
+    let stability =
+        (30.0 - (avg.thermal_avg / 100.0) * 15.0 - avg.high_load_ratio * 15.0).clamp(0.0, 30.0);
+    // Consistency component (0-30): rewards showing up regularly.
+    let consistency = ((streaks.current.min(7) as f64 / 7.0) * 20.0
+        + (streaks.longest.min(14) as f64 / 14.0) * 10.0)
+        .clamp(0.0, 30.0);
+    let health_score = (activity + stability + consistency).round().clamp(0.0, 100.0) as u32;
+    let health_grade = if health_score >= 85 {
+        "S"
+    } else if health_score >= 70 {
+        "A"
+    } else if health_score >= 50 {
+        "B"
+    } else {
+        "C"
+    }
+    .to_string();
+    (health_score, health_grade)
+}
+
+fn health_summary(
+    range: TrendRange,
+    window_days: u32,
+    avg: &TrendAverages,
+    peaks: &TrendPeaks,
+    streaks: &TrendStreaks,
+    health_score: u32,
+) -> String {
+    if window_days == 0 {
+        return format!(
+            "近 {} 天 CoreCat 还没有积累到可分析的样本，保持常驻几天后这里会生成健康趋势。",
+            range.day_count()
+        );
+    }
+    let best = peaks.best_score_date.as_deref().unwrap_or("近期");
+    format!(
+        "近 {} 天有 {} 天活跃记录，平均工作分 {:.0}、日均 {:.1} 小时。健康分 {}，连续打卡 {} 天（最长 {} 天），{} 表现最佳。",
+        range.day_count(),
+        window_days,
+        avg.score,
+        avg.active_hours,
+        health_score,
+        streaks.current,
+        streaks.longest,
+        best,
+    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3722,5 +4280,143 @@ mod assessment_tests {
         assert_eq!(trend.dominant_day_type, WorkDayType::Unknown);
         assert_eq!(trend.best_score, None);
         assert_eq!(trend.insights.len(), 1);
+    }
+
+    // --- HealthTrendReport aggregation ---
+
+    /// Build an entry that would score on `record_snapshot` signal: enough
+    /// samples + active seconds + some load points so `WorkLogReport::from_entry`
+    /// produces a non-zero score.
+    fn scored_entry(date: String, active_seconds: u64, cpu_points: f64, samples: u64) -> WorkLogEntry {
+        WorkLogEntry {
+            date,
+            active_seconds,
+            sample_count: samples,
+            cpu_load_points: cpu_points,
+            started_at: 0,
+            updated_at: 0,
+            ..Default::default()
+        }
+    }
+
+    fn today_date_key() -> String {
+        Local::now().date_naive().format("%Y-%m-%d").to_string()
+    }
+
+    fn days_ago_key(days: i64) -> String {
+        let d = Local::now().date_naive() - Duration::days(days);
+        d.format("%Y-%m-%d").to_string()
+    }
+
+    #[test]
+    fn health_trend_empty_book_has_no_data() {
+        let entries = BTreeMap::new();
+        let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
+
+        assert_eq!(report.window_days, 0);
+        assert!(report.score_series.iter().all(|p| !p.has_data));
+        assert_eq!(report.streaks.current, 0);
+        assert!(report.summary.contains("还没有积累到可分析的样本"));
+    }
+
+    #[test]
+    fn health_trend_single_day_populates_series_and_streak() {
+        let mut entries = BTreeMap::new();
+        let today = today_date_key();
+        entries.insert(
+            today.clone(),
+            scored_entry(today, 4 * 3600, 400.0, 100),
+        );
+
+        let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
+
+        assert_eq!(report.window_days, 1);
+        assert!(report.score_series.last().unwrap().has_data);
+        assert_eq!(report.streaks.current, 1);
+        assert_eq!(report.streaks.longest, 1);
+        // A day with 4h activity + moderate load must produce a positive score.
+        assert!(report.averages.score > 0.0);
+    }
+
+    #[test]
+    fn health_trend_picks_best_and_longest_correctly() {
+        let mut entries = BTreeMap::new();
+        // Today: long hours (8h), low load.
+        let today = today_date_key();
+        entries.insert(today.clone(), scored_entry(today, 8 * 3600, 100.0, 100));
+        // Yesterday: short (2h) but very high load.
+        let y = days_ago_key(1);
+        entries.insert(y.clone(), scored_entry(y, 2 * 3600, 8000.0, 100));
+
+        let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
+
+        // Longest day is today (8h) regardless of score.
+        assert_eq!(report.peaks.longest_hours, Some(8.0));
+        let longest_date = report.peaks.longest_day_date.as_deref().unwrap_or("");
+        assert_eq!(longest_date, today_date_key());
+        // Best score and longest day may differ; both must be populated.
+        assert!(report.peaks.best_score.is_some());
+        assert!(report.peaks.best_score_date.is_some());
+    }
+
+    #[test]
+    fn health_trend_streak_breaks_on_gap() {
+        let mut entries = BTreeMap::new();
+        // Data today and 2 days ago, but NOT yesterday → current streak = 1.
+        entries.insert(today_date_key(), scored_entry(today_date_key(), 3600, 500.0, 50));
+        let two = days_ago_key(2);
+        entries.insert(two.clone(), scored_entry(two, 3600, 500.0, 50));
+
+        let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
+
+        assert_eq!(report.streaks.current, 1, "current streak ends at the gap before today");
+        assert_eq!(report.streaks.longest, 1, "no two consecutive days");
+        assert_eq!(report.streaks.total_active_days, 2);
+    }
+
+    #[test]
+    fn health_trend_delta_vs_prev_marks_improvement() {
+        let mut entries = BTreeMap::new();
+        // Previous window (days 7..14): low load.
+        for d in 7..14 {
+            let key = days_ago_key(d);
+            entries.insert(key.clone(), scored_entry(key, 3600, 100.0, 50));
+        }
+        // Current window (days 0..7): high load → higher score.
+        for d in 0..7 {
+            let key = days_ago_key(d);
+            entries.insert(key.clone(), scored_entry(key, 3600, 3000.0, 50));
+        }
+
+        let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
+
+        assert!(
+            report.delta_vs_prev.score_delta > 0.0,
+            "current high-load window should beat the previous low-load one"
+        );
+        assert_eq!(report.delta_vs_prev.tone, "positive");
+    }
+
+    #[test]
+    fn health_trend_grade_is_one_of_sabc() {
+        let mut entries = BTreeMap::new();
+        entries.insert(today_date_key(), scored_entry(today_date_key(), 6 * 3600, 500.0, 100));
+
+        let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
+
+        assert!(matches!(report.health_grade.as_str(), "S" | "A" | "B" | "C"));
+        assert!(report.health_score <= 100);
+    }
+
+    #[test]
+    fn health_trend_weekday_breakdown_has_seven_buckets() {
+        let entries = BTreeMap::new();
+        let report = HealthTrendReport::from_book(&entries, TrendRange::Days30);
+
+        assert_eq!(report.weekday_breakdown.len(), 7);
+        // All weekdays 0..=6 present and ordered.
+        for (i, w) in report.weekday_breakdown.iter().enumerate() {
+            assert_eq!(w.weekday, i as u8);
+        }
     }
 }
