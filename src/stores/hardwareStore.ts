@@ -29,7 +29,6 @@ export const useHardwareStore = create<HardwareStore>((set) => ({
         ...metrics,
         deviceInventory:
           state.snapshot?.deviceInventory ?? emptyDeviceInventory,
-        processes: state.snapshot?.processes ?? [],
       },
     })),
   setSnapshot: (snapshot) => set({ snapshot }),

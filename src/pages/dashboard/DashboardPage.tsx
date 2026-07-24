@@ -15,6 +15,7 @@ import { useWorkshopStore } from "../../stores/workshopStore";
 import { useThemedIcons } from "../../ui/assets";
 import { calculateSystemStability } from "../../services/systemStability";
 import { PixelIcon } from "../../ui/PixelIcon";
+import { ProcessListPanel } from "./ProcessListPanel";
 
 export function DashboardPage() {
   const snapshot = useHardwareStore((state) => state.snapshot);
@@ -408,6 +409,9 @@ export function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* Live Top Processes */}
+          <ProcessListPanel />
 
           {/* Bottom Output Strip */}
         <div className="cwp-output-strip">

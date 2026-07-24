@@ -53,6 +53,10 @@ pub struct HardwareMetricsSnapshot {
     pub used_memory_bytes: Option<u64>,
     pub cpu_physical_core_count: Option<u32>,
     pub cpu_logical_core_count: Option<u32>,
+    /// Live top-process samples (already filtered/scored/truncated to 32 by the
+    /// adapter). Surfaced on the `hardware:metrics` event so the Dashboard can
+    /// render a Top-Processes panel. Pure-local data; never leaves the machine.
+    pub processes: Vec<ProcessUsageSnapshot>,
 }
 
 impl Default for HardwareMetricsSnapshot {
@@ -76,6 +80,7 @@ impl Default for HardwareMetricsSnapshot {
             used_memory_bytes: None,
             cpu_physical_core_count: None,
             cpu_logical_core_count: None,
+            processes: Vec::new(),
         }
     }
 }
@@ -101,6 +106,7 @@ impl From<&HardwareSnapshot> for HardwareMetricsSnapshot {
             used_memory_bytes: snapshot.used_memory_bytes,
             cpu_physical_core_count: snapshot.cpu_physical_core_count,
             cpu_logical_core_count: snapshot.cpu_logical_core_count,
+            processes: snapshot.processes.clone(),
         }
     }
 }

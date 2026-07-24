@@ -17,11 +17,12 @@ export interface HardwareMetricsSnapshot {
   usedMemoryBytes: number | null;
   cpuPhysicalCoreCount: number | null;
   cpuLogicalCoreCount: number | null;
+  /** Live top-process samples pushed on the `hardware:metrics` event. */
+  processes: ProcessUsageSnapshot[];
 }
 
 export interface HardwareSnapshot extends HardwareMetricsSnapshot {
   deviceInventory: HardwareDeviceInventory;
-  processes: ProcessUsageSnapshot[];
 }
 
 export interface ProcessUsageSnapshot {

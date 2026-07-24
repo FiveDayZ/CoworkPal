@@ -1813,7 +1813,7 @@ body:has(.cwp-taskbar-monitor-root) #root {
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   gap: 6px;
   overflow: hidden;
 }

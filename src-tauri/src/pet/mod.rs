@@ -2,8 +2,13 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
     app_state::AppState,
-    models::{current_timestamp_ms, AppSettings, CatState, CatStateChangedEvent, HardwareSnapshot},
+    models::{
+        current_timestamp_ms, AppSettings, CatState, CatStateChangedEvent, HardwareSnapshot,
+        ProcessUsageSnapshot,
+    },
 };
+
+mod process_classify;
 
 const MIN_STATE_HOLD_MS: i64 = 3_000;
 const REPAIR_LIGHT_LOAD_THRESHOLD: f32 = 76.0;
@@ -88,7 +93,16 @@ impl PetStateService {
                 return;
             }
 
-            let message = message_for_state(&candidate).to_string();
+            // Note: the bubble text is (re)computed only when the CatState
+            // actually transitions — `should_transition` above returns early
+            // when the state is unchanged, so the lead-process story below is
+            // refreshed on state changes, not on every tick. In practice the
+            // story lead (the top story-worthy process) is stable while a given
+            // workload persists, so this matches user expectations. Re-evaluating
+            // every tick would also re-fire `pet:state-changed`, which the
+            // frontend maps to OS notifications for the alert states.
+            let lead = process_classify::pick_story_lead(&snapshot.processes);
+            let message = message_for_state(&candidate, lead);
             runtime.cat_state = candidate.clone();
             runtime.cat_message = message.clone();
             runtime.last_cat_state_changed_at = now_ms;
@@ -344,8 +358,10 @@ fn severity(state: &CatState) -> u8 {
     }
 }
 
-fn message_for_state(state: &CatState) -> &'static str {
-    match state {
+fn message_for_state(state: &CatState, lead: Option<&ProcessUsageSnapshot>) -> String {
+    // Base text per state — the static fallback when no story-worthy process
+    // is recognized (or the state is not "work-like").
+    let base = match state {
         CatState::Idle => "CoreCat 正在待命。",
         CatState::RepairLight => "检测到轻量维护负载。",
         CatState::RepairHeavy => "系统负载偏高，CoreCat 正在检修。",
@@ -359,15 +375,56 @@ fn message_for_state(state: &CatState) -> &'static str {
         CatState::NeedsBreak => "久坐提醒：起来活动一下，喝口水吧。",
         CatState::DeepWork => "专注仪式进行中，CoreCat 陪你一起埋头干活。",
         CatState::Distracted => "好像走神了？深呼吸，回到任务上来吧。",
-        CatState::Hidden => "",
-    }
+        CatState::Hidden => return String::new(),
+    };
+
+    // Only enrich "work-like" states with a process story. Other states
+    // (temperature, sleep, celebrate, …) keep their domain-specific text so the
+    // nudge stays focused.
+    let category = lead.map(|p| process_classify::classify_process(&p.name));
+    let Some(category) = category else {
+        return base.to_string();
+    };
+
+    let enriched = match (state, category) {
+        (CatState::RepairHeavy, process_classify::ProcessCategory::Compiler) => {
+            Some("编译负载很高，CoreCat 满头大汗地陪你一起敲键盘。")
+        }
+        (CatState::RepairLight, process_classify::ProcessCategory::Compiler) => {
+            Some("检测到编译任务，CoreCat 在旁边帮你一起敲键盘。")
+        }
+        (CatState::RepairHeavy, process_classify::ProcessCategory::Browser) => {
+            Some("浏览器吃掉不少资源，CoreCat 挤在角落里帮它扇风。")
+        }
+        (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::Game) => {
+            Some("检测到游戏在跑，CoreCat 戴上耳机在旁边围观。")
+        }
+        (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::Ide) => {
+            Some("你的编辑器正忙，CoreCat 趴在键盘边盯着代码。")
+        }
+        (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::VideoCall) => {
+            Some("视频会议进行中，CoreCat 安静地躲到屏幕后面。")
+        }
+        (CatState::MemoryCrowded, process_classify::ProcessCategory::Browser) => {
+            Some("浏览器吃掉不少内存，CoreCat 被挤到了角落里蹲着。")
+        }
+        (CatState::DeepWork, process_classify::ProcessCategory::Ide) => {
+            Some("你在编辑器里专注，CoreCat 趴在键盘边静静陪着。")
+        }
+        (CatState::DeepWork, process_classify::ProcessCategory::Compiler) => {
+            Some("专注仪式 + 编译任务，CoreCat 和你一起埋头干活。")
+        }
+        _ => None,
+    };
+
+    enriched.unwrap_or(base).to_string()
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::models::{AppSettings, CatState, HardwareSnapshot};
+    use crate::models::{AppSettings, CatState, HardwareSnapshot, ProcessUsageSnapshot};
 
-    use super::{resolve_candidate_state, should_transition};
+    use super::{message_for_state, resolve_candidate_state, should_transition};
 
     fn candidate(settings: &AppSettings, snapshot: &HardwareSnapshot) -> CatState {
         resolve_candidate_state(
@@ -790,5 +847,64 @@ mod tests {
             ),
             CatState::Idle
         );
+    }
+
+    // --- message_for_state process-story enrichment ---
+
+    fn proc(name: &str) -> ProcessUsageSnapshot {
+        ProcessUsageSnapshot {
+            pid: 1,
+            name: name.to_string(),
+            cpu_usage_percent: 30.0,
+            memory_bytes: 0,
+            disk_read_bytes_per_second: None,
+            disk_write_bytes_per_second: None,
+        }
+    }
+
+    #[test]
+    fn message_compiler_repair_light_is_enriched() {
+        let msg = message_for_state(&CatState::RepairLight, Some(&proc("node.exe")));
+        assert!(
+            msg.contains("编译"),
+            "expected compiler story, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn message_compiler_repair_heavy_is_enriched() {
+        let msg = message_for_state(&CatState::RepairHeavy, Some(&proc("cargo.exe")));
+        assert!(msg.contains("满头大汗"));
+    }
+
+    #[test]
+    fn message_browser_memory_crowded_is_enriched() {
+        let msg = message_for_state(&CatState::MemoryCrowded, Some(&proc("chrome.exe")));
+        assert!(msg.contains("浏览器") && msg.contains("内存"));
+    }
+
+    #[test]
+    fn message_unknown_lead_falls_back_to_static() {
+        let msg = message_for_state(&CatState::RepairLight, Some(&proc("explorer.exe")));
+        assert_eq!(msg, "检测到轻量维护负载。");
+    }
+
+    #[test]
+    fn message_no_lead_falls_back_to_static() {
+        let msg = message_for_state(&CatState::RepairLight, None);
+        assert_eq!(msg, "检测到轻量维护负载。");
+    }
+
+    #[test]
+    fn message_temperature_state_keeps_domain_text_even_with_lead() {
+        // Temperature nudge must not be masked by a process story.
+        let msg =
+            message_for_state(&CatState::TemperatureCheck, Some(&proc("chrome.exe")));
+        assert_eq!(msg, "温度偏高，正在关注散热状态。");
+    }
+
+    #[test]
+    fn message_hidden_is_empty() {
+        assert_eq!(message_for_state(&CatState::Hidden, None), "");
     }
 }
