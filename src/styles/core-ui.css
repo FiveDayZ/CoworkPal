@@ -3364,6 +3364,53 @@ body:has(.cwp-taskbar-monitor-root) #root {
   line-height: 1;
 }
 
+/* Numbered steps block (used by the LibreHardwareMonitor card). Slightly
+   larger font than .cwp-settings-desc so the prerequisite guide is legible. */
+.cwp-settings-steps {
+  margin: 2px 0 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.cwp-settings-steps li strong {
+  color: var(--color-text-primary);
+}
+
+/* Inline note paragraph sharing the steps' type scale so the whole
+   LibreHardwareMonitor card reads at one consistent size. */
+.cwp-settings-note {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.cwp-settings-note-key {
+  color: var(--color-brand-orange-strong);
+}
+
+.cwp-settings-link {
+  display: inline;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-left: 4px;
+  color: var(--color-tech-cyan);
+  text-decoration: underline;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.cwp-settings-link:hover {
+  color: var(--color-brand-orange-strong);
+}
+
 .cwp-settings-threshold-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

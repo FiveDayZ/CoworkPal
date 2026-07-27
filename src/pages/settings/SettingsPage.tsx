@@ -9,6 +9,7 @@ import {
   triggerMemoryRelease,
   type MemoryStatus,
 } from "../../services/tauriCommands";
+import { copyTextToClipboard } from "../../services/clipboard";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
@@ -722,11 +723,37 @@ export function SettingsPage() {
                   <span className="cwp-switch-slider"></span>
                 </label>
               </div>
-              <div className="cwp-settings-row-inline" style={{ flexWrap: "wrap", whiteSpace: "normal", gap: "2px 12px" }}>
-                <span className="cwp-settings-desc">
-                  检测到 LibreHardwareMonitor 运行时，自动使用其更精确的 CPU 核心温度。需先以管理员身份运行 LibreHardwareMonitor。未检测到时回退到系统热区传感器。CPU 面板的温度角标会显示当前来源（高精度/估算）。
-                </span>
+              <div className="cwp-settings-note">
+                开启后，CoreWorkPal 会优先从 LibreHardwareMonitor 读取更精确的 CPU 核心温度（控制台温度会标注「高精度」）；未检测到时回退到系统热区估算。
               </div>
+              <div className="cwp-settings-note">
+                <strong className="cwp-settings-note-key">使用前提：</strong>
+                LibreHardwareMonitor 是一个独立的第三方硬件监控程序，CoreWorkPal 不内置它。需手动完成以下步骤才会生效：
+              </div>
+              <ol className="cwp-settings-steps">
+                <li>
+                  下载 LibreHardwareMonitor：
+                  <button
+                    type="button"
+                    className="cwp-settings-link"
+                    onClick={() => {
+                      void copyTextToClipboard(
+                        "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases",
+                      ).then(() => {
+                        window.alert(
+                          "下载地址已复制到剪贴板，请在浏览器地址栏粘贴打开：\nhttps://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases",
+                        );
+                      });
+                    }}
+                    title="点击复制下载地址"
+                  >
+                    GitHub 发布页（点击复制地址）
+                  </button>
+                </li>
+                <li><strong>右键 → 以管理员身份运行</strong>（必须管理员，否则读不到核心温度）</li>
+                <li>在 LHM 的 Options 里确认 <strong>REST Web Server</strong> 已勾选（默认端口 8085）</li>
+                <li>保持 LHM 运行（可最小化到托盘），CoreWorkPal 会在下次采样时自动接入</li>
+              </ol>
             </div>
           </div>
         </div>

@@ -28,6 +28,7 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let state = AppState::load().map_err(std::io::Error::other)?;
             app.manage(state);
@@ -123,6 +124,7 @@ pub fn run() {
             commands::toggle_note_pinned,
             commands::toggle_note_archived,
             commands::delete_note,
+            commands::export_note,
             commands::get_rhythm_profile,
             commands::get_health_trend,
             commands::get_today_suggestions,

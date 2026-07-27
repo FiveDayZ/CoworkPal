@@ -20,8 +20,16 @@ export function NoteViewModal({ note }: { note: Note }) {
   const togglePinned = useNotesStore((state) => state.togglePinned);
   const toggleArchived = useNotesStore((state) => state.toggleArchived);
   const deleteNote = useNotesStore((state) => state.deleteNote);
+  const exportNote = useNotesStore((state) => state.exportNote);
 
   const bodyHtml = useMemo(() => renderMarkdown(note.body), [note.body]);
+
+  async function handleExport() {
+    const path = await exportNote(note.id);
+    if (path) {
+      window.alert(`已导出到：\n${path}`);
+    }
+  }
 
   function handleDelete() {
     if (window.confirm("确定删除这条记录吗？此操作不可撤销。")) {
@@ -86,6 +94,14 @@ export function NoteViewModal({ note }: { note: Note }) {
               onClick={() => openEditExisting(note.id)}
             >
               编辑
+            </button>
+            <button
+              type="button"
+              className="cwp-note-btn"
+              onClick={() => void handleExport()}
+              title="导出为 .md 文件"
+            >
+              导出
             </button>
             <button
               type="button"

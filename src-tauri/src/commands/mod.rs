@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use chrono::{Duration, Local};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 pub mod updater;
 
@@ -654,6 +655,55 @@ pub async fn delete_note(
     app.emit(NOTES_UPDATED, next_book.clone())
         .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
     Ok(next_book)
+}
+
+/// Export a single note as a `.md` file. Shows a native save dialog so the
+/// user picks the destination; the note body is written verbatim (it already
+/// is Markdown source). Returns the chosen path on success, or null if the
+/// user cancelled the dialog.
+#[tauri::command]
+pub async fn export_note(id: String, state: State<'_, AppState>, app: AppHandle) -> Result<Option<String>, String> {
+    // Read the note under a read lock, then drop it before the blocking dialog.
+    let (title, body) = {
+        let notes = state.notes.read().await;
+        let Some(note) = notes.notes.iter().find(|n| n.id == id) else {
+            return Err(format!("note {id} not found"));
+        };
+        (note.title.clone(), note.body.clone())
+    };
+
+    // Default file name: the note title (sanitized) + .md, fall back to the id.
+    let safe_name: String = title
+        .trim()
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .collect::<String>()
+        .trim()
+        .to_string();
+    let default_name = if safe_name.is_empty() {
+        format!("{}.md", id)
+    } else {
+        format!("{safe_name}.md")
+    };
+
+    // Native save dialog (blocking — run on the dialog plugin's own thread).
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("Markdown", &["md"])
+        .set_file_name(&default_name)
+        .blocking_save_file();
+
+    let Some(file_path) = file_path else {
+        // User cancelled the save dialog.
+        return Ok(None);
+    };
+    let path = file_path.as_path().ok_or_else(|| "invalid save path".to_string())?.to_path_buf();
+
+    std::fs::write(&path, body.as_bytes())
+        .map_err(|error| format!("failed to write note file: {error}"))?;
+
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]

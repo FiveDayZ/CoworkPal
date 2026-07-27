@@ -1086,6 +1086,18 @@ export async function deleteNote(id: string): Promise<NoteBook> {
   return invoke<NoteBook>("delete_note", { id });
 }
 
+/**
+ * Export a note as a `.md` file. Shows a native save dialog. Returns the
+ * chosen path on success, or null if the user cancelled the dialog.
+ * (Browser preview: no-op, returns null.)
+ */
+export async function exportNote(id: string): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+  return invoke<string | null>("export_note", { id });
+}
+
 export async function getRhythmProfile(): Promise<RhythmProfile> {
   if (!isTauriRuntime()) {
     return {

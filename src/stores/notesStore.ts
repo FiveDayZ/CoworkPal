@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   createNote as createNoteCmd,
   deleteNote as deleteNoteCmd,
+  exportNote as exportNoteCmd,
   getNotes,
   toggleNoteArchived as toggleArchivedCmd,
   toggleNotePinned as togglePinnedCmd,
@@ -67,6 +68,8 @@ export interface NotesStore {
   togglePinned: (id: string) => Promise<void>;
   toggleArchived: (id: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
+  /** Export a note as .md; returns the saved path or null if cancelled. */
+  exportNote: (id: string) => Promise<string | null>;
 }
 
 export const useNotesStore = create<NotesStore>((set) => ({
@@ -158,6 +161,16 @@ export const useNotesStore = create<NotesStore>((set) => ({
       set({
         loadError: error instanceof Error ? error.message : String(error),
       });
+    }
+  },
+  exportNote: async (id) => {
+    try {
+      return await exportNoteCmd(id);
+    } catch (error) {
+      set({
+        loadError: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     }
   },
 }));
