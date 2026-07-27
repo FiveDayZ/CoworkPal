@@ -21,6 +21,7 @@ import {
   type HealthTrendReport,
   type TrendRange,
 } from "../types/health";
+import type { NoteBook, NoteColor, NoteKind } from "../types/notes";
 import type { TodaySuggestions } from "../types/suggestions";
 import { defaultModuleLevels, type WorkshopState } from "../types/workshop";
 
@@ -1024,6 +1025,65 @@ export async function abandonFocusSession(
     return { ...emptyFocusBook };
   }
   return invoke<FocusSessionBook>("abandon_focus_session", { sessionId });
+}
+
+// --- Notes & memos ---
+
+/** Browser-preview fallback: an empty note book. */
+const emptyNoteBook: NoteBook = { schemaVersion: 1, notes: [] };
+
+export async function getNotes(): Promise<NoteBook> {
+  if (!isTauriRuntime()) {
+    return { ...emptyNoteBook };
+  }
+  return invoke<NoteBook>("get_notes");
+}
+
+export async function createNote(args: {
+  kind: NoteKind;
+  title: string;
+  body: string;
+  memoDueAt: number | null;
+  color: NoteColor;
+}): Promise<NoteBook> {
+  if (!isTauriRuntime()) {
+    return { ...emptyNoteBook };
+  }
+  return invoke<NoteBook>("create_note", args);
+}
+
+export async function updateNote(args: {
+  id: string;
+  title: string;
+  body: string;
+  memoDueAt: number | null;
+  color: NoteColor;
+}): Promise<NoteBook> {
+  if (!isTauriRuntime()) {
+    return { ...emptyNoteBook };
+  }
+  return invoke<NoteBook>("update_note", args);
+}
+
+export async function toggleNotePinned(id: string): Promise<NoteBook> {
+  if (!isTauriRuntime()) {
+    return { ...emptyNoteBook };
+  }
+  return invoke<NoteBook>("toggle_note_pinned", { id });
+}
+
+export async function toggleNoteArchived(id: string): Promise<NoteBook> {
+  if (!isTauriRuntime()) {
+    return { ...emptyNoteBook };
+  }
+  return invoke<NoteBook>("toggle_note_archived", { id });
+}
+
+export async function deleteNote(id: string): Promise<NoteBook> {
+  if (!isTauriRuntime()) {
+    return { ...emptyNoteBook };
+  }
+  return invoke<NoteBook>("delete_note", { id });
 }
 
 export async function getRhythmProfile(): Promise<RhythmProfile> {

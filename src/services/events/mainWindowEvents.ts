@@ -3,6 +3,7 @@ import { useAchievementStore } from "../../stores/achievementStore";
 import { isMainRoute } from "../../routeTypes";
 import { useFocusStore } from "../../stores/focusStore";
 import { useHardwareStore } from "../../stores/hardwareStore";
+import { useNotesStore } from "../../stores/notesStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useWorkLogStore } from "../../stores/workLogStore";
@@ -10,6 +11,7 @@ import { useWorkshopStore } from "../../stores/workshopStore";
 import type { HardwareMetricsSnapshot } from "../../types/hardware";
 import type { AchievementUnlockedEvent } from "../../types/achievement";
 import type { FocusSessionBook } from "../../types/focus";
+import type { NoteBook } from "../../types/notes";
 import type { AppSettings } from "../../types/settings";
 import type { WorkLogReport } from "../../types/workLog";
 import type { WorkshopState } from "../../types/workshop";
@@ -43,6 +45,12 @@ export function registerMainWindowEvents() {
   unlisteners.push(
     listen<FocusSessionBook>("focus:session-updated", (event) => {
       useFocusStore.getState().setBook(event.payload);
+    }),
+  );
+
+  unlisteners.push(
+    listen<NoteBook>("notes:updated", (event) => {
+      useNotesStore.getState().setBook(event.payload);
     }),
   );
 

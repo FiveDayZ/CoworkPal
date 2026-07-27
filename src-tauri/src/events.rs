@@ -37,6 +37,10 @@ pub const UPDATE_PROGRESS: &str = "update:progress";
 /// full list + the live active session in one shape).
 pub const FOCUS_SESSION_UPDATED: &str = "focus:session-updated";
 
+/// Emitted after any notes/memos mutation (create/update/toggle/delete).
+/// Payload is the full updated `NoteBook` so the frontend list stays in sync.
+pub const NOTES_UPDATED: &str = "notes:updated";
+
 /// Emitted when a memory release (manual or auto) completes. Payload is the
 /// `ReleaseResult` with released bytes and a human-facing note. The frontend
 /// uses this to show a toast notification when `enableNotifications` is on.

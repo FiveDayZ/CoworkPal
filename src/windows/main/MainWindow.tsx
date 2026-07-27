@@ -33,6 +33,7 @@ const routeLabels: Record<MainRoute, { icon: PixelIconName; text: string }> = {
   settings: { icon: "settings", text: "设置" },
   workLog: { icon: "log", text: "日报" },
   health: { icon: "shield", text: "体检" },
+  notes: { icon: "info", text: "笔记" },
   achievements: { icon: "achievement", text: "成就" },
   about: { icon: "info", text: "关于" },
 };

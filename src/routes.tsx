@@ -56,6 +56,15 @@ export const mainRoutes: Array<{
     ),
   },
   {
+    key: "notes",
+    label: "Notes",
+    element: lazy(() =>
+      import("./pages/notes/NotesPage").then((module) => ({
+        default: module.NotesPage,
+      })),
+    ),
+  },
+  {
     key: "settings",
     label: "Settings",
     element: lazy(() =>

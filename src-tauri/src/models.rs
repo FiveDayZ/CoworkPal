@@ -703,6 +703,78 @@ pub struct FocusSessionBook {
     pub sessions: Vec<FocusSession>,
 }
 
+// ---------------------------------------------------------------------------
+// Notes & memos — unified "record" entity with a kind discriminator.
+// `Note` = long-form markdown text; `Memo` = short reminder-style text with an
+// optional due timestamp (display only, no proactive notification). Both live
+// in one NoteBook so the list/filter UI is shared.
+// ---------------------------------------------------------------------------
+
+/// Whether a record is a long-form note or a short memo.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum NoteKind {
+    #[default]
+    Note,
+    Memo,
+}
+
+/// Label color for visual sorting. Maps to the existing palette tone tokens.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum NoteColor {
+    #[default]
+    Default,
+    Orange,
+    Cyan,
+    Gold,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Note {
+    /// Stable id, e.g. "note-1700000000000".
+    pub id: String,
+    pub kind: NoteKind,
+    pub title: String,
+    /// Markdown source text (plain string, rendered client-side).
+    pub body: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    /// Pinned notes sort to the top of the list.
+    pub pinned: bool,
+    /// Archived notes are soft-hidden (only visible in the 归档 filter).
+    pub archived: bool,
+    /// Optional due-time marker for memos (epoch ms). Display-only, no alarm.
+    pub memo_due_at: Option<i64>,
+    pub color: NoteColor,
+}
+
+impl Default for Note {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            kind: NoteKind::Note,
+            title: String::new(),
+            body: String::new(),
+            created_at: 0,
+            updated_at: 0,
+            pinned: false,
+            archived: false,
+            memo_due_at: None,
+            color: NoteColor::Default,
+        }
+    }
+}
+
+/// Persisted collection of all notes/memos. Stored as `notes.json`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct NoteBook {
+    pub schema_version: u32,
+    pub notes: Vec<Note>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct WorkLogBook {
@@ -4438,5 +4510,57 @@ mod assessment_tests {
         for (i, w) in report.weekday_breakdown.iter().enumerate() {
             assert_eq!(w.weekday, i as u8);
         }
+    }
+
+    // --- NoteBook / Note ---
+
+    #[test]
+    fn note_book_default_is_empty() {
+        let book = NoteBook::default();
+        assert_eq!(book.schema_version, 0);
+        assert!(book.notes.is_empty());
+    }
+
+    #[test]
+    fn note_default_has_sensible_empty_state() {
+        let note = Note::default();
+        assert!(note.id.is_empty());
+        assert_eq!(note.kind, NoteKind::Note);
+        assert_eq!(note.color, NoteColor::Default);
+        assert!(!note.pinned);
+        assert!(!note.archived);
+        assert_eq!(note.memo_due_at, None);
+    }
+
+    #[test]
+    fn note_book_round_trips_through_serde_with_camel_case() {
+        let book = NoteBook {
+            schema_version: 1,
+            notes: vec![Note {
+                id: "note-1".to_string(),
+                kind: NoteKind::Memo,
+                title: "买牛奶".to_string(),
+                body: "两盒".to_string(),
+                created_at: 1700,
+                updated_at: 1800,
+                pinned: true,
+                archived: false,
+                memo_due_at: Some(2000),
+                color: NoteColor::Gold,
+            }],
+        };
+        let json = serde_json::to_string(&book).unwrap();
+        // camelCase field names must reach the wire for the TS frontend.
+        assert!(json.contains("\"schemaVersion\""));
+        assert!(json.contains("\"memoDueAt\""));
+        assert!(json.contains("\"kind\":\"memo\""));
+        assert!(json.contains("\"color\":\"gold\""));
+
+        let back: NoteBook = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.notes.len(), 1);
+        assert_eq!(back.notes[0].id, "note-1");
+        assert_eq!(back.notes[0].kind, NoteKind::Memo);
+        assert_eq!(back.notes[0].memo_due_at, Some(2000));
+        assert_eq!(back.notes[0].color, NoteColor::Gold);
     }
 }

@@ -5,7 +5,10 @@ use tokio::sync::RwLock;
 use crate::{
     achievements::AchievementBook,
     memory_release::MemoryReleaseState,
-    models::{AppSettings, CatRuntimeState, FocusSessionBook, HardwareSnapshot, LayoutState, WorkLogBook, WorkshopState},
+    models::{
+        AppSettings, CatRuntimeState, FocusSessionBook, HardwareSnapshot, LayoutState, NoteBook,
+        WorkLogBook, WorkshopState,
+    },
     monitoring::{create_default_adapter, HardwareSensorAdapter},
     storage::StorageService,
 };
@@ -17,6 +20,7 @@ pub struct AppState {
     pub work_logs: RwLock<WorkLogBook>,
     pub focus_sessions: RwLock<FocusSessionBook>,
     pub achievements: RwLock<AchievementBook>,
+    pub notes: RwLock<NoteBook>,
     pub last_snapshot: RwLock<Option<HardwareSnapshot>>,
     /// All CoreCat runtime fields behind one lock so state updates are atomic.
     pub cat_runtime: RwLock<CatRuntimeState>,
@@ -37,6 +41,7 @@ impl AppState {
         let work_logs = storage.load_or_create_work_logs()?;
         let focus_sessions = storage.load_or_create_focus_sessions()?;
         let achievements = storage.load_or_create_achievements()?;
+        let notes = storage.load_or_create_notes()?;
 
         Ok(Self {
             settings: RwLock::new(settings),
@@ -45,6 +50,7 @@ impl AppState {
             work_logs: RwLock::new(work_logs),
             focus_sessions: RwLock::new(focus_sessions),
             achievements: RwLock::new(achievements),
+            notes: RwLock::new(notes),
             last_snapshot: RwLock::new(None),
             cat_runtime: RwLock::new(CatRuntimeState::default()),
             storage,

@@ -7191,3 +7191,566 @@ input[type="range"]::-moz-range-thumb,
   line-height: 1.45;
 }
 
+/* ── Notes & memos page ────────────────────────────────────────────── */
+/* Title row: title on the left, new-note buttons on the right. */
+.cwp-notes-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cwp-notes-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* New-note buttons share the beveled pixel-button idiom. */
+.cwp-notes-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 8px;
+  background: var(--color-bg-800);
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-family: var(--font-pixel-title);
+  cursor: pointer;
+}
+
+.cwp-notes-new-btn:hover {
+  border-color: var(--color-brand-orange);
+  color: var(--color-text-primary);
+}
+
+.cwp-notes-new-btn.is-primary {
+  background: var(--color-brand-orange-soft);
+  border-color: var(--color-brand-orange);
+  color: var(--color-brand-orange-strong);
+}
+
+/* Filter tabs (reuse the health range-tab look). */
+.cwp-notes-filter-tabs {
+  display: inline-flex;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-bg-850);
+  align-self: start;
+}
+
+.cwp-notes-filter-tab {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.cwp-notes-filter-tab.is-active {
+  background: var(--color-tech-cyan-soft, rgba(94, 208, 255, 0.12));
+  color: var(--color-tech-cyan);
+}
+
+/* Scrollable list region. */
+.cwp-notes-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 233, 244, 0.4) transparent;
+  padding-right: 2px;
+}
+
+.cwp-notes-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.cwp-notes-content::-webkit-scrollbar-thumb {
+  background: rgba(214, 233, 244, 0.4);
+  border-radius: 2px;
+}
+
+/* Empty / loading state. */
+.cwp-notes-empty {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  border: 1px dashed var(--color-border-soft);
+  background: rgba(94, 208, 255, 0.03);
+}
+
+/* --- Note card (collapsed) --- */
+.cwp-note-card {
+  position: relative;
+  display: flex;
+  border: 2px solid var(--color-border-soft);
+  background: var(--color-bg-850);
+  border-radius: 0;
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+
+.cwp-note-card:hover {
+  border-color: var(--color-tech-cyan);
+}
+
+/* Left color stripe. */
+.cwp-note-card-stripe {
+  width: 4px;
+  flex: 0 0 4px;
+  background: var(--color-border-soft);
+}
+
+.cwp-note-card.is-orange .cwp-note-card-stripe {
+  background: var(--color-brand-orange);
+}
+.cwp-note-card.is-cyan .cwp-note-card-stripe {
+  background: var(--color-tech-cyan);
+}
+.cwp-note-card.is-gold .cwp-note-card-stripe {
+  background: var(--color-insight-gold);
+}
+
+.cwp-note-card.is-memo {
+  background: var(--color-surface-800);
+}
+
+.cwp-note-card-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cwp-note-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cwp-note-kind-tag {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-family: var(--font-pixel-title);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-soft);
+  padding: 0 4px;
+}
+
+.cwp-note-card.is-memo .cwp-note-kind-tag {
+  color: var(--color-insight-gold);
+  border-color: var(--color-insight-gold);
+}
+
+.cwp-note-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-family: var(--font-pixel-title);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cwp-note-title.is-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.cwp-note-pin {
+  flex: 0 0 auto;
+  color: var(--color-insight-gold);
+  font-size: 12px;
+}
+
+/* Rendered markdown preview. */
+.cwp-note-preview {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  max-height: 96px;
+  overflow: hidden;
+}
+
+.cwp-note-preview.is-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.cwp-note-preview h3,
+.cwp-note-preview h4,
+.cwp-note-preview h5 {
+  margin: 2px 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-pixel-title);
+}
+
+.cwp-note-preview h3 { font-size: 12px; }
+.cwp-note-preview h4 { font-size: 11px; }
+.cwp-note-preview h5 { font-size: 11px; }
+
+.cwp-note-preview p {
+  margin: 2px 0;
+}
+
+.cwp-note-preview ul {
+  margin: 2px 0;
+  padding-left: 16px;
+}
+
+.cwp-note-preview code {
+  font-family: var(--font-mono);
+  background: var(--color-bg-950);
+  padding: 0 3px;
+  font-size: 10px;
+}
+
+.cwp-note-preview a {
+  color: var(--color-tech-cyan);
+  text-decoration: underline;
+}
+
+.cwp-note-preview strong {
+  color: var(--color-text-primary);
+}
+
+.cwp-note-meta {
+  display: flex;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.cwp-note-due {
+  color: var(--color-insight-gold);
+}
+
+/* --- Note editor inputs (used by the edit modal) --- */
+.cwp-note-title-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: var(--font-pixel-title);
+  color: var(--color-text-primary);
+  background: var(--color-surface-800);
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0;
+  outline: none;
+}
+
+.cwp-note-title-input:focus {
+  border-color: var(--color-tech-cyan);
+}
+
+/* The textarea — first multi-line text input in the app. */
+.cwp-note-editor {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  font-family: var(--font-mono);
+  color: var(--color-text-primary);
+  background: var(--color-bg-950);
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0;
+  outline: none;
+}
+
+.cwp-note-editor:focus {
+  border-color: var(--color-tech-cyan);
+}
+
+.cwp-note-editor::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Memo due-time row. */
+.cwp-note-due-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.cwp-note-due-input {
+  flex: 1 1 auto;
+  height: 20px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-950);
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0;
+  color-scheme: dark;
+}
+
+.cwp-note-color-picker {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.cwp-note-color-dot {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0;
+  cursor: pointer;
+  background: var(--color-border-soft);
+}
+
+.cwp-note-color-dot.is-orange { background: var(--color-brand-orange); }
+.cwp-note-color-dot.is-cyan { background: var(--color-tech-cyan); }
+.cwp-note-color-dot.is-gold { background: var(--color-insight-gold); }
+
+.cwp-note-color-dot.is-active {
+  box-shadow: 0 0 0 2px var(--color-text-primary);
+}
+
+.cwp-note-edit-buttons {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.cwp-note-btn {
+  min-height: 22px;
+  padding: 0 10px;
+  background: var(--color-bg-800);
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-family: var(--font-pixel-title);
+  cursor: pointer;
+}
+
+.cwp-note-btn.is-primary {
+  background: var(--color-brand-orange-soft);
+  border-color: var(--color-brand-orange);
+  color: var(--color-brand-orange-strong);
+}
+
+.cwp-note-edit-hint {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+/* ── Notes modals (view / edit) ────────────────────────────────────── */
+/* Overlay: full-screen dim + blur, click-to-close. Matches UpdateModal. */
+.cwp-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: cwp-notes-fade 120ms steps(3) both;
+}
+
+@keyframes cwp-notes-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Modal panel: glass + double border, centered. Wider than the update modal
+   so note bodies read comfortably. */
+.cwp-notes-modal {
+  position: relative;
+  display: flex;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  background: var(--color-surface-glass);
+  border: 3px double var(--color-border-soft);
+  border-radius: 0;
+  box-shadow: inset -2px -2px 0px #000, inset 2px 2px 0px rgba(255, 255, 255, 0.05),
+    4px 4px 0 rgba(0, 0, 0, 0.4);
+  z-index: 10000;
+}
+
+.cwp-notes-modal.is-orange { border-color: var(--color-brand-orange); }
+.cwp-notes-modal.is-cyan { border-color: var(--color-tech-cyan); }
+.cwp-notes-modal.is-gold { border-color: var(--color-insight-gold); }
+
+.cwp-notes-modal-stripe {
+  width: 6px;
+  flex: 0 0 6px;
+  background: var(--color-border-soft);
+}
+
+.cwp-notes-modal.is-orange .cwp-notes-modal-stripe { background: var(--color-brand-orange); }
+.cwp-notes-modal.is-cyan .cwp-notes-modal-stripe { background: var(--color-tech-cyan); }
+.cwp-notes-modal.is-gold .cwp-notes-modal-stripe { background: var(--color-insight-gold); }
+
+.cwp-notes-modal-inner {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 10px;
+}
+
+/* Close button. */
+.cwp-notes-modal-close {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.cwp-notes-modal-close:hover {
+  color: var(--color-text-primary);
+}
+
+/* Meta line under the header. */
+.cwp-notes-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+/* Scrollable body region. */
+.cwp-notes-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 233, 244, 0.4) transparent;
+  padding-right: 4px;
+}
+
+.cwp-notes-modal-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.cwp-notes-modal-body::-webkit-scrollbar-thumb {
+  background: rgba(214, 233, 244, 0.4);
+  border-radius: 2px;
+}
+
+/* Edit-mode body stacks fields with their own gap. */
+.cwp-notes-modal-edit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: visible;
+  padding-right: 0;
+}
+
+/* Fully-rendered markdown (view modal) — fuller than the list preview. */
+.cwp-note-rendered {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.cwp-note-rendered h3,
+.cwp-note-rendered h4,
+.cwp-note-rendered h5 {
+  margin: 8px 0 4px;
+  color: var(--color-text-primary);
+  font-family: var(--font-pixel-title);
+}
+
+.cwp-note-rendered h3 { font-size: 14px; }
+.cwp-note-rendered h4 { font-size: 13px; }
+.cwp-note-rendered h5 { font-size: 12px; }
+
+.cwp-note-rendered p {
+  margin: 6px 0;
+}
+
+.cwp-note-rendered ul {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.cwp-note-rendered ul li {
+  margin: 2px 0;
+}
+
+.cwp-note-rendered code {
+  font-family: var(--font-mono);
+  background: var(--color-bg-950);
+  border: 1px solid var(--color-border-soft);
+  padding: 0 4px;
+  font-size: 11px;
+}
+
+.cwp-note-rendered a {
+  color: var(--color-tech-cyan);
+  text-decoration: underline;
+}
+
+.cwp-note-rendered strong {
+  color: var(--color-text-primary);
+}
+
+/* Footer: actions row + edit foot (color picker + buttons). */
+.cwp-notes-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-top: 1px solid var(--color-border-soft);
+  padding-top: 8px;
+}
+
+.cwp-notes-modal-actions .cwp-note-btn {
+  flex: 1 1 auto;
+  min-width: 60px;
+}
+
+.cwp-note-btn.is-danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.cwp-note-btn.is-danger:hover {
+  background: var(--color-danger-soft);
+}
+
+.cwp-notes-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--color-border-soft);
+  padding-top: 8px;
+}
+
+
+

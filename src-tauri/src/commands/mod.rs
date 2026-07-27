@@ -15,16 +15,16 @@ use crate::{
     },
     app_state::AppState,
     events::{
-        ACHIEVEMENT_UNLOCKED, CORECAT_INTERACTION_STATE, FOCUS_SESSION_UPDATED, SETTINGS_UPDATED,
-        UI_NAVIGATE_MAIN, WORKSHOP_UPDATED,
+        ACHIEVEMENT_UNLOCKED, CORECAT_INTERACTION_STATE, FOCUS_SESSION_UPDATED, NOTES_UPDATED,
+        SETTINGS_UPDATED, UI_NAVIGATE_MAIN, WORKSHOP_UPDATED,
     },
     memory_release::{self, ReleaseKind, ReleaseResult},
     models::{
         build_rhythm_profile, current_timestamp_ms, today_key, AppSettings, AppSettingsPatch,
         CatState, DailyWorkAssessment, DailyWorkAssessmentSummary, DailyWorkAssessmentTrend,
         FocusSession, FocusSessionBook, FocusSessionStatus, HardwareSnapshot, HealthTrendReport,
-        LastMemoryRelease, RhythmProfile, TrendRange, TodaySuggestions, WorkLogEntry, WorkLogReport,
-        WorkshopState,
+        LastMemoryRelease, NoteBook, NoteColor, NoteKind, RhythmProfile, TrendRange,
+        TodaySuggestions, WorkLogEntry, WorkLogReport, WorkshopState,
     },
     pet::FOCUS_NUDGE_HOLD_MS,
     taskbar_embed,
@@ -506,6 +506,153 @@ pub async fn abandon_focus_session(
 
     app.emit(FOCUS_SESSION_UPDATED, next_book.clone())
         .map_err(|error| format!("failed to emit {FOCUS_SESSION_UPDATED}: {error}"))?;
+    Ok(next_book)
+}
+
+// --- Notes & memos -------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_notes(state: State<'_, AppState>) -> Result<NoteBook, String> {
+    let notes = state.notes.read().await;
+    Ok(notes.clone())
+}
+
+#[tauri::command]
+pub async fn create_note(
+    kind: NoteKind,
+    title: String,
+    body: String,
+    memo_due_at: Option<i64>,
+    color: NoteColor,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<NoteBook, String> {
+    let now = current_timestamp_ms();
+    let id = format!("note-{now}");
+    let note = crate::models::Note {
+        id,
+        kind,
+        title: title.trim().to_string(),
+        body,
+        created_at: now,
+        updated_at: now,
+        pinned: false,
+        archived: false,
+        memo_due_at,
+        color,
+    };
+
+    let next_book = {
+        let mut notes = state.notes.write().await;
+        notes.notes.push(note);
+        if let Err(error) = state.storage.save_notes(&notes) {
+            tracing::warn!("failed to save notes: {error}");
+        }
+        notes.clone()
+    };
+
+    app.emit(NOTES_UPDATED, next_book.clone())
+        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
+    Ok(next_book)
+}
+
+#[tauri::command]
+pub async fn update_note(
+    id: String,
+    title: String,
+    body: String,
+    memo_due_at: Option<i64>,
+    color: NoteColor,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<NoteBook, String> {
+    let now = current_timestamp_ms();
+    let next_book = {
+        let mut notes = state.notes.write().await;
+        let Some(note) = notes.notes.iter_mut().find(|n| n.id == id) else {
+            return Err(format!("note {id} not found"));
+        };
+        note.title = title.trim().to_string();
+        note.body = body;
+        note.memo_due_at = memo_due_at;
+        note.color = color;
+        note.updated_at = now;
+        if let Err(error) = state.storage.save_notes(&notes) {
+            tracing::warn!("failed to save notes: {error}");
+        }
+        notes.clone()
+    };
+
+    app.emit(NOTES_UPDATED, next_book.clone())
+        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
+    Ok(next_book)
+}
+
+#[tauri::command]
+pub async fn toggle_note_pinned(
+    id: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<NoteBook, String> {
+    let next_book = {
+        let mut notes = state.notes.write().await;
+        let Some(note) = notes.notes.iter_mut().find(|n| n.id == id) else {
+            return Err(format!("note {id} not found"));
+        };
+        note.pinned = !note.pinned;
+        note.updated_at = current_timestamp_ms();
+        if let Err(error) = state.storage.save_notes(&notes) {
+            tracing::warn!("failed to save notes: {error}");
+        }
+        notes.clone()
+    };
+
+    app.emit(NOTES_UPDATED, next_book.clone())
+        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
+    Ok(next_book)
+}
+
+#[tauri::command]
+pub async fn toggle_note_archived(
+    id: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<NoteBook, String> {
+    let next_book = {
+        let mut notes = state.notes.write().await;
+        let Some(note) = notes.notes.iter_mut().find(|n| n.id == id) else {
+            return Err(format!("note {id} not found"));
+        };
+        note.archived = !note.archived;
+        note.updated_at = current_timestamp_ms();
+        if let Err(error) = state.storage.save_notes(&notes) {
+            tracing::warn!("failed to save notes: {error}");
+        }
+        notes.clone()
+    };
+
+    app.emit(NOTES_UPDATED, next_book.clone())
+        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
+    Ok(next_book)
+}
+
+#[tauri::command]
+pub async fn delete_note(
+    id: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<NoteBook, String> {
+    let next_book = {
+        let mut notes = state.notes.write().await;
+        notes.notes.retain(|n| n.id != id);
+        if let Err(error) = state.storage.save_notes(&notes) {
+            tracing::warn!("failed to save notes: {error}");
+        }
+        notes.clone()
+    };
+
+    app.emit(NOTES_UPDATED, next_book.clone())
+        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
     Ok(next_book)
 }
 
