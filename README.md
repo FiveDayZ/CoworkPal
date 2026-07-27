@@ -119,6 +119,12 @@ CoreWorkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的�
 
 ---
 
+### 🧩 设备清单 — 硬件配置尽收眼底
+
+![设备页面](src/assets/screenshots/device_page.png)
+
+---
+
 ### 🛠️ 工坊系统
 
 | 工坊主页面 | 子模块升级详情 |
