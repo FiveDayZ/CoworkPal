@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatNoteTimestamp } from "../../services/noteFormatters";
 import { renderMarkdown } from "../../services/markdown";
 import { useNotesStore } from "../../stores/notesStore";
@@ -40,6 +40,98 @@ function filterNotes(notes: Note[], filter: NotesFilter): Note[] {
   }
 }
 
+/** Count notes per filter tab (independent of the active filter/search). */
+function countByFilter(notes: Note[]): Record<NotesFilter, number> {
+  let note = 0,
+    memo = 0,
+    pinned = 0,
+    archived = 0;
+  for (const n of notes) {
+    if (n.archived) {
+      archived += 1;
+      continue;
+    }
+    if (n.kind === "note") note += 1;
+    else memo += 1;
+    if (n.pinned) pinned += 1;
+  }
+  return {
+    all: note + memo,
+    note,
+    memo,
+    pinned,
+    archived,
+  };
+}
+
+/** Strip markdown syntax for plain-text search matching. */
+function plainText(body: string): string {
+  return body
+    .replace(/[`*_#>-]/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .toLowerCase();
+}
+
+/** Case-insensitive substring match on title + plain-text body. */
+function matchesQuery(note: Note, query: string): boolean {
+  if (!query) return true;
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return note.title.toLowerCase().includes(q) || plainText(note.body).includes(q);
+}
+
+/** Memo due-time quick filter presets. */
+type DueFilter = "any" | "today" | "week" | "overdue" | "upcoming";
+
+const DUE_OPTIONS: { key: DueFilter; label: string }[] = [
+  { key: "any", label: "不限" },
+  { key: "today", label: "今天" },
+  { key: "week", label: "本周" },
+  { key: "overdue", label: "已过期" },
+  { key: "upcoming", label: "即将到期" },
+];
+
+/** Convert a YYYY-MM-DD string to epoch-ms (start of that local day). */
+function dayStart(dateStr: string): number | null {
+  if (!dateStr) return null;
+  const d = new Date(`${dateStr}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+/** Whether a note's createdAt falls within [from, to] (inclusive day range). */
+function inDateRange(note: Note, fromMs: number | null, toMs: number | null): boolean {
+  if (fromMs === null && toMs === null) return true;
+  const created = note.createdAt;
+  if (fromMs !== null && created < fromMs) return false;
+  // toMs is start-of-day; include the whole day → add 24h.
+  if (toMs !== null && created > toMs + 24 * 60 * 60 * 1000 - 1) return false;
+  return true;
+}
+
+/** Whether a memo's due time matches the preset. Notes (no due) only match "any". */
+function matchesDue(note: Note, due: DueFilter): boolean {
+  if (due === "any") return true;
+  if (!note.memoDueAt) return false;
+  const now = Date.now();
+  const startToday = new Date();
+  startToday.setHours(0, 0, 0, 0);
+  const endToday = startToday.getTime() + 24 * 60 * 60 * 1000;
+  const endOfWeek = endToday + 6 * 24 * 60 * 60 * 1000;
+  const dueMs = note.memoDueAt;
+  switch (due) {
+    case "today":
+      return dueMs >= startToday.getTime() && dueMs < endToday;
+    case "week":
+      return dueMs >= startToday.getTime() && dueMs < endOfWeek;
+    case "overdue":
+      return dueMs < startToday.getTime();
+    case "upcoming":
+      return dueMs >= now && dueMs < now + 7 * 24 * 60 * 60 * 1000;
+    default:
+      return true;
+  }
+}
+
 export function NotesPage() {
   const book = useNotesStore((state) => state.book);
   const filter = useNotesStore((state) => state.filter);
@@ -50,14 +142,54 @@ export function NotesPage() {
   const viewId = useNotesStore((state) => state.viewId);
   const editTarget = useNotesStore((state) => state.editTarget);
 
+  const [query, setQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dueFilter, setDueFilter] = useState<DueFilter>("any");
+  const searchRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     void loadNotes();
   }, [loadNotes]);
 
+  // "/" focuses the search box; Esc (when search already focused) clears it.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      const typing = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+      if (e.key === "/" && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const allNotes = book?.notes ?? [];
+  const counts = useMemo(() => countByFilter(allNotes), [allNotes]);
+
+  const fromMs = useMemo(() => dayStart(dateFrom), [dateFrom]);
+  const toMs = useMemo(() => dayStart(dateTo), [dateTo]);
+  const hasDateFilter = fromMs !== null || toMs !== null;
+  const hasDueFilter = dueFilter !== "any";
+  const hasAdvancedFilter = hasDateFilter || hasDueFilter;
+
   const visibleNotes = useMemo(() => {
-    const all = book?.notes ?? [];
-    return sortNotes(filterNotes(all, filter));
-  }, [book, filter]);
+    const filtered = filterNotes(allNotes, filter);
+    const searched = query.trim() ? filtered.filter((n) => matchesQuery(n, query)) : filtered;
+    const byDate = hasDateFilter
+      ? searched.filter((n) => inDateRange(n, fromMs, toMs))
+      : searched;
+    const byDue = hasDueFilter ? byDate.filter((n) => matchesDue(n, dueFilter)) : byDate;
+    return sortNotes(byDue);
+  }, [allNotes, filter, query, hasDateFilter, fromMs, toMs, hasDueFilter, dueFilter]);
+
+  function clearAdvancedFilters() {
+    setDateFrom("");
+    setDateTo("");
+    setDueFilter("any");
+  }
 
   function handleCreate(kind: NoteKind) {
     openEditNew(kind);
@@ -73,7 +205,7 @@ export function NotesPage() {
       : null;
 
   return (
-    <div className="cwp-page">
+    <div className="cwp-page cwp-notes-page">
       <div className="page-title-row cwp-notes-title-row">
         <h2 className="page-title">笔记与备忘录</h2>
         <div className="cwp-notes-actions">
@@ -96,36 +228,119 @@ export function NotesPage() {
         </div>
       </div>
 
-      <div className="cwp-notes-filter-tabs">
-        {FILTER_OPTIONS.map((opt) => (
-          <button
-            key={opt.key}
-            type="button"
-            className={`cwp-notes-filter-tab${filter === opt.key ? " is-active" : ""}`}
-            onClick={() => useNotesStore.getState().setFilter(opt.key)}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      <div className="cwp-notes-body">
+        <div className="cwp-notes-toolbar">
+          <div className="cwp-notes-filter-tabs">
+            {FILTER_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                className={`cwp-notes-filter-tab${filter === opt.key ? " is-active" : ""}`}
+                onClick={() => useNotesStore.getState().setFilter(opt.key)}
+              >
+                {opt.label}
+                <span className="cwp-notes-tab-count">{counts[opt.key]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="cwp-notes-search-row">
+            <PixelIcon name="puzzle" size={12} style={{ color: "var(--color-text-muted)", flex: "0 0 12px" }} />
+            <input
+              ref={searchRef}
+              className="cwp-notes-search-input"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setQuery("");
+                  searchRef.current?.blur();
+                }
+              }}
+              placeholder="搜索标题或正文…"
+              type="text"
+            />
+            {query ? (
+              <button
+                type="button"
+                className="cwp-notes-search-clear"
+                onClick={() => setQuery("")}
+                aria-label="清除搜索"
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+        </div>
 
-      {loadError ? (
-        <div className="cwp-notes-empty">加载失败：{loadError}</div>
-      ) : isLoading && !book ? (
-        <div className="cwp-notes-empty">正在读取笔记…</div>
-      ) : visibleNotes.length === 0 ? (
-        <div className="cwp-notes-empty">
-          {filter === "archived"
-            ? "归档是空的。归档的笔记会出现在这里。"
-            : "还没有任何记录。点击右上角「笔记」或「备忘」开始记录吧。"}
+        {/* Advanced filters: date range + memo due preset. */}
+        <div className="cwp-notes-advanced">
+          <div className="cwp-notes-date-range">
+            <PixelIcon name="calendar" size={12} style={{ color: "var(--color-text-muted)" }} />
+            <input
+              type="date"
+              className="cwp-notes-date-input"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              max={dateTo || undefined}
+              aria-label="起始日期"
+            />
+            <span className="cwp-notes-date-sep">~</span>
+            <input
+              type="date"
+              className="cwp-notes-date-input"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              min={dateFrom || undefined}
+              aria-label="结束日期"
+            />
+          </div>
+          <div className="cwp-notes-due-tabs">
+            {DUE_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                className={`cwp-notes-due-tab${dueFilter === opt.key ? " is-active" : ""}`}
+                onClick={() => setDueFilter(opt.key)}
+                title={opt.key === "any" ? "不限到期时间" : "按备忘录提醒时间筛选"}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {hasAdvancedFilter ? (
+            <button
+              type="button"
+              className="cwp-notes-filter-clear"
+              onClick={clearAdvancedFilters}
+            >
+              清除筛选
+            </button>
+          ) : null}
         </div>
-      ) : (
-        <div className="cwp-notes-content">
-          {visibleNotes.map((note) => (
-            <NoteListItem key={note.id} note={note} />
-          ))}
-        </div>
-      )}
+
+        {loadError ? (
+          <div className="cwp-notes-empty">加载失败：{loadError}</div>
+        ) : isLoading && !book ? (
+          <div className="cwp-notes-empty">正在读取笔记…</div>
+        ) : visibleNotes.length === 0 ? (
+          <div className="cwp-notes-empty">
+            {query.trim()
+              ? `没有匹配「${query.trim()}」的记录。试试换个关键词或切换筛选。`
+              : filter === "archived"
+                ? "归档是空的。归档的笔记会出现在这里。"
+                : allNotes.length === 0
+                  ? "还没有任何记录。点击右上角「笔记」或「备忘」开始记录吧。"
+                  : "当前筛选下没有记录，试试切换上方的分类标签。"}
+          </div>
+        ) : (
+          <div className="cwp-notes-content">
+            {visibleNotes.map((note) => (
+              <NoteListItem key={note.id} note={note} query={query} />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* View modal — read-only, opened by clicking a list item. */}
       {viewedNote ? <NoteViewModal note={viewedNote} /> : null}
@@ -135,10 +350,28 @@ export function NotesPage() {
   );
 }
 
+/** Escape HTML and highlight query matches in a plain-text string. */
+function highlightPlainText(text: string, query: string): { __html: string } {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const q = query.trim();
+  if (!q) {
+    return { __html: escaped };
+  }
+  const pattern = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  return { __html: escaped.replace(pattern, "<mark>$1</mark>") };
+}
+
 /** A read-only list row. Clicking opens the view modal (never edits inline). */
-function NoteListItem({ note }: { note: Note }) {
+function NoteListItem({ note, query }: { note: Note; query: string }) {
   const openView = useNotesStore((state) => state.openView);
-  const bodyHtml = useMemo(() => renderMarkdown(note.body), [note.body]);
+  const bodyHtml = useMemo(() => renderMarkdown(note.body, query), [note.body, query]);
+  const titleHtml = useMemo(
+    () => highlightPlainText(note.title || (note.kind === "memo" ? "无标题备忘录" : "无标题笔记"), query),
+    [note.title, note.kind, query],
+  );
 
   return (
     <article
@@ -157,11 +390,10 @@ function NoteListItem({ note }: { note: Note }) {
       <div className="cwp-note-card-body">
         <div className="cwp-note-card-head">
           <span className="cwp-note-kind-tag">{note.kind === "memo" ? "备忘" : "笔记"}</span>
-          {note.title ? (
-            <strong className="cwp-note-title">{note.title}</strong>
-          ) : (
-            <strong className="cwp-note-title is-empty">无标题</strong>
-          )}
+          <strong
+            className={`cwp-note-title${note.title ? "" : " is-empty"}`}
+            dangerouslySetInnerHTML={titleHtml}
+          />
           {note.pinned ? <span className="cwp-note-pin" title="已置顶">★</span> : null}
         </div>
 

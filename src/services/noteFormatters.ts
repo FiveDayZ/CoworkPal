@@ -8,7 +8,8 @@
 
 /**
  * Format an epoch-ms timestamp as a short local date-time suitable for note
- * meta lines, e.g. "07-27 14:30" for today or "06-15 09:00" for an older date.
+ * meta lines. Same-year dates use "MM-DD HH:mm"; older years include the year
+ * ("YYYY-MM-DD") so cross-year notes are distinguishable at a glance.
  * Returns "—" for falsy values.
  */
 export function formatNoteTimestamp(timestampMs: number | null | undefined): string {
@@ -21,5 +22,9 @@ export function formatNoteTimestamp(timestampMs: number | null | undefined): str
   const day = pad(d.getDate());
   const hours = pad(d.getHours());
   const minutes = pad(d.getMinutes());
-  return `${month}-${day} ${hours}:${minutes}`;
+  if (d.getFullYear() === new Date().getFullYear()) {
+    return `${month}-${day} ${hours}:${minutes}`;
+  }
+  return `${d.getFullYear()}-${month}-${day}`;
 }
+

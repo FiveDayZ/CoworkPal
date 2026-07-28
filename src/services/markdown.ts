@@ -28,8 +28,9 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** Apply inline transformations (bold, code, links) to an already-escaped line. */
-function renderInline(escaped: string): string {
+/** Apply inline transformations (bold, code, links) to an already-escaped line.
+ * `query` (optional): highlights literal matches after transforms. */
+function renderInline(escaped: string, query?: string): string {
   // Inline code: `...`  (do first so its content isn't re-processed)
   let out = escaped.replace(/`([^`]+)`/g, (_m, code: string) => `<code>${code}</code>`);
   // Bold: **...**
@@ -45,14 +46,48 @@ function renderInline(escaped: string): string {
       return text; // unsafe scheme → drop the link, keep visible text
     },
   );
+  if (query) {
+    out = highlightMatches(out, query);
+  }
   return out;
+}
+
+/**
+ * Escape a literal string for safe use in a RegExp (slashes, parens, etc).
+ * The search query is user input matched literally — never as regex syntax.
+ */
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Wrap case-insensitive matches of `query` in `<mark>` tags within an already-
+ * HTML-escaped string. Because the input is pre-escaped (entities like &lt;
+ * already resolved) and the query is matched literally against that escaped
+ * text, this cannot inject HTML. Returns the input unchanged if query is empty.
+ */
+function highlightMatches(escaped: string, query: string): string {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return escaped;
+  }
+  // Word-boundary-aware, case-insensitive, literal match.
+  const pattern = new RegExp(`(${escapeRegExp(trimmed)})`, "gi");
+  // Avoid highlighting inside existing tags (<code>, <a ...>, </strong>).
+  return escaped
+    .split(/(<[^>]+>)/)
+    .map((segment) => (segment.startsWith("<") ? segment : segment.replace(pattern, "<mark>$1</mark>")))
+    .join("");
 }
 
 /**
  * Render a Markdown source string to an HTML string. Returns "" for empty
  * input. Never throws.
+ *
+ * `query` (optional): when provided, case-insensitive matches of this literal
+ * string inside the rendered text are wrapped in <mark> for search highlighting.
  */
-export function renderMarkdown(src: string): string {
+export function renderMarkdown(src: string, query?: string): string {
   if (!src) {
     return "";
   }
@@ -75,7 +110,7 @@ export function renderMarkdown(src: string): string {
     const headingMatch = /^(#{1,3})\s+(.*)$/.exec(trimmed);
     if (headingMatch) {
       const level = headingMatch[1].length + 2; // #→h3, ##→h4, ###→h5 (stay small)
-      html.push(`<h${level}>${renderInline(headingMatch[2])}</h${level}>`);
+      html.push(`<h${level}>${renderInline(headingMatch[2], query)}</h${level}>`);
       i += 1;
       continue;
     }
@@ -85,7 +120,7 @@ export function renderMarkdown(src: string): string {
       const items: string[] = [];
       while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
         const itemText = lines[i].trim().replace(/^[-*]\s+/, "");
-        items.push(`<li>${renderInline(itemText)}</li>`);
+        items.push(`<li>${renderInline(itemText, query)}</li>`);
         i += 1;
       }
       html.push(`<ul>${items.join("")}</ul>`);
@@ -100,7 +135,7 @@ export function renderMarkdown(src: string): string {
       !/^(#{1,3})\s+/.test(lines[i].trim()) &&
       !/^[-*]\s+/.test(lines[i].trim())
     ) {
-      paraLines.push(renderInline(lines[i].trim()));
+      paraLines.push(renderInline(lines[i].trim(), query));
       i += 1;
     }
     if (paraLines.length > 0) {

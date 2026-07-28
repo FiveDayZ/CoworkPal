@@ -3335,8 +3335,11 @@ body:has(.cwp-taskbar-monitor-root) #root {
 .cwp-switch-item-inline {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 3px;
+  /* Keep the label and its toggle tight together as one group, rather than
+     pushing them to opposite edges of the column (which made the label look
+     disconnected from its switch). */
+  justify-content: flex-start;
+  gap: 6px;
   font-size: 9px;
   min-height: 16px;
   min-width: 0;
@@ -7244,8 +7247,17 @@ input[type="range"]::-moz-range-thumb,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+/* Body wrapper: filter tabs + scrollable list, fills the page's 1fr row. */
+.cwp-notes-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .cwp-notes-actions {
@@ -7281,14 +7293,71 @@ input[type="range"]::-moz-range-thumb,
 }
 
 /* Filter tabs (reuse the health range-tab look). */
+/* Search box — compact, embedded in the title row between title and buttons. */
+.cwp-notes-search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-bg-950);
+  padding: 2px 6px;
+  /* Fill remaining space next to the tabs, but shrink readily on narrow
+     windows and never grow beyond a comfortable input width. */
+  flex: 1 1 0;
+  min-width: 80px;
+  max-width: 180px;
+}
+
+.cwp-notes-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 20px;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.cwp-notes-search-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.cwp-notes-search-clear {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.cwp-notes-search-clear:hover {
+  color: var(--color-text-primary);
+}
+
+/* Toolbar: filter tabs on the left, search box on the right, same row. */
+.cwp-notes-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
 .cwp-notes-filter-tabs {
   display: inline-flex;
+  flex: 0 0 auto;
   border: 1px solid var(--color-border-soft);
   background: var(--color-bg-850);
-  align-self: start;
 }
 
 .cwp-notes-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: transparent;
   border: 0;
   color: var(--color-text-muted);
@@ -7303,8 +7372,101 @@ input[type="range"]::-moz-range-thumb,
   color: var(--color-tech-cyan);
 }
 
+/* Per-tab count badge. */
+.cwp-notes-tab-count {
+  font-size: 9px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-950);
+  padding: 0 4px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.cwp-notes-filter-tab.is-active .cwp-notes-tab-count {
+  color: var(--color-tech-cyan);
+}
+
+/* Advanced filters row: date range + due preset + clear. */
+.cwp-notes-advanced {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cwp-notes-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-bg-850);
+  padding: 2px 6px;
+}
+
+.cwp-notes-date-input {
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color-scheme: dark;
+  width: 104px;
+  cursor: pointer;
+}
+
+.cwp-notes-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+.cwp-notes-date-sep {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.cwp-notes-due-tabs {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.cwp-notes-due-tab {
+  background: transparent;
+  border: 1px solid var(--color-border-soft);
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.cwp-notes-due-tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.cwp-notes-due-tab.is-active {
+  background: var(--color-insight-gold-soft, rgba(255, 215, 94, 0.15));
+  border-color: var(--color-insight-gold);
+  color: var(--color-insight-gold);
+}
+
+.cwp-notes-filter-clear {
+  background: transparent;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.cwp-notes-filter-clear:hover {
+  background: var(--color-danger-soft);
+}
+
 /* Scrollable list region. */
 .cwp-notes-content {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -7429,8 +7591,20 @@ input[type="range"]::-moz-range-thumb,
   font-size: 11px;
   line-height: 1.5;
   color: var(--color-text-secondary);
-  max-height: 96px;
+  /* Truncate long bodies to 3 lines so short notes aren't drowned out. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* Search-term highlight, applied in both the rendered body and the title. */
+.cwp-note-preview mark,
+.cwp-note-title mark {
+  background: var(--color-tech-cyan-soft, rgba(94, 208, 255, 0.3));
+  color: var(--color-tech-cyan);
+  padding: 0 1px;
 }
 
 .cwp-note-preview.is-empty {
