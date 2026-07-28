@@ -64,12 +64,27 @@ function countByFilter(notes: Note[]): Record<NotesFilter, number> {
   };
 }
 
-/** Strip markdown syntax for plain-text search matching. */
+/** Strip markdown syntax for plain-text search matching.
+ *  Results are memoized by the body string so repeated keystrokes don't
+ *  re-run the regex over the same note body every time. */
+const plainTextCache = new Map<string, string>();
+const PLAIN_TEXT_CACHE_LIMIT = 500;
+
 function plainText(body: string): string {
-  return body
+  const cached = plainTextCache.get(body);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const result = body
     .replace(/[`*_#>-]/g, " ")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .toLowerCase();
+  // Bounded LRU-ish: evict oldest when the cache grows too large.
+  if (plainTextCache.size >= PLAIN_TEXT_CACHE_LIMIT) {
+    plainTextCache.delete(plainTextCache.keys().next().value as string);
+  }
+  plainTextCache.set(body, result);
+  return result;
 }
 
 /** Case-insensitive substring match on title + plain-text body. */
@@ -143,10 +158,18 @@ export function NotesPage() {
   const editTarget = useNotesStore((state) => state.editTarget);
 
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [dueFilter, setDueFilter] = useState<DueFilter>("any");
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // Debounce the search query so rapid typing doesn't scan all notes on every
+  // keystroke. 120ms is imperceptible to humans but coalesces fast input.
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedQuery(query), 120);
+    return () => window.clearTimeout(handle);
+  }, [query]);
 
   useEffect(() => {
     void loadNotes();
@@ -175,15 +198,20 @@ export function NotesPage() {
   const hasDueFilter = dueFilter !== "any";
   const hasAdvancedFilter = hasDateFilter || hasDueFilter;
 
+  // Search filtering uses the debounced query (avoids scanning all notes per
+  // keystroke); highlighting uses the live query so the user sees their input
+  // marked immediately.
   const visibleNotes = useMemo(() => {
     const filtered = filterNotes(allNotes, filter);
-    const searched = query.trim() ? filtered.filter((n) => matchesQuery(n, query)) : filtered;
+    const searched = debouncedQuery.trim()
+      ? filtered.filter((n) => matchesQuery(n, debouncedQuery))
+      : filtered;
     const byDate = hasDateFilter
       ? searched.filter((n) => inDateRange(n, fromMs, toMs))
       : searched;
     const byDue = hasDueFilter ? byDate.filter((n) => matchesDue(n, dueFilter)) : byDate;
     return sortNotes(byDue);
-  }, [allNotes, filter, query, hasDateFilter, fromMs, toMs, hasDueFilter, dueFilter]);
+  }, [allNotes, filter, debouncedQuery, hasDateFilter, fromMs, toMs, hasDueFilter, dueFilter]);
 
   function clearAdvancedFilters() {
     setDateFrom("");
@@ -325,8 +353,8 @@ export function NotesPage() {
           <div className="cwp-notes-empty">正在读取笔记…</div>
         ) : visibleNotes.length === 0 ? (
           <div className="cwp-notes-empty">
-            {query.trim()
-              ? `没有匹配「${query.trim()}」的记录。试试换个关键词或切换筛选。`
+            {debouncedQuery.trim()
+              ? `没有匹配「${debouncedQuery.trim()}」的记录。试试换个关键词或切换筛选。`
               : filter === "archived"
                 ? "归档是空的。归档的笔记会出现在这里。"
                 : allNotes.length === 0
