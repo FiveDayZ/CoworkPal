@@ -7,21 +7,21 @@
 ## 2. Modified Modules / Files
 
 - `src/styles/core-ui.css`
-  - Module: Dashboard console layout and CoreCat avatar card styles.
-  - Scope: Left-side CoreCat card sizing and focus ritual visibility.
+  - Module: Dashboard console layout and CoCat avatar card styles.
+  - Scope: Left-side CoCat card sizing and focus ritual visibility.
 
 ## 3. New & Optimized Content
 
-- Changed the dashboard left column to use content-sized rows instead of stretching the CoreCat card into the remaining height.
-- Reduced the CoreCat card's vertical footprint by tightening padding, internal gaps, speech bubble height, avatar canvas height, avatar image height, status spacing, and button height.
+- Changed the dashboard left column to use content-sized rows instead of stretching the CoCat card into the remaining height.
+- Reduced the CoCat card's vertical footprint by tightening padding, internal gaps, speech bubble height, avatar canvas height, avatar image height, status spacing, and button height.
 - Kept the existing layout and components; no new dependency or custom layout system was added.
 
 ## 4. Fixed Bugs
 
-- Fixed the dashboard CoreCat card taking too much vertical space and squeezing the focus ritual area.
+- Fixed the dashboard CoCat card taking too much vertical space and squeezing the focus ritual area.
   - Phenomenon: The "开始专注" button was pushed below the visible area.
   - Recurrence condition: Dashboard height is limited while the left column stretches its first grid row.
-  - Repair scheme: Let the left column rows size to content and compact the CoreCat card to the minimum readable size.
+  - Repair scheme: Let the left column rows size to content and compact the CoCat card to the minimum readable size.
 
 ## 5. Pending Tasks & Optimization Items
 

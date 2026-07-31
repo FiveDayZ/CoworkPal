@@ -17,7 +17,7 @@ import {
 } from "../../types/workshop";
 import { moduleAssets } from "../../ui/assets";
 import { playAudioFeedback } from "../../services/audioFeedback";
-import type { CoreCatAnimationState } from "../../pet/corecat/animation/animationTypes";
+import type { CoCatAnimationState } from "../../pet/cocat/animation/animationTypes";
 import { PixelIcon } from "../../ui/PixelIcon";
 
 interface ResourceCost {
@@ -99,7 +99,7 @@ export function WorkshopPage() {
         workshopLevel: nextLevel,
         moduleLevels,
       });
-      void triggerCoreCatUpgradeAnimation("workshopUpgrade");
+      void triggerCoCatUpgradeAnimation("workshopUpgrade");
     } catch (error) {
       alert(`升级失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -142,7 +142,7 @@ export function WorkshopPage() {
         insight: Math.max(0, currentInsight - cost.insight),
         moduleLevels: nextModuleLevels,
       });
-      void triggerCoreCatUpgradeAnimation("moduleUpgrade");
+      void triggerCoCatUpgradeAnimation("moduleUpgrade");
     } catch (error) {
       alert(`强化失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -777,10 +777,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
 }
 
-async function triggerCoreCatUpgradeAnimation(state: CoreCatAnimationState) {
+async function triggerCoCatUpgradeAnimation(state: CoCatAnimationState) {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
     return;
   }
 
-  await emit("corecat:interaction-state", state);
+  await emit("cocat:interaction-state", state);
 }

@@ -184,7 +184,7 @@ export function SettingsPage() {
     void (checked ? showMonitorBar() : hideMonitorBar());
   }
 
-  async function handleToggleCoreCatPause() {
+  async function handleToggleCoCatPause() {
     const isPaused = settings?.isProductionPaused ?? false;
     const nextPaused = !isPaused;
 
@@ -198,8 +198,8 @@ export function SettingsPage() {
       timestamp: Date.now(),
       catState: nextPaused ? "Sleep" : "Idle",
       catMessage: nextPaused
-        ? "CoreCat 已暂停工坊生产，进入沉睡。"
-        : "CoreCat 已唤醒，工坊生产继续运行。",
+        ? "CoCat 已暂停工坊生产，进入沉睡。"
+        : "CoCat 已唤醒，工坊生产继续运行。",
     });
   }
 
@@ -239,7 +239,7 @@ export function SettingsPage() {
         <div className="cwp-settings-portrait-card">
           <div className="cwp-settings-portrait-top-section">
             <div className="cwp-portrait-avatar-wrapper">
-              <img src={icons.corecatAvatar} alt="CoreCat Avatar Large" />
+              <img src={icons.cocatAvatar} alt="CoCat Avatar Large" />
             </div>
             {settings?.catId && (
               <div
@@ -250,17 +250,17 @@ export function SettingsPage() {
               </div>
             )}
             <div className="cwp-portrait-info">
-              <div className="cwp-portrait-name">CoreCat / 工程猫</div>
+              <div className="cwp-portrait-name">CoCat / 工程猫</div>
               <div className="cwp-portrait-desc">您的个人硬件工坊诊断助理</div>
             </div>
           </div>
           <div className="cwp-portrait-actions">
             <button
               className="cwp-portrait-btn primary"
-              onClick={() => void handleToggleCoreCatPause().catch((error) => console.error("toggle production pause failed", error))}
+              onClick={() => void handleToggleCoCatPause().catch((error) => console.error("toggle production pause failed", error))}
               type="button"
             >
-              {settings?.isProductionPaused ? "唤醒 CoreCat" : "暂停 / 沉睡"}
+              {settings?.isProductionPaused ? "唤醒 CoCat" : "暂停 / 沉睡"}
             </button>
             <button
               className="cwp-portrait-btn danger"

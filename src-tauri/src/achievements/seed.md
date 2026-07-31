@@ -25,10 +25,10 @@
 
 ### 1.1 系统定位
 
-成就系统服务于 CoworkPal 的桌面伴侣、硬件监控、每日工况报告、工坊养成和 CoreCat 互动体验。它不是运营活动系统，也不是排行榜系统。首版目标是：
+成就系统服务于 CoworkPal 的桌面伴侣、硬件监控、每日工况报告、工坊养成和 CoCat 互动体验。它不是运营活动系统，也不是排行榜系统。首版目标是：
 
 - 让用户长期使用 CoworkPal 时形成明确的成长反馈。
-- 将已有硬件采样、每日工况、工坊产出、窗口设置、CoreCat 交互转化为可收集图鉴。
+- 将已有硬件采样、每日工况、工坊产出、窗口设置、CoCat 交互转化为可收集图鉴。
 - 为前端提供总点数、按难度筛选、按分类筛选、隐藏成就解锁弹窗和个人主页陈列能力。
 - 为后续统计留出事件表、日聚合表和规则版本字段。
 
@@ -60,7 +60,7 @@ Rust 后端
 ├─ AchievementNotificationService
 │  ├─ 生成待展示队列
 │  ├─ emit achievement:unlocked
-│  └─ 触发 corecat:interaction-state = achievementPop
+│  └─ 触发 cocat:interaction-state = achievementPop
 └─ AchievementAdminRepairService
    └─ 仅补发、撤销错误补发、审计导出
 
@@ -81,8 +81,8 @@ React 前端
 4. `AchievementRuleEngine` 只评估受该事件影响的成就定义。
 5. 满足条件且未解锁时写入 `achievement_user_unlocks`。
 6. 写入 `achievement_notification_queue`。
-7. 向前端 emit `achievement:unlocked`，同时 emit `corecat:interaction-state` 为 `achievementPop`。
-8. 前端按队列展示弹窗、声音、CoreCat 动画和图鉴红点。
+7. 向前端 emit `achievement:unlocked`，同时 emit `cocat:interaction-state` 为 `achievementPop`。
+8. 前端按队列展示弹窗、声音、CoCat 动画和图鉴红点。
 
 ### 1.5 事件命名规范
 
@@ -100,7 +100,7 @@ React 前端
 | `app.active_minute` | Rust 采样聚合 | `seconds` |
 | `page.view` | 前端路由进入 | `pageKey` |
 | `settings.update` | 设置保存成功 | `changedKeys`、`newValuesHash` |
-| `pet.click` | CoreCat 菜单「抚摸猫咪」 | `action` |
+| `pet.click` | CoCat 菜单「抚摸猫咪」 | `action` |
 | `pet.drag_end` | PetWindow | `durationMs`、`distancePx` |
 | `pet.panel.open` | Tauri command | `source` |
 | `workshop.level_up` | Rust 工坊保存成功 | `fromLevel`、`toLevel` |
@@ -113,7 +113,7 @@ React 前端
 | `share.profile_snapshot.export` | 前端导出 | `format` |
 | `achievement.gallery.view` | 前端页面进入 | `filterCategory`、`filterDifficulty` |
 | `storage.corruption_rebuilt` | StorageService 修复 | `fileName` |
-| `corecat.animation_seen` | CoreCat 动画状态机 | `animationState` |
+| `cocat.animation_seen` | CoCat 动画状态机 | `animationState` |
 
 ### 1.6 规则条件 DSL
 
@@ -375,7 +375,7 @@ CREATE TABLE achievement_admin_grants (
 
 | ID | 分类 | 成就名称 | 点数 | 隐藏 | 徽章名称 | 自动解锁条件 |
 | --- | --- | --- | ---: | --- | --- | --- |
-| A001 | 日常使用类 | 第一次唤醒 CoreCat | 5 | 否 | `cwp_badge_daily_first_launch_entry` | `app.launch.count >= 1`。 |
+| A001 | 日常使用类 | 第一次唤醒 CoCat | 5 | 否 | `cwp_badge_daily_first_launch_entry` | `app.launch.count >= 1`。 |
 | A002 | 日常使用类 | 30 分钟陪伴 | 5 | 否 | `cwp_badge_daily_30m_companion_entry` | `lifetime.total_online_seconds >= 1800`。 |
 | A003 | 日常使用类 | 第一份工况报告 | 5 | 否 | `cwp_badge_daily_first_report_entry` | `worklog.daily_generated.count >= 1`。 |
 | A004 | 功能探索类 | 看过控制台 | 5 | 否 | `cwp_badge_explore_dashboard_entry` | `page.view.count(pageKey='dashboard') >= 1`。 |
@@ -384,8 +384,8 @@ CREATE TABLE achievement_admin_grants (
 | A007 | 功能探索类 | 保存第一项设置 | 5 | 否 | `cwp_badge_explore_first_setting_entry` | `settings.update.count >= 1`。 |
 | A008 | 功能探索类 | 开启悬浮监控条 | 5 | 否 | `cwp_badge_explore_monitor_bar_entry` | `monitor_bar.open.count >= 1`。 |
 | A009 | 功能探索类 | 点亮任务栏监控 | 5 | 否 | `cwp_badge_explore_taskbar_monitor_entry` | `settings.update.count(changedKey='showMonitorDataInTaskbar', value=true) >= 1`。 |
-| A010 | 功能探索类 | 打开 CoreCat 面板 | 5 | 否 | `cwp_badge_explore_pet_panel_entry` | `pet.panel.open.count >= 1`。 |
-| A011 | 日常使用类 | 第一次摸摸 CoreCat | 5 | 否 | `cwp_badge_daily_first_pet_entry` | `pet.click.count >= 1`。 |
+| A010 | 功能探索类 | 打开 CoCat 面板 | 5 | 否 | `cwp_badge_explore_pet_panel_entry` | `pet.panel.open.count >= 1`。 |
+| A011 | 日常使用类 | 第一次摸摸 CoCat | 5 | 否 | `cwp_badge_daily_first_pet_entry` | `pet.click.count >= 1`。 |
 | A012 | 日常使用类 | 搬动小伙伴 | 5 | 否 | `cwp_badge_daily_first_drag_entry` | `pet.drag_end.count >= 1`。 |
 | A013 | 工坊养成类 | 第一颗模块螺丝 | 5 | 否 | `cwp_badge_workshop_first_module_entry` | `workshop.module_upgrade.count >= 1`。 |
 | A014 | 工坊养成类 | 工坊第一次升级 | 5 | 否 | `cwp_badge_workshop_first_level_entry` | `workshop.level_up.count >= 1`。 |
@@ -443,7 +443,7 @@ CREATE TABLE achievement_admin_grants (
 | A055 | 任务效率类 | GPU 点亮 3 小时 | 20 | 否 | `cwp_badge_task_gpu_70_3h_skilled` | `lifetime.gpu_over_70_seconds >= 10800`。 |
 | A056 | 数据里程碑类 | 100 GiB 本地流转 | 20 | 否 | `cwp_badge_data_disk_100gib_skilled` | `lifetime.disk_bytes_total >= 107374182400`。 |
 | A057 | 数据里程碑类 | 50 GiB 网络流转 | 20 | 否 | `cwp_badge_data_network_50gib_skilled` | `lifetime.network_bytes_total >= 53687091200`。 |
-| A058 | 日常使用类 | 500 次 CoreCat 互动 | 20 | 否 | `cwp_badge_daily_pet_500_skilled` | `pet.click.count + pet.panel.open.count + pet.drag_end.count >= 500`。 |
+| A058 | 日常使用类 | 500 次 CoCat 互动 | 20 | 否 | `cwp_badge_daily_pet_500_skilled` | `pet.click.count + pet.panel.open.count + pet.drag_end.count >= 500`。 |
 | A059 | 功能探索类 | 设置调校师 | 20 | 否 | `cwp_badge_explore_settings_20_skilled` | `settings.update.count >= 20` 且 `distinct_count(settings.update.changedKey) >= 5`。 |
 | A060 | 社交协作类 | 五张分享卡 | 20 | 否 | `cwp_badge_social_exports_5_skilled` | `share.report_card.export.count + share.achievement_card.export.count + share.profile_snapshot.export.count >= 5`。 |
 | A122 | 任务效率类 | 第一张 A 级工况卡 | 20 | 否 | `cwp_badge_worklog_rarity_a_skilled` | `worklog.rarity.max_rank >= 3`。 |
@@ -526,9 +526,9 @@ CREATE TABLE achievement_admin_grants (
 | A113 | 硬件健康类 | 全年无存档修复 | 100 | 否 | `cwp_badge_health_no_corruption_365_legendary` | `calendar.days(active_seconds >= 3600) >= 365` 且 `storage.corruption_rebuilt.count = 0`。 |
 | A114 | 数据里程碑类 | 百枚可见徽章 | 100 | 否 | `cwp_badge_data_visible_100_legendary` | `non_hidden_achievement.unlocked.count >= 100`。 |
 | A115 | 隐藏彩蛋类 | 十二个月都有工况 | 100 | 是 | `cwp_badge_hidden_12_months_reports_legendary` | `calendar.months(report_generated_days >= 20) >= 12`。 |
-| A116 | 隐藏彩蛋类 | CoreCat 全动画见证 | 100 | 是 | `cwp_badge_hidden_all_animations_legendary` | 18 个 CoreCat 动画状态的 `corecat.animation_seen.count(animationState)` 全部 `>= 10`。 |
+| A116 | 隐藏彩蛋类 | CoCat 全动画见证 | 100 | 是 | `cwp_badge_hidden_all_animations_legendary` | 18 个 CoCat 动画状态的 `cocat.animation_seen.count(animationState)` 全部 `>= 10`。 |
 | A117 | 隐藏彩蛋类 | 午夜维护长征 | 100 | 是 | `cwp_badge_hidden_midnight_maintenance_legendary` | `calendar.days(active_00_05_seconds >= 1800 AND high_load_seconds >= 1800) >= 30`。 |
-| A118 | 隐藏彩蛋类 | 404 修复师 | 100 | 是 | `cwp_badge_hidden_error_glitch_404_legendary` | `corecat.animation_seen.count(animationState='errorGlitch') >= 404`。 |
+| A118 | 隐藏彩蛋类 | 404 修复师 | 100 | 是 | `cwp_badge_hidden_error_glitch_404_legendary` | `cocat.animation_seen.count(animationState='errorGlitch') >= 404`。 |
 | A119 | 隐藏彩蛋类 | 六档难度全频段 | 100 | 是 | `cwp_badge_hidden_all_difficulties_legendary` | 6 个难度中每个难度已解锁成就数全部 `>= 10`。 |
 | A120 | 隐藏彩蛋类 | 隐藏星图完成 | 100 | 是 | `cwp_badge_hidden_constellation_complete_legendary` | `hidden_achievement.unlocked.count(excludeSelf=true) >= 8`。 |
 | A132 | 任务效率类 | 七类职级满阶 | 100 | 否 | `cwp_badge_worklog_title_all_lv5_legendary` | 7 个 `title_family` 每类等级全部 `>= 5`。 |
@@ -618,7 +618,7 @@ cwp_badge_{category_short}_{slug}_{difficulty_key}
 
 ```text
 achievement:unlocked
-corecat:interaction-state = achievementPop
+cocat:interaction-state = achievementPop
 ```
 
 `achievement:unlocked` payload：
@@ -650,7 +650,7 @@ interface AchievementUnlockedEvent {
 ### 6.3 声音和动画
 
 - 如果 `settings.enableSound = true`，播放成就音效 `achievement`.
-- 无论是否开启声音，都触发 CoreCat `achievementPop` 一次。
+- 无论是否开启声音，都触发 CoCat `achievementPop` 一次。
 - 如果当前处于 `errorGlitch`、`updateInstalling` 等更高优先级动画，成就动画排队到当前 one-shot 结束后播放。
 
 ### 6.4 红点和通知中心
@@ -844,7 +844,7 @@ pub struct AchievementUnlockResult {
 3. 新增事件表、计数器表、解锁表、通知队列表。
 4. 实现通用事件接收、幂等写入、计数器更新。
 5. 实现规则 DSL 解析和评估。
-6. 将现有工坊、日报、硬件采样、设置保存、CoreCat 命令接入事件流。
+6. 将现有工坊、日报、硬件采样、设置保存、CoCat 命令接入事件流。
 7. 实现查询接口和管理员补发接口。
 8. 实现 JSON 历史数据迁移补齐。
 
@@ -855,7 +855,7 @@ pub struct AchievementUnlockResult {
 3. 新增成就详情弹窗。
 4. 新增解锁弹窗队列和通知中心红点。
 5. 新增个人主页成就陈列区。
-6. 在页面路由、设置、分享导出、CoreCat 交互处补齐 `track_achievement_event`。
+6. 在页面路由、设置、分享导出、CoCat 交互处补齐 `track_achievement_event`。
 7. 为隐藏成就、归档成就、补发成就做展示差异。
 
 ### 9.2 开发优先级排序
@@ -864,7 +864,7 @@ pub struct AchievementUnlockResult {
 | --- | --- | --- |
 | P0 | 数据库、定义 seed、规则 DSL | 能加载 132 条成就并完成规则单测。 |
 | P1 | 事件接入、计数器、自动解锁 | 工坊、日报、在线时长、页面访问可自动解锁。 |
-| P2 | 图鉴、弹窗、CoreCat 动画 | 用户可见闭环完成。 |
+| P2 | 图鉴、弹窗、CoCat 动画 | 用户可见闭环完成。 |
 | P3 | 全量埋点接入 | 设置、宠物、监控条、分享、硬件健康全部接入。 |
 | P4 | 隐藏成就、补发、归档 | 高级逻辑与异常处理完成。 |
 | P5 | 迁移、灰度、校验、回滚 | 可稳定发布到正式版本。 |
@@ -985,4 +985,4 @@ pub struct AchievementUnlockResult {
 | `SettingsPage` | 记录设置修改、主题、监控指标、低功耗时长。 | A007、A030、A100 |
 | `WorkLogPage` | 记录日报查看、导出。 | A019、A076 |
 | `window_manager` / commands | 记录监控条、任务栏监控、页面窗口显示。 | A008、A009 |
-| `corecat:interaction-state` | 成就解锁时触发 `achievementPop`。 | 所有自动解锁成就 |
+| `cocat:interaction-state` | 成就解锁时触发 `achievementPop`。 | 所有自动解锁成就 |

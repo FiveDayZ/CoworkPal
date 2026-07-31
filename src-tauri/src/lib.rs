@@ -96,7 +96,7 @@ pub fn run() {
             commands::get_app_settings,
             commands::update_app_settings,
             commands::get_workshop_state,
-            commands::reward_corecat_interaction,
+            commands::reward_cocat_interaction,
             commands::get_work_log_report,
             commands::get_daily_work_assessment,
             commands::get_daily_work_assessment_history,

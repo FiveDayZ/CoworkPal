@@ -675,7 +675,7 @@ function formatReadableConditionPart(condition: string) {
     .replace(/6 个模块的 parts 与 process 共 12 条轨道全部 >= (\d+)/, "6 个模块的零件与工艺共 12 条升级轨道全部达到 $1 级")
     .replace(/9 个分类中每个分类已解锁成就数 >= (\d+)/, "9 个分类中，每个分类至少解锁 $1 项成就")
     .replace(/7 个 report_day_type 每类天数全部 >= (\d+)，不含 unknown/, "7 类工作画像每天数都至少达到 $1 天，不包含未知类型")
-    .replace(/18 个 CoreCat 动画状态的 corecat\.animation_seen\.count\(animationState\) 全部 >= (\d+)/, "18 种 CoreCat 动画状态，每种至少观看 $1 次")
+    .replace(/18 个 CoCat 动画状态的 cocat\.animation_seen\.count\(animationState\) 全部 >= (\d+)/, "18 种 CoCat 动画状态，每种至少观看 $1 次")
     .replace(/6 个难度中每个难度已解锁成就数全部 >= (\d+)/, "6 个难度中，每个难度至少解锁 $1 项成就");
 }
 
@@ -771,7 +771,7 @@ function formatMetricLabel(metric: string) {
   }
 
   const animationSeen = normalized.match(
-    /^corecat\.animation_seen\.count\(animationState='([^']+)'\)$/,
+    /^cocat\.animation_seen\.count\(animationState='([^']+)'\)$/,
   );
   if (animationSeen) {
     return `看到「${animationLabel(animationSeen[1])}」动画次数`;
@@ -1021,7 +1021,7 @@ const metricWordLabels: Record<string, string> = {
   panel: "面板",
   part: "零件",
   parts: "零件",
-  pet: "CoreCat",
+  pet: "CoCat",
   press: "按键",
   profile: "档案",
   report: "报告",
@@ -1053,9 +1053,9 @@ const metricLabels: Record<string, string> = {
   "worklog.title_level.max": "最高工况职级等级",
   "settings.update.count": "保存设置次数",
   "monitor_bar.open.count": "打开悬浮监控条次数",
-  "pet.panel.open.count": "打开 CoreCat 面板次数",
+  "pet.panel.open.count": "打开 CoCat 面板次数",
   "pet.click.count": "抚摸猫咪次数",
-  "pet.drag_end.count": "搬动 CoreCat 次数",
+  "pet.drag_end.count": "搬动 CoCat 次数",
   "workshop.module_upgrade.count": "工坊模块升级次数",
   "workshop.level_up.count": "工坊升级次数",
   "workshop.level": "工坊等级",
@@ -1110,8 +1110,8 @@ const conditionTextOverrides: Record<string, string> = {
     "9 个成就分类中，每个分类至少解锁 5 项成就",
   "7 个 report_day_type 每类天数全部 >= 30，不含 unknown":
     "7 类工作画像每天数都至少达到 30 天，不包含未知画像",
-  "18 个 CoreCat 动画状态的 corecat.animation_seen.count(animationState) 全部 >= 10":
-    "18 种 CoreCat 动画状态，每种至少观看 10 次",
+  "18 个 CoCat 动画状态的 cocat.animation_seen.count(animationState) 全部 >= 10":
+    "18 种 CoCat 动画状态，每种至少观看 10 次",
   "6 个难度中每个难度已解锁成就数全部 >= 10":
     "6 个难度中，每个难度至少解锁 10 项成就",
   "worklog.rarity.max_rank >= 2": "获得过至少 1 张 B 级或更高等级的工况卡",

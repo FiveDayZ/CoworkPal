@@ -31,7 +31,7 @@ function applyCleanupSucceeded(timestamp: number) {
   };
   lastPetState = event;
   usePetStore.getState().setPetStatus(event);
-  maybeNotify("CoreCat", event.catMessage);
+  maybeNotify("CoCat", event.catMessage);
 }
 
 function maybeNotifyPetState(event: CatStateChangedEvent) {
@@ -43,7 +43,7 @@ function maybeNotifyPetState(event: CatStateChangedEvent) {
     return;
   }
 
-  maybeNotify("CoreCat", event.catMessage);
+  maybeNotify("CoCat", event.catMessage);
 }
 
 function maybeNotify(title: string, body: string) {

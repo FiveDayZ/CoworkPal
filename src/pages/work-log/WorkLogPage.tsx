@@ -262,7 +262,7 @@ export function WorkLogPage() {
               isToday={isToday}
               report={currentReport}
             />
-            <CoreCatCommentaryPanel assessment={currentAssessment} />
+            <CoCatCommentaryPanel assessment={currentAssessment} />
           </>
         )}
 
@@ -452,9 +452,9 @@ function DailyReportHero({
           </span>
         </div>
         <p>
-          {assessment?.corecatSummary ??
+          {assessment?.cocatSummary ??
             report?.summary ??
-            "保持 CoreCat 运行后，将自动生成当天工作画像。"}
+            "保持 CoCat 运行后，将自动生成当天工作画像。"}
         </p>
         <RarityMetricsPanel reason={assessment?.rarity.reason} />
         <div className="cwp-daily-badge-row">
@@ -472,23 +472,23 @@ function DailyReportHero({
   );
 }
 
-function CoreCatCommentaryPanel({
+function CoCatCommentaryPanel({
   assessment,
 }: {
   assessment: DailyWorkAssessment | null;
 }) {
   return (
     <section
-      className={`cwp-corecat-commentary is-${assessment?.corecatCommentary.tone ?? "tease"
+      className={`cwp-cocat-commentary is-${assessment?.cocatCommentary.tone ?? "tease"
         }`}
     >
       <div className="cwp-section-title">
         <PixelIcon name="cat" size={14} />
-        <strong>{assessment?.corecatCommentary.title ?? "CoreCat 正在观察"}</strong>
+        <strong>{assessment?.cocatCommentary.title ?? "CoCat 正在观察"}</strong>
       </div>
       <p>
-        {assessment?.corecatCommentary.body ??
-          "CoreCat 会在采样充足后给出更有性格的日报点评。"}
+        {assessment?.cocatCommentary.body ??
+          "CoCat 会在采样充足后给出更有性格的日报点评。"}
       </p>
     </section>
   );
@@ -497,7 +497,7 @@ function CoreCatCommentaryPanel({
 function createEmptyWorkprint(): DailyWorkAssessmentSummary["workprint"] {
   return {
     label: "数据积累中",
-    description: "该日期暂无足够采样，CoreCat 还没有形成稳定工作指纹。",
+    description: "该日期暂无足够采样，CoCat 还没有形成稳定工作指纹。",
     pixelGrid: [],
     width: 8,
     height: 8,
@@ -529,7 +529,7 @@ function createEmptyAssessmentSummary(date: string): DailyWorkAssessmentSummary 
     },
     workprint: createEmptyWorkprint(),
     score: 0,
-    corecatSummary: "该日期暂无足够采样。",
+    cocatSummary: "该日期暂无足够采样。",
     badgeIds: ["EMPTY"],
     hasTimeline: false,
     hasData: false,
@@ -551,7 +551,7 @@ function assessmentToSummary(assessment: DailyWorkAssessment): DailyWorkAssessme
     title: assessment.title,
     workprint: assessment.workprint,
     score: assessment.score,
-    corecatSummary: assessment.corecatSummary,
+    cocatSummary: assessment.cocatSummary,
     badgeIds: assessment.badgeIds,
     hasTimeline: assessment.timeline.length > 0,
     hasData,
@@ -601,7 +601,7 @@ function WorkprintAndBaseline({
               <strong>{assessment?.workprint.label ?? "数据积累中"}</strong>
               <p>
                 {assessment?.workprint.description ??
-                  "CoreCat 正在等待更多本地采样，稍后会生成今天独有的数据纹理。"}
+                  "CoCat 正在等待更多本地采样，稍后会生成今天独有的数据纹理。"}
               </p>
             </div>
           </div>
@@ -614,7 +614,7 @@ function WorkprintAndBaseline({
           </div>
           <p>
             {assessment?.baseline.summary ??
-              "连续使用几天后，CoreCat 会用近 7 日记录对比今天的节奏。"}
+              "连续使用几天后，CoCat 会用近 7 日记录对比今天的节奏。"}
           </p>
           <div className="cwp-baseline-pill-grid">
             {baselineMetrics.map((metric) => (
@@ -701,7 +701,7 @@ function MvpSegmentPanel({
           <PixelIcon name="energy" size={10} />
           <span>今日 MVP 片段</span>
         </div>
-        <p>CoreCat 还没有抓到足够清晰的高光片段。</p>
+        <p>CoCat 还没有抓到足够清晰的高光片段。</p>
       </section>
     );
   }
@@ -917,7 +917,7 @@ function WorkTrendPanel({
             <strong>近 14 日趋势洞察</strong>
           </div>
           <div className="cwp-trend-empty">
-            CoreCat 还没有足够的历史日报。连续使用几天后，这里会显示近期主导形态、最高画像日和节奏线覆盖。
+            CoCat 还没有足够的历史日报。连续使用几天后，这里会显示近期主导形态、最高画像日和节奏线覆盖。
           </div>
         </section>
         <AssessmentInsightGrid assessment={assessment} />
@@ -934,7 +934,7 @@ function WorkTrendPanel({
         </div>
         <div className="cwp-trend-head">
           <div className="cwp-trend-copy">
-            <span>CoreCat Trend</span>
+            <span>CoCat Trend</span>
             <p>{trend.summary}</p>
           </div>
           <div className="cwp-trend-stat-grid">
@@ -990,7 +990,7 @@ function WorkTimeline({ segments }: { segments: WorkTimelineSegment[] }) {
   if (segments.length === 0) {
     return (
       <div className="cwp-work-timeline-empty">
-        CoreCat 正在积累 15 分钟节奏片段。旧日报没有时间片数据时，这里会保持空状态。
+        CoCat 正在积累 15 分钟节奏片段。旧日报没有时间片数据时，这里会保持空状态。
       </div>
     );
   }
@@ -1090,7 +1090,7 @@ function ProcessInsightPanel({
           <strong>后台进程画像</strong>
         </div>
         <div className="cwp-process-empty">
-          CoreCat 还没有积累到可分析的进程采样。保持 Tauri 版本运行一段时间后，这里会展示驻留时间、活跃频率和资源占用最高的后台进程。
+          CoCat 还没有积累到可分析的进程采样。保持 Tauri 版本运行一段时间后，这里会展示驻留时间、活跃频率和资源占用最高的后台进程。
         </div>
       </section>
     );
@@ -1194,7 +1194,7 @@ function InsightColumn({
       : [
         {
           title: "等待更多数据",
-          body: "CoreCat 正在积累今天的本地采样。",
+          body: "CoCat 正在积累今天的本地采样。",
           severity: "neutral" as const,
           metricValue: null,
         },
@@ -1280,12 +1280,12 @@ function buildReportCardExportText({
     `采样记录：${report?.sampleCount ?? 0}`,
     `徽章标签：${(assessment?.badgeIds ?? ["OBSERVE"]).join(" / ")}`,
     "",
-    "CoreCat 摘要",
-    assessment?.corecatSummary ??
+    "CoCat 摘要",
+    assessment?.cocatSummary ??
     report?.summary ??
-    "保持 CoreCat 运行后，将自动生成当天工作画像。",
-    assessment?.corecatCommentary
-      ? `${assessment.corecatCommentary.title}：${assessment.corecatCommentary.body}`
+    "保持 CoCat 运行后，将自动生成当天工作画像。",
+    assessment?.cocatCommentary
+      ? `${assessment.cocatCommentary.title}：${assessment.cocatCommentary.body}`
       : "",
     "",
     "Workprint",
@@ -1397,10 +1397,10 @@ async function exportVisualReportCard({
   context.font = "15px sans-serif";
   wrapCanvasText(
     context,
-    assessment?.corecatCommentary.body ??
-    assessment?.corecatSummary ??
+    assessment?.cocatCommentary.body ??
+    assessment?.cocatSummary ??
     report?.summary ??
-    "保持 CoreCat 运行后，将自动生成当天工作画像。",
+    "保持 CoCat 运行后，将自动生成当天工作画像。",
     228,
     246,
     650,

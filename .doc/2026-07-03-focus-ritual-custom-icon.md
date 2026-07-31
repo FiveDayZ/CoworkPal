@@ -13,7 +13,7 @@
   - Module: Dashboard focus ritual active-session display.
   - Scope: Replaced the emoji icon with the shared pixel icon.
 - `src/windows/pet-panel/PetQuickPanelWindow.tsx`
-  - Module: CoreCat quick panel focus ritual active-session display.
+  - Module: CoCat quick panel focus ritual active-session display.
   - Scope: Replaced the same emoji icon with the shared pixel icon.
 - `src/styles/core-ui.css`
   - Module: Dashboard and quick panel focus ritual styles.
@@ -23,7 +23,7 @@
 
 - Added `focus` to the shared `PixelIconName` list and implemented it as a 16x16 self-drawn SVG pixel grid.
 - Replaced the `🎯` emoji in active focus sessions with `<PixelIcon name="focus" />`.
-- Applied the replacement in both the dashboard and CoreCat quick panel so focus ritual visuals remain consistent.
+- Applied the replacement in both the dashboard and CoCat quick panel so focus ritual visuals remain consistent.
 - Reused the existing project icon renderer instead of adding image assets or external icon dependencies.
 
 ## 4. Fixed Bugs

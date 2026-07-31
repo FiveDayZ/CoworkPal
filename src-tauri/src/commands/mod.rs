@@ -16,7 +16,7 @@ use crate::{
     },
     app_state::AppState,
     events::{
-        ACHIEVEMENT_UNLOCKED, CORECAT_INTERACTION_STATE, FOCUS_SESSION_UPDATED, NOTES_UPDATED,
+        ACHIEVEMENT_UNLOCKED, COCAT_INTERACTION_STATE, FOCUS_SESSION_UPDATED, NOTES_UPDATED,
         SETTINGS_UPDATED, UI_NAVIGATE_MAIN, WORKSHOP_UPDATED,
     },
     memory_release::{self, ReleaseKind, ReleaseResult},
@@ -162,7 +162,7 @@ fn emit_achievement_unlocks(
             .map_err(|error| format!("failed to emit {ACHIEVEMENT_UNLOCKED}: {error}"))?;
     }
 
-    emit_corecat_interaction_state(app, "achievementPop")
+    emit_cocat_interaction_state(app, "achievementPop")
 }
 
 #[tauri::command]
@@ -304,7 +304,7 @@ pub async fn get_workshop_state(state: State<'_, AppState>) -> Result<WorkshopSt
 }
 
 #[tauri::command]
-pub async fn reward_corecat_interaction(
+pub async fn reward_cocat_interaction(
     action: String,
     state: State<'_, AppState>,
     app: AppHandle,
@@ -312,11 +312,11 @@ pub async fn reward_corecat_interaction(
     let animation_state = match action.as_str() {
         "pet" => "pettingHearts",
         "sortParts" => "dataSorting",
-        _ => return Err(format!("unknown CoreCat interaction action: {action}")),
+        _ => return Err(format!("unknown CoCat interaction action: {action}")),
     };
     let next_workshop = state.workshop.read().await.clone();
 
-    emit_corecat_interaction_state(&app, animation_state)?;
+    emit_cocat_interaction_state(&app, animation_state)?;
     if action == "pet" {
         if let Err(error) = record_internal_achievement_event(
             &app,
@@ -407,7 +407,7 @@ pub async fn start_focus_session(
         runtime.last_distraction_at = None;
     }
 
-    let _ = emit_corecat_interaction_state(&app, "dataSorting");
+    let _ = emit_cocat_interaction_state(&app, "dataSorting");
     if let Err(error) = app.emit(FOCUS_SESSION_UPDATED, next_book.clone()) {
         tracing::warn!("failed to emit {FOCUS_SESSION_UPDATED}: {error}");
     }
@@ -553,7 +553,7 @@ pub async fn complete_focus_session(
         tracing::warn!("failed to record focus completion achievement event: {error}");
     }
 
-    let _ = emit_corecat_interaction_state(&app, "celebrate");
+    let _ = emit_cocat_interaction_state(&app, "celebrate");
     if let Err(error) = app.emit(FOCUS_SESSION_UPDATED, next_book.clone()) {
         tracing::warn!("failed to emit {FOCUS_SESSION_UPDATED}: {error}");
     }
@@ -1453,7 +1453,7 @@ pub async fn hide_monitor_bar(app: AppHandle, state: State<'_, AppState>) -> Res
 #[tauri::command]
 pub async fn show_pet_panel(app: AppHandle) -> Result<(), String> {
     window_manager::show_window(&app, "pet-panel", true).await?;
-    emit_corecat_interaction_state(&app, "panelOpen")?;
+    emit_cocat_interaction_state(&app, "panelOpen")?;
     record_pet_panel_open(&app).await;
     Ok(())
 }
@@ -1466,7 +1466,7 @@ pub async fn hide_pet_panel(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn toggle_pet_panel(app: AppHandle) -> Result<(), String> {
     let is_visible = window_manager::toggle_window(&app, "pet-panel").await?;
-    emit_corecat_interaction_state(
+    emit_cocat_interaction_state(
         &app,
         if is_visible {
             "panelOpen"
@@ -1480,9 +1480,9 @@ pub async fn toggle_pet_panel(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn emit_corecat_interaction_state(app: &AppHandle, state: &'static str) -> Result<(), String> {
-    app.emit(CORECAT_INTERACTION_STATE, state)
-        .map_err(|error| format!("failed to emit {CORECAT_INTERACTION_STATE}: {error}"))
+fn emit_cocat_interaction_state(app: &AppHandle, state: &'static str) -> Result<(), String> {
+    app.emit(COCAT_INTERACTION_STATE, state)
+        .map_err(|error| format!("failed to emit {COCAT_INTERACTION_STATE}: {error}"))
 }
 
 #[tauri::command]
@@ -1812,9 +1812,9 @@ pub async fn perform_release(
 
     memory_release::emit_result(app, &result);
 
-    // Trigger the one-shot Free_Memory CoreCat animation so the user sees the
+    // Trigger the one-shot Free_Memory CoCat animation so the user sees the
     // pet react to every release (manual, tray, or auto-threshold).
-    let _ = emit_corecat_interaction_state(app, "freeMemory");
+    let _ = emit_cocat_interaction_state(app, "freeMemory");
 
     Ok(result)
 }

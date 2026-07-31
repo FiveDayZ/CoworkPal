@@ -34,7 +34,7 @@ pub fn build_shared_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let toggle_cat = MenuItem::with_id(
         app,
         MENU_TOGGLE_CAT,
-        "显示/隐藏 CoreCat",
+        "显示/隐藏 CoCat",
         true,
         None::<&str>,
     )?;
@@ -163,7 +163,7 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = toggle_cat_visibility(app).await {
-                    tracing::warn!("failed to toggle CoreCat from tray: {error}");
+                    tracing::warn!("failed to toggle CoCat from tray: {error}");
                 }
             });
         }

@@ -161,7 +161,7 @@ pub struct AchievementUnlockedEvent {
     pub unlocked_at: i64,
     pub is_hidden: bool,
     pub unlock_snapshot: Option<BTreeMap<String, f64>>,
-    pub corecat_animation_state: String,
+    pub cocat_animation_state: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -555,11 +555,11 @@ fn update_counters(book: &mut AchievementBook, record: &AchievementEventRecord) 
                 }
             }
         }
-        "corecat.animation_seen" => {
+        "cocat.animation_seen" => {
             if let Some(animation_state) = payload_string(record, "animationState") {
                 increment_counter(
                     book,
-                    &format!("corecat.animation_seen.count(animationState='{animation_state}')"),
+                    &format!("cocat.animation_seen.count(animationState='{animation_state}')"),
                     1.0,
                 );
             }
@@ -717,7 +717,7 @@ fn evaluate_unlocks(
             unlocked_at: record.received_at,
             is_hidden: definition.is_hidden,
             unlock_snapshot: Some(progress_snapshot),
-            corecat_animation_state: "achievementPop".to_string(),
+            cocat_animation_state: "achievementPop".to_string(),
         });
     }
 
@@ -985,10 +985,10 @@ fn evaluate_text_condition(
         return Some(evaluate_track_bucket_min(book, &keys, target, "工况职级"));
     }
 
-    if condition.contains("18 个 CoreCat 动画状态") {
-        let keys: Vec<String> = corecat_animation_states()
+    if condition.contains("18 个 CoCat 动画状态") {
+        let keys: Vec<String> = cocat_animation_states()
             .iter()
-            .map(|state| format!("corecat.animation_seen.count(animationState='{state}')"))
+            .map(|state| format!("cocat.animation_seen.count(animationState='{state}')"))
             .collect();
         return Some(evaluate_track_bucket_min(book, &keys, target, "动画见证"));
     }
@@ -1491,7 +1491,7 @@ fn work_day_title_families() -> [&'static str; 7] {
     ]
 }
 
-fn corecat_animation_states() -> [&'static str; 18] {
+fn cocat_animation_states() -> [&'static str; 18] {
     [
         "bootWake",
         "idle",
@@ -1711,7 +1711,7 @@ mod tests {
         assert!(response
             .unlocked
             .iter()
-            .any(|event| event.corecat_animation_state == "achievementPop"));
+            .any(|event| event.cocat_animation_state == "achievementPop"));
         assert!(book.unlocks.contains_key("A001"));
 
         let duplicate = record_achievement_event(

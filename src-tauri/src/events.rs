@@ -17,8 +17,8 @@ pub const WORKSHOP_UPDATED: &str = "workshop:updated";
 /// Emitted when app settings are patched (settings command or tray handler).
 pub const SETTINGS_UPDATED: &str = "settings:updated";
 
-/// Emitted by the CoreCat interaction command to drive the animation one-shot.
-pub const CORECAT_INTERACTION_STATE: &str = "corecat:interaction-state";
+/// Emitted by the CoCat interaction command to drive the animation one-shot.
+pub const COCAT_INTERACTION_STATE: &str = "cocat:interaction-state";
 
 /// Emitted when the pet's resolved state transitions (Idle/Repair/...).
 pub const PET_STATE_CHANGED: &str = "pet:state-changed";

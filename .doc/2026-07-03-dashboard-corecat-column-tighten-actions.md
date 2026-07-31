@@ -7,25 +7,25 @@
 ## 2. Modified Modules / Files
 
 - `src/pages/dashboard/DashboardPage.tsx`
-  - Module: Dashboard CoreCat panel.
-  - Scope: Removed duplicated CoreCat interaction buttons and their local handler logic.
+  - Module: Dashboard CoCat panel.
+  - Scope: Removed duplicated CoCat interaction buttons and their local handler logic.
 - `src/styles/core-ui.css`
   - Module: Dashboard console layout.
-  - Scope: Further narrowed the left CoreCat/focus column and compacted focus ritual spacing.
+  - Scope: Further narrowed the left CoCat/focus column and compacted focus ritual spacing.
 
 ## 3. New & Optimized Content
 
 - Reduced the dashboard left column width from `180px` to `150px`.
 - Reduced the left column internal gap and focus ritual padding so the left block occupies less horizontal and vertical space.
-- Removed the dashboard "抚摸猫咪" and "整理零件" buttons because the same interactions are already available from the CoreCat right-click menu.
+- Removed the dashboard "抚摸猫咪" and "整理零件" buttons because the same interactions are already available from the CoCat right-click menu.
 - Removed now-unused dashboard-only local bubble state, audio feedback calls, and reward interaction command calls.
 
 ## 4. Fixed Bugs
 
 - Fixed the left dashboard area still occupying too much width and causing the right-side system device status cards to be clipped.
   - Phenomenon: GPU, network, and disk cards could not display their full content.
-  - Recurrence condition: Main dashboard uses a scaled pixel UI while the left CoreCat/focus column remains too wide.
-  - Repair scheme: Further reduce the left grid column width and remove duplicated CoreCat action controls from that area.
+  - Recurrence condition: Main dashboard uses a scaled pixel UI while the left CoCat/focus column remains too wide.
+  - Repair scheme: Further reduce the left grid column width and remove duplicated CoCat action controls from that area.
 
 ## 5. Pending Tasks & Optimization Items
 

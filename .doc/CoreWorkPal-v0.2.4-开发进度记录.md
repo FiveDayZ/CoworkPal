@@ -30,7 +30,7 @@
 
 | 功能 | 涉及文件（新增/修改） |
 |---|---|
-| #6 健康提醒 | `models.rs`（CatState 新增 Fatigued/NeedsBreak + CatRuntimeState 字段）、`pet/mod.rs`、`input_activity.rs`、`types/pet.ts`、`coreCatStates.ts` |
+| #6 健康提醒 | `models.rs`（CatState 新增 Fatigued/NeedsBreak + CatRuntimeState 字段）、`pet/mod.rs`、`input_activity.rs`、`types/pet.ts`、`coCatStates.ts` |
 | #4 专注力仪式 | `models.rs`（FocusSession 系列类型 + CatState 新增 DeepWork/Distracted）、`storage/mod.rs`、`app_state.rs`、`commands/mod.rs`、`events.rs`、`lib.rs`、`monitoring/mod.rs`、`pet/mod.rs`；**新增** `types/focus.ts`、`stores/focusStore.ts`；`tauriCommands.ts`、`petPanelWindowEvents.ts`、`PetQuickPanelWindow.tsx` |
 | #1 节律图谱 | `models.rs`（RhythmProfile + build_rhythm_profile）、`commands/mod.rs`、`lib.rs`；**新增** `types/rhythm.ts`；`tauriCommands.ts`、`workLogStore.ts`、`WorkLogPage.tsx` |
 
@@ -39,7 +39,7 @@
 | 修复 | 涉及文件 |
 |---|---|
 | tsc 编译失败 | `src/services/catStateRules.ts` |
-| Fatigued/NeedsBreak 动画接入 | `src/assets/pets/animation/{Fatigued,NeedsBreak}.{webp,json}`；`animationTypes.ts`、`spriteSheetAssets.ts`、`animationConfig.ts`、`coreCatStates.ts`、`run-corecat-animation-tests.mjs` |
+| Fatigued/NeedsBreak 动画接入 | `src/assets/pets/animation/{Fatigued,NeedsBreak}.{webp,json}`；`animationTypes.ts`、`spriteSheetAssets.ts`、`animationConfig.ts`、`coCatStates.ts`、`run-cocat-animation-tests.mjs` |
 | 专注菜单可见性 | `src-tauri/src/window_manager/mod.rs`、`src/styles/core-ui.css`、`src/pages/dashboard/DashboardPage.tsx`、`src/services/events/mainWindowEvents.ts` |
 
 ---
@@ -60,18 +60,18 @@
 ### 3.3 前端工程化（PR #6/#7）
 - **ErrorBoundary**：新增 class 组件，包裹 `MainWindow` 的 `<CurrentPage/>`，捕获渲染异常显示兜底 UI（替代白屏崩溃）
 - **去重**：`copyTextToClipboard`（原 WorkLog/Achievements 各一份）、`getDisplayedMetrics`（原 MonitorBar/Taskbar 各一份）提取为共享模块
-- **删死代码**：`monitorTaskbarText.ts`、`CoreCatLayer.tsx`、`CoreCatVfxLayer.tsx`（无引用的 shim）
+- **删死代码**：`monitorTaskbarText.ts`、`CoCatLayer.tsx`、`CoCatVfxLayer.tsx`（无引用的 shim）
 - **UpdateModal spinner**：补 `@keyframes spin`（原内联引用未定义的 keyframe，spinner 静默不转）；3 处 `catch (e: any)` → `unknown` + `toErrorMessage` helper
 
 ### 3.4 新功能 #6 健康提醒
-- CoreCat 连续工作过久（~90min）进入 **Fatigued** 状态，久坐无输入（~50min）进入 **NeedsBreak** 状态
+- CoCat 连续工作过久（~90min）进入 **Fatigued** 状态，久坐无输入（~50min）进入 **NeedsBreak** 状态
 - `CatRuntimeState` 新增 `last_input_at` / `continuous_work_since`，由 `input_activity` flush 维护
 - 健康提醒仅在系统无负载/温度告警时触发，不掩盖真实警报
 
 ### 3.5 新功能 #4 专注力仪式
-- 用户向 CoreCat 交付任务 + 设定专注块（25/50 分钟），期间检测输入活跃度
-- **分心检测**：专注会话中输入沉默 >90s 计一次分心（去重），CoreCat 进入 **DeepWork**（专注）或 **Distracted**（分心）状态
-- **工坊奖励落地**：完成时按 `focus_quality = 1 - 分心次数×0.15`（下限 0.4）计算质量，给 workshop parts/insight 奖励（修复了原 `reward_corecat_interaction` 只读不改的设计缺陷）
+- 用户向 CoCat 交付任务 + 设定专注块（25/50 分钟），期间检测输入活跃度
+- **分心检测**：专注会话中输入沉默 >90s 计一次分心（去重），CoCat 进入 **DeepWork**（专注）或 **Distracted**（分心）状态
+- **工坊奖励落地**：完成时按 `focus_quality = 1 - 分心次数×0.15`（下限 0.4）计算质量，给 workshop parts/insight 奖励（修复了原 `reward_cocat_interaction` 只读不改的设计缺陷）
 - 持久化：新增 `focus_sessions.json`；3 个命令 `start/complete/abandon_focus_session`
 
 ### 3.6 新功能 #1 节律图谱
@@ -81,7 +81,7 @@
 
 ### 3.7 动画接入（v0.2.4）
 - Fatigued/NeedsBreak 从临时复用 sleep/idle 改为**专属动画**
-- 接入全链路 5 处：`animationTypes`（union）、`spriteSheetAssets`（STATE_TO_STEM）、`animationConfig`（优先级 66/63）、`coreCatStates`（映射）、`run-corecat-animation-tests.mjs`（mappedStems）
+- 接入全链路 5 处：`animationTypes`（union）、`spriteSheetAssets`（STATE_TO_STEM）、`animationConfig`（优先级 66/63）、`coCatStates`（映射）、`run-cocat-animation-tests.mjs`（mappedStems）
 
 ### 3.8 专注菜单可见性（v0.2.4）
 - 宠物面板窗口高度 360 → **520px**，`overflow-y: auto`（带细滚动条），解决专注块被裁剪
@@ -139,7 +139,7 @@
 - **无 lint/format**：建议加 ESLint + Prettier + `eslint-plugin-react-hooks`
 - **无前端测试框架**：建议加 Vitest，覆盖 `catStateRules`、workshop 数值、成就触发等纯逻辑
 - **无非 release 的 CI**：当前 `.github/workflows/release.yml` 仅在 `v*` tag 触发，普通 push/PR 不跑任何检查
-- **文档纳入 git**：`docs/`、`.docs/` 被 gitignore，权威 CoreCat 规范仅本地存在
+- **文档纳入 git**：`docs/`、`.docs/` 被 gitignore，权威 CoCat 规范仅本地存在
 - **依赖偏旧**：`reqwest 0.11`（0.12 已发布）、`sysinfo 0.30`（0.34+）
 
 ### 5.3 新功能的潜在优化
@@ -167,7 +167,7 @@
 
 ### 6.2 测试覆盖
 - Rust 单元测试：原 54 个 → **64 个**（新增 10：3 健康提醒状态机 + 2 专注状态 + 3 focus_quality 计算 + 2 节律聚合）
-- 前端动画测试：`pnpm test:corecat`（`run-corecat-animation-tests.mjs`）验证 sprite sheet 尺寸/坐标一致性，新增 Fatigued/NeedsBreak 后已更新 mappedStems
+- 前端动画测试：`pnpm test:cocat`（`run-cocat-animation-tests.mjs`）验证 sprite sheet 尺寸/坐标一致性，新增 Fatigued/NeedsBreak 后已更新 mappedStems
 
 ### 6.3 新增文件清单
 **后端**：`src-tauri/src/events.rs`
@@ -192,7 +192,7 @@ cd src-tauri && cargo test --lib -- --skip commands::updater  # 跳过联网测�
 # 前端（注意：不要接 tail 管道判断退出码）
 npx tsc --noEmit; echo $?        # 必须退出码 0
 npx vite build; echo $?
-node scripts/run-corecat-animation-tests.mjs
+node scripts/run-cocat-animation-tests.mjs
 
 # 动画压缩（WebP）
 python -c "from PIL import Image; ..."  # LANCZOS 缩放 + 重写 JSON 坐标

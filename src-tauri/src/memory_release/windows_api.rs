@@ -9,7 +9,7 @@
 //!    them is essentially zero-impact on perceived performance. Note: this
 //!    particular command does **not** require elevation.
 //! 2. `empty_current_process_working_set()` — `SetProcessWorkingSetSize(-1, -1)`
-//!    on `GetCurrentProcess()`, the documented way to trim CoreCat's own
+//!    on `GetCurrentProcess()`, the documented way to trim CoCat's own
 //!    working set. Pages are paged back in lazily on next access.
 //!
 //! Both are wrapped in `catch_unwind` by the caller (`mod.rs`) so a panic in
@@ -91,7 +91,7 @@ mod imp {
         status.is_ok()
     }
 
-    /// Trim CoreCat's own working set to the minimum. `SetProcessWorkingSetSize`
+    /// Trim CoCat's own working set to the minimum. `SetProcessWorkingSetSize`
     /// with `(SIZE_T)-1, (SIZE_T)-1` is the documented "empty working set"
     /// sentinel (equivalent to `EmptyWorkingSet` from psapi).
     ///
@@ -128,7 +128,7 @@ pub fn purge_low_priority_standby() -> bool {
     imp::purge_low_priority_standby()
 }
 
-/// Trim CoreCat's own working set to the minimum. No-op returning `false` on
+/// Trim CoCat's own working set to the minimum. No-op returning `false` on
 /// non-Windows.
 pub fn empty_current_process_working_set() -> bool {
     imp::empty_current_process_working_set()
@@ -139,7 +139,7 @@ pub fn empty_current_process_working_set() -> bool {
 // ============================================================================
 // These run only inside `coworkpal-memory-helper.exe`, never in the main
 // process, so a panic here aborts the helper (which writes an error result to
-// the result file) without affecting CoreCat itself.
+// the result file) without affecting CoCat itself.
 
 /// Flags the helper uses to perform system-wide cleanup.
 #[cfg(windows)]

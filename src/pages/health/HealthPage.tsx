@@ -111,7 +111,7 @@ function HealthReportBody({ report }: { report: HealthTrendReport }) {
         </>
       ) : (
         <div className="cwp-health-empty">
-          CoreCat 还没有积累到可分析的样本。保持常驻几天后，这里会生成完整的健康趋势画像。
+          CoCat 还没有积累到可分析的样本。保持常驻几天后，这里会生成完整的健康趋势画像。
         </div>
       )}
     </div>

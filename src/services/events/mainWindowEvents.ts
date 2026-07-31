@@ -115,7 +115,7 @@ export function registerMainWindowEvents() {
       // enabled notifications. The settings card's "last release" line is
       // driven by the settings:updated event (the backend persists
       // memoryLastRelease), so the toast only carries the summary text.
-      // The CoreCat speech bubble is updated separately in petWindowEvents
+      // The CoCat speech bubble is updated separately in petWindowEvents
       // (each window owns its own store instance).
       maybeNotifyMemoryRelease(event.payload);
     }),

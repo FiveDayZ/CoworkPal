@@ -8,7 +8,7 @@
 
 - `src/styles/core-ui.css`
   - Module: Dashboard console layout.
-  - Scope: Left CoreCat/focus column width and right system device metric display space.
+  - Scope: Left CoCat/focus column width and right system device metric display space.
 
 ## 3. New & Optimized Content
 

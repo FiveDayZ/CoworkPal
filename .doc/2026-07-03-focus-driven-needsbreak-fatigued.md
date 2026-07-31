@@ -7,22 +7,22 @@
 ## 2. Modified Modules / Files
 
 - `src/services/catStateRules.ts`
-  - Module: Frontend CoreCat fallback state resolver.
+  - Module: Frontend CoCat fallback state resolver.
   - Scope: Added focus-session context for `DeepWork`, `Distracted`, `Fatigued`, and post-focus `NeedsBreak`.
 - `src/services/events/petWindowEvents.ts`
   - Module: Pet window event bridge.
   - Scope: Added `focus:session-updated` handling and focus nudge state forwarding into fallback pet-state derivation.
 - `src-tauri/src/models.rs`
-  - Module: Native CoreCat runtime model.
+  - Module: Native CoCat runtime model.
   - Scope: Added active focus timing and short post-focus nudge fields to `CatRuntimeState`.
 - `src-tauri/src/pet/mod.rs`
-  - Module: Native CoreCat pet state resolver.
+  - Module: Native CoCat pet state resolver.
   - Scope: Added focus-session fatigue and post-focus nudge rules.
 - `src-tauri/src/commands/mod.rs`
   - Module: Focus ritual Tauri commands.
   - Scope: Writes active focus timing on start and post-focus nudge state on complete/abandon.
-- `scripts/run-corecat-animation-tests.mjs`
-  - Module: CoreCat animation/state regression checks.
+- `scripts/run-cocat-animation-tests.mjs`
+  - Module: CoCat animation/state regression checks.
   - Scope: Added coverage for focus-driven `Fatigued`, `DeepWork`, and `NeedsBreak` fallback states.
 
 ## 3. New & Optimized Content
@@ -56,7 +56,7 @@
 ## 6. Supplementary Remarks
 
 - Validation completed:
-  - `node scripts\run-corecat-animation-tests.mjs` passed.
+  - `node scripts\run-cocat-animation-tests.mjs` passed.
   - `node_modules\.bin\tsc --noEmit` passed.
   - `cargo test --manifest-path src-tauri\Cargo.toml pet::` passed.
   - `cargo test --manifest-path src-tauri\Cargo.toml commands::` passed.

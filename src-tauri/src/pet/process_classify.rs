@@ -1,6 +1,6 @@
 //! Pure-local process-name → category classifier.
 //!
-//! Used to pick a "story lead" process so CoreCat's speech-bubble text can
+//! Used to pick a "story lead" process so CoCat's speech-bubble text can
 //! reference what the user is actually doing (compiling, browsing, …) without
 //! adding new `CatState` variants. The full process list stays local; only the
 //! chosen category name influences the bubble text.

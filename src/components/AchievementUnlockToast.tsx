@@ -42,7 +42,7 @@ export function AchievementUnlockToast() {
         <span>成就解锁</span>
         <strong>{current.title}</strong>
         <em>
-          +{current.points} 点 · CoreCat {current.corecatAnimationState}
+          +{current.points} 点 · CoCat {current.cocatAnimationState}
         </em>
       </div>
       <button

@@ -36,7 +36,7 @@ export interface AchievementUnlockedEvent {
   unlockedAt: number;
   isHidden: boolean;
   unlockSnapshot: Record<string, number> | null;
-  corecatAnimationState: "achievementPop";
+  cocatAnimationState: "achievementPop";
 }
 
 export interface TrackAchievementEventResponse {

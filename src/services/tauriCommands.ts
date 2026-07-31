@@ -25,7 +25,7 @@ import type { NoteBook, NoteColor, NoteKind } from "../types/notes";
 import type { TodaySuggestions } from "../types/suggestions";
 import { defaultModuleLevels, type WorkshopState } from "../types/workshop";
 
-export type CoreCatInteractionAction = "pet" | "sortParts";
+export type CoCatInteractionAction = "pet" | "sortParts";
 
 function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -119,7 +119,7 @@ const browserSnapshot: HardwareSnapshot = {
 const browserAchievements: AchievementCard[] = [
   {
     achievementId: "A001",
-    title: "第一次唤醒 CoreCat",
+    title: "第一次唤醒 CoCat",
     categoryKey: "daily_use",
     difficultyKey: "entry",
     points: 5,
@@ -329,17 +329,17 @@ function createBrowserWorkLogReport(date = todayKey()): WorkLogReport {
     summary:
       date === todayKey()
         ? "浏览器预览数据：Tauri 运行后会基于真实硬件采样自动生成日志。"
-        : "暂无足够数据：保持 CoreCat 运行后，将自动生成当天工作投入度。",
+        : "暂无足够数据：保持 CoCat 运行后，将自动生成当天工作投入度。",
     activeSeconds: date === todayKey() ? 3600 : 0,
     sampleCount: date === todayKey() ? 60 : 0,
     dimensions: [
       {
         key: "duration",
-        title: "CoreCat 运行时长",
+        title: "CoCat 运行时长",
         score: date === todayKey() ? 5 : 0,
         maxScore: 30,
         value: date === todayKey() ? "1.0h" : "0.0h",
-        explanation: "按当日 CoreCat 连续在线与生产观察时长折算。",
+        explanation: "按当日 CoCat 连续在线与生产观察时长折算。",
         facts: [
           { label: "运行时长", value: date === todayKey() ? "1h 0m" : "0h 0m" },
           { label: "采样记录", value: date === todayKey() ? "60 次" : "0 次" },
@@ -503,21 +503,21 @@ function createBrowserDailyWorkAssessment(date = todayKey()): DailyWorkAssessmen
           progress: 1,
           nextLevelAt: 3,
         },
-    corecatCommentary: isToday
+    cocatCommentary: isToday
       ? {
           tone: "encouragement",
-          title: "CoreCat 点评：节奏已经成型",
-          body: "预览数据里这张卡偏稳定。工况解释：正式运行后 CoreCat 会用真实硬件、历史基线和输入节奏判断异常来源。",
+          title: "CoCat 点评：节奏已经成型",
+          body: "预览数据里这张卡偏稳定。工况解释：正式运行后 CoCat 会用真实硬件、历史基线和输入节奏判断异常来源。",
         }
       : {
           tone: "tease",
-          title: "CoreCat 吐槽：这张卡还在孵化",
-          body: "这一天暂时没有足够采样，CoreCat 只能先把它记成观察卡。工况解释：样本不足时不做异常判断。",
+          title: "CoCat 吐槽：这张卡还在孵化",
+          body: "这一天暂时没有足够采样，CoCat 只能先把它记成观察卡。工况解释：样本不足时不做异常判断。",
         },
     score: report.totalScore,
-    corecatSummary: isToday
-      ? "浏览器预览数据：CoreCat 会在 Tauri 运行后根据真实硬件与键鼠节奏生成每日工作画像。"
-      : "这一天暂时没有足够的本地采样数据，CoreCat 还无法形成可靠画像。",
+    cocatSummary: isToday
+      ? "浏览器预览数据：CoCat 会在 Tauri 运行后根据真实硬件与键鼠节奏生成每日工作画像。"
+      : "这一天暂时没有足够的本地采样数据，CoCat 还无法形成可靠画像。",
     badgeIds: isToday ? ["STEADY", "OBSERVE"] : ["OBSERVE"],
     workprint,
     baseline: {
@@ -575,7 +575,7 @@ function createBrowserDailyWorkAssessment(date = todayKey()): DailyWorkAssessmen
     mvpSegments: timeline.slice(1, 3),
     highlights: [
       {
-        title: "CoreCat 已准备记录节奏",
+        title: "CoCat 已准备记录节奏",
         body: "真实运行后，这里会展示今天最有代表性的工作片段。",
         severity: "positive",
         metricValue: isToday ? "Preview" : null,
@@ -591,8 +591,8 @@ function createBrowserDailyWorkAssessment(date = todayKey()): DailyWorkAssessmen
     ],
     suggestions: [
       {
-        title: "保持 CoreCat 常驻",
-        body: "让 CoreCat 安静观察一段时间后，每日工况报告会更贴近你的实际工作节奏。",
+        title: "保持 CoCat 常驻",
+        body: "让 CoCat 安静观察一段时间后，每日工况报告会更贴近你的实际工作节奏。",
         severity: "neutral",
         metricValue: null,
       },
@@ -671,7 +671,7 @@ function createBrowserDailyWorkAssessmentHistory(
       },
       workprint: createBrowserWorkprint("stableMaintenance"),
       score: 42,
-      corecatSummary: "今天的预览画像偏平稳：有持续观察，也有几段轻量推进。",
+      cocatSummary: "今天的预览画像偏平稳：有持续观察，也有几段轻量推进。",
       badgeIds: ["STEADY", "OBSERVE"],
       hasTimeline: true,
       hasData: true,
@@ -690,7 +690,7 @@ function createBrowserDailyWorkAssessmentHistory(
       },
       workprint: createBrowserWorkprint("buildBurst"),
       score: 78,
-      corecatSummary: "昨天出现过更明显的 CPU 与磁盘高峰，像是一段集中构建窗口。",
+      cocatSummary: "昨天出现过更明显的 CPU 与磁盘高峰，像是一段集中构建窗口。",
       badgeIds: ["BUILD", "HEAT"],
       hasTimeline: true,
       hasData: true,
@@ -709,7 +709,7 @@ function createBrowserDailyWorkAssessmentHistory(
       },
       workprint: createBrowserWorkprint("deepFocus"),
       score: 84,
-      corecatSummary: "长时间稳定输入，压力适中，更像专注推进的一天。",
+      cocatSummary: "长时间稳定输入，压力适中，更像专注推进的一天。",
       badgeIds: ["FOCUS", "FLOW"],
       hasTimeline: true,
       hasData: true,
@@ -728,7 +728,7 @@ function createBrowserDailyWorkAssessmentHistory(
       },
       workprint: createBrowserWorkprint("unknown"),
       score: 0,
-      corecatSummary: "这一天没有足够的预览采样，历史墙会以灰态保留这个空日期。",
+      cocatSummary: "这一天没有足够的预览采样，历史墙会以灰态保留这个空日期。",
       badgeIds: ["EMPTY"],
       hasTimeline: false,
       hasData: false,
@@ -747,7 +747,7 @@ function createBrowserDailyWorkAssessmentHistory(
       },
       workprint: createBrowserWorkprint("stableMaintenance"),
       score: 24,
-      corecatSummary: "这天记录较轻，适合和高投入日期放在一起对照节奏变化。",
+      cocatSummary: "这天记录较轻，适合和高投入日期放在一起对照节奏变化。",
       badgeIds: ["LIGHT", "OBSERVE"],
       hasTimeline: false,
       hasData: true,
@@ -789,7 +789,7 @@ function createBrowserDailyWorkAssessmentTrend(
     summary:
       summaries.length > 0
         ? `浏览器预览：近 ${summaries.length} 个有记录日里，平均画像分 ${averageScore}，最常见的是${dominantDayTypeTitle}。`
-        : "CoreCat 还没有足够的历史日报来判断近期节奏。",
+        : "CoCat 还没有足够的历史日报来判断近期节奏。",
     insights: [
       {
         title: "近期主导形态",
@@ -931,14 +931,14 @@ export async function getWorkshopState(): Promise<WorkshopState> {
   return invoke<WorkshopState>("get_workshop_state");
 }
 
-export async function rewardCoreCatInteraction(
-  action: CoreCatInteractionAction,
+export async function rewardCoCatInteraction(
+  action: CoCatInteractionAction,
 ): Promise<WorkshopState> {
   if (!isTauriRuntime()) {
     return { ...browserWorkshop };
   }
 
-  return invoke<WorkshopState>("reward_corecat_interaction", { action });
+  return invoke<WorkshopState>("reward_cocat_interaction", { action });
 }
 
 export async function getWorkLogReport(date?: string): Promise<WorkLogReport> {

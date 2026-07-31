@@ -18,7 +18,7 @@ export function AboutPage() {
           <div>
             <h1 className="cwp-about-hero-title">CoworkPal 桌面伙伴</h1>
             <p className="cwp-about-hero-subtitle">
-              让工作更有序，让创意更自由。这是一款纯本地运行的轻量级桌面伙伴，把枯燥的硬件数据变成一只像素猫咪 CoreCat 的活体表演。实时监控 CPU / GPU / 内存 / 温度等指标，自动生成每日工况日报与健康趋势体检，还能随手记录笔记与备忘；CoreCat 会根据你的负载和进程讲出专属小故事，并在工坊养成与成就收集中陪你走过每一个工作日——是贴心的工作伙伴，也是不打扰的观察者。
+              让工作更有序，让创意更自由。这是一款纯本地运行的轻量级桌面伙伴，把枯燥的硬件数据变成一只像素猫咪 CoCat 的活体表演。实时监控 CPU / GPU / 内存 / 温度等指标，自动生成每日工况日报与健康趋势体检，还能随手记录笔记与备忘；CoCat 会根据你的负载和进程讲出专属小故事，并在工坊养成与成就收集中陪你走过每一个工作日——是贴心的工作伙伴，也是不打扰的观察者。
             </p>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}>
               <span className="cwp-about-version-tag">Version {typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.1.0"} (Release-Build)</span>
@@ -43,7 +43,7 @@ export function AboutPage() {
             </div>
           </div>
           <img
-            src={iconAssets.corecatAvatar}
+            src={iconAssets.cocatAvatar}
             alt="Mascot Celebrate"
             className="cwp-about-hero-mascot"
           />

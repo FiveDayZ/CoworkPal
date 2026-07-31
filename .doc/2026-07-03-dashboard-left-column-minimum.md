@@ -8,12 +8,12 @@
 
 - `src/styles/core-ui.css`
   - Module: Dashboard console layout.
-  - Scope: CoreCat avatar column width, avatar card density, and focus ritual control density.
+  - Scope: CoCat avatar column width, avatar card density, and focus ritual control density.
 
 ## 3. New & Optimized Content
 
-- Reduced the dashboard left CoreCat/focus column from `170px` to `136px`.
-- Tightened the CoreCat avatar card:
+- Reduced the dashboard left CoCat/focus column from `170px` to `136px`.
+- Tightened the CoCat avatar card:
   - Reduced card padding.
   - Reduced speech bubble height, padding, and font size.
   - Reduced avatar canvas and avatar image height.
@@ -26,7 +26,7 @@
 
 ## 4. Fixed Bugs
 
-- Fixed the left CoreCat/focus area still occupying more width than needed.
+- Fixed the left CoCat/focus area still occupying more width than needed.
   - Phenomenon: The avatar and focus ritual column took too much horizontal space, limiting the right-side system metric cards.
   - Recurrence condition: The left dashboard column remained at `170px` with larger inner avatar and focus control spacing.
   - Repair scheme: Reduce the left column to a near-minimum fixed width and compact the inner controls so content still fits.

@@ -7,7 +7,7 @@ import { playAudioFeedback } from "../../services/audioFeedback";
 import {
   hidePetPanel,
   hidePetWindow,
-  rewardCoreCatInteraction,
+  rewardCoCatInteraction,
   saveWindowPosition,
   showMainRoute,
   showPetPanel,
@@ -22,37 +22,37 @@ import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { CatState } from "../../types/pet";
 import { ContextMenu, PetSpeechBubble } from "../../ui/components";
-import { CoreCat } from "../../pet/corecat/CoreCat";
-import type { CoreCatDebugInfo } from "../../pet/corecat/CoreCat";
+import { CoCat } from "../../pet/cocat/CoCat";
+import type { CoCatDebugInfo } from "../../pet/cocat/CoCat";
 import {
-  CoreCatDebugPanel,
-  type CoreCatDebugControls,
-} from "../../pet/corecat/debug/CoreCatDebugPanel";
+  CoCatDebugPanel,
+  type CoCatDebugControls,
+} from "../../pet/cocat/debug/CoCatDebugPanel";
 import {
-  CoreCatQaPanel,
-  type CoreCatQaRunState,
-} from "../../pet/corecat/debug/CoreCatQaPanel";
-import { CoreCatAssetPanel } from "../../pet/corecat/debug/CoreCatAssetPanel";
+  CoCatQaPanel,
+  type CoCatQaRunState,
+} from "../../pet/cocat/debug/CoCatQaPanel";
+import { CoCatAssetPanel } from "../../pet/cocat/debug/CoCatAssetPanel";
 import {
-  getCoreCatQaSequence,
-  getCoreCatQaStepHoldMs,
-  shouldCoreCatQaStepAutoFallback,
-  type CoreCatQaSequenceId,
-} from "../../pet/corecat/debug/coreCatQaSequences";
-import { coreCatRuntimeAssetReport } from "../../pet/corecat/assets/coreCatAssetModules";
-import { CoreCatPerformancePanel } from "../../pet/corecat/performance/CoreCatPerformancePanel";
-import type { CoreCatPerformanceReport } from "../../pet/corecat/performance/coreCatPerformanceTypes";
-import { CORE_CAT_ANIMATION_CONFIG } from "../../pet/corecat/animation/animationConfig";
-import type { CoreCatAnimationState } from "../../pet/corecat/animation/animationTypes";
-import { mapCatStateToCoreCatState } from "../../pet/corecat/animation/coreCatStates";
-import { getCoreCatOneShotDurationMs } from "../../pet/corecat/animation/animationStateMachine";
-import { getSpriteSheetOneShotDurationMs } from "../../pet/corecat/animation/spriteSheetAssets";
-import { resolveCoreCatHoverHitArea } from "../../pet/corecat/animation/hoverHitArea";
+  getCoCatQaSequence,
+  getCoCatQaStepHoldMs,
+  shouldCoCatQaStepAutoFallback,
+  type CoCatQaSequenceId,
+} from "../../pet/cocat/debug/coCatQaSequences";
+import { coCatRuntimeAssetReport } from "../../pet/cocat/assets/coCatAssetModules";
+import { CoCatPerformancePanel } from "../../pet/cocat/performance/CoCatPerformancePanel";
+import type { CoCatPerformanceReport } from "../../pet/cocat/performance/coCatPerformanceTypes";
+import { CORE_CAT_ANIMATION_CONFIG } from "../../pet/cocat/animation/animationConfig";
+import type { CoCatAnimationState } from "../../pet/cocat/animation/animationTypes";
+import { mapCatStateToCoCatState } from "../../pet/cocat/animation/coCatStates";
+import { getCoCatOneShotDurationMs } from "../../pet/cocat/animation/animationStateMachine";
+import { getSpriteSheetOneShotDurationMs } from "../../pet/cocat/animation/spriteSheetAssets";
+import { resolveCoCatHoverHitArea } from "../../pet/cocat/animation/hoverHitArea";
 
 type VisualCatState = CatState;
 type InteractionRequest = {
   requestId: number;
-  state: CoreCatAnimationState;
+  state: CoCatAnimationState;
 };
 
 const dragStartThresholdPx = 3;
@@ -70,7 +70,7 @@ const compactPetWindowSize = {
   height: 166,
 };
 
-const initialQaRun: CoreCatQaRunState = {
+const initialQaRun: CoCatQaRunState = {
   cleanupOk: null,
   isRunning: false,
   sequenceId: null,
@@ -95,7 +95,7 @@ export function PetWindow() {
   const [mouseOffset, setMouseOffset] = useState({ x: 0, y: 0 });
   const [interactionRequest, setInteractionRequest] =
     useState<InteractionRequest | null>(null);
-  const [debugControls, setDebugControls] = useState<CoreCatDebugControls>({
+  const [debugControls, setDebugControls] = useState<CoCatDebugControls>({
     forceLowPower: false,
     pauseVfx: false,
     showSkeletonBounds: false,
@@ -103,10 +103,10 @@ export function PetWindow() {
     stateOverride: null,
     updateProgress: 0.35,
   });
-  const [debugInfo, setDebugInfo] = useState<CoreCatDebugInfo | null>(null);
+  const [debugInfo, setDebugInfo] = useState<CoCatDebugInfo | null>(null);
   const [performanceReport, setPerformanceReport] =
-    useState<CoreCatPerformanceReport | null>(null);
-  const [qaRun, setQaRun] = useState<CoreCatQaRunState>(initialQaRun);
+    useState<CoCatPerformanceReport | null>(null);
+  const [qaRun, setQaRun] = useState<CoCatQaRunState>(initialQaRun);
   const dragCandidateRef = useRef(false);
   const dragMovedRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -118,17 +118,17 @@ export function PetWindow() {
   const noddingTimerRef = useRef<number | null>(null);
   const debugInfoTimerRef = useRef(0);
   const debugInfoStateRef = useRef<string | null>(null);
-  const debugInfoRef = useRef<CoreCatDebugInfo | null>(null);
+  const debugInfoRef = useRef<CoCatDebugInfo | null>(null);
   const qaCancelledRef = useRef(false);
   const windowLowPowerTimerRef = useRef<number | null>(null);
   const previousStateRef = useRef<VisualCatState>("Idle");
   // 用于检测 Tauri 原生拖拽释放：onMoved 停止触发后 120ms 视为拖拽结束
   const dropLandingTimerRef = useRef<number | null>(null);
   // 当一个 one-shot 动画正在播放时，新的 one-shot 请求排队等待
-  const pendingInteractionStateRef = useRef<CoreCatAnimationState | null>(null);
+  const pendingInteractionStateRef = useRef<CoCatAnimationState | null>(null);
   const interactionRequestIdRef = useRef(0);
   const errorGlitchArmedRef = useRef(true);
-  const reportedVisualAnimationRef = useRef<CoreCatAnimationState | null>(null);
+  const reportedVisualAnimationRef = useRef<CoCatAnimationState | null>(null);
   // 自引用的动画结束处理函数（存在 ref 里以支持递归调用）
   const finishInteractionRef = useRef<(() => void) | null>(null);
 
@@ -149,14 +149,14 @@ export function PetWindow() {
     (snapshot?.memoryUsagePercent ?? 0) >= systemHighLoadMemoryThreshold;
 
   const handleDebugControlsChange = useCallback(
-    (next: Partial<CoreCatDebugControls>) => {
+    (next: Partial<CoCatDebugControls>) => {
       setDebugControls((current) => ({ ...current, ...next }));
     },
     [],
   );
 
   const handlePerformanceReport = useCallback(
-    (report: CoreCatPerformanceReport) => {
+    (report: CoCatPerformanceReport) => {
       setPerformanceReport(report);
     },
     [],
@@ -172,24 +172,24 @@ export function PetWindow() {
   }, []);
 
   const getInteractionDurationMs = useCallback(
-    (state: CoreCatAnimationState) => {
+    (state: CoCatAnimationState) => {
       if (state === "dataSorting") {
         return 5000;
       }
 
-      return getSpriteSheetOneShotDurationMs(state) ?? getCoreCatOneShotDurationMs(state);
+      return getSpriteSheetOneShotDurationMs(state) ?? getCoCatOneShotDurationMs(state);
     },
     [],
   );
 
-  function playInteractionState(state: CoreCatAnimationState) {
+  function playInteractionState(state: CoCatAnimationState) {
     const durationMs = getInteractionDurationMs(state);
     const requestId = ++interactionRequestIdRef.current;
     setInteractionRequest({
       requestId,
       state,
     });
-    recordCoreCatAnimationSeen(state, `interaction:${requestId}`);
+    recordCoCatAnimationSeen(state, `interaction:${requestId}`);
 
     if (durationMs != null) {
       interactionTimerRef.current = window.setTimeout(
@@ -199,19 +199,19 @@ export function PetWindow() {
     }
   }
 
-  function recordCoreCatAnimationSeen(
-    animationState: CoreCatAnimationState,
+  function recordCoCatAnimationSeen(
+    animationState: CoCatAnimationState,
     reason: string,
   ) {
     const occurredAt = Date.now();
     void trackAchievementEvent({
-      eventName: "corecat.animation_seen",
+      eventName: "cocat.animation_seen",
       occurredAt,
-      idempotencyKey: `corecat.animation_seen:${animationState}:${reason}:${occurredAt}`,
+      idempotencyKey: `cocat.animation_seen:${animationState}:${reason}:${occurredAt}`,
       payload: { animationState, reason },
       source: "pet-window",
     }).catch((error) => {
-      console.error("Failed to track CoreCat animation achievement event", error);
+      console.error("Failed to track CoCat animation achievement event", error);
     });
   }
 
@@ -231,7 +231,7 @@ export function PetWindow() {
   };
 
   const triggerInteractionState = useCallback(
-    (state: CoreCatAnimationState) => {
+    (state: CoCatAnimationState) => {
       const durationMs = getInteractionDurationMs(state);
 
       if (interactionTimerRef.current != null) {
@@ -252,7 +252,7 @@ export function PetWindow() {
     [getInteractionDurationMs],
   );
 
-  const handleDebugInfo = useCallback((info: CoreCatDebugInfo) => {
+  const handleDebugInfo = useCallback((info: CoCatDebugInfo) => {
     debugInfoRef.current = info;
     const now = performance.now();
     const stateKey = `${info.animationState}:${info.activeVfxCount}:${info.transitionDurationMs}`;
@@ -276,8 +276,8 @@ export function PetWindow() {
   }, []);
 
   const runQaSequence = useCallback(
-    (sequenceId: CoreCatQaSequenceId) => {
-      const sequence = getCoreCatQaSequence(sequenceId);
+    (sequenceId: CoCatQaSequenceId) => {
+      const sequence = getCoCatQaSequence(sequenceId);
       qaCancelledRef.current = false;
       setDebugControls((current) => ({ ...current, stateOverride: null }));
       setQaRun({
@@ -310,9 +310,9 @@ export function PetWindow() {
           await wait(160);
           const enteredState = debugInfoRef.current?.animationState;
           const entered = enteredState === state;
-          await wait(getCoreCatQaStepHoldMs(state));
+          await wait(getCoCatQaStepHoldMs(state));
           const currentState = debugInfoRef.current?.animationState;
-          const shouldFallback = shouldCoreCatQaStepAutoFallback(state);
+          const shouldFallback = shouldCoCatQaStepAutoFallback(state);
           const fallbackOk = !shouldFallback || currentState !== state;
           const status = entered && fallbackOk ? "passed" : "failed";
           const note = entered
@@ -351,13 +351,13 @@ export function PetWindow() {
     const animationState =
       lowPowerModeEnabled || staticModeEnabled
         ? "lowPowerStatic"
-        : mapCatStateToCoreCatState(visualState);
+        : mapCatStateToCoCatState(visualState);
     if (reportedVisualAnimationRef.current === animationState) {
       return;
     }
 
     reportedVisualAnimationRef.current = animationState;
-    recordCoreCatAnimationSeen(animationState, "visual-state");
+    recordCoCatAnimationSeen(animationState, "visual-state");
   }, [lowPowerModeEnabled, staticModeEnabled, visualState]);
 
   useEffect(() => {
@@ -522,7 +522,7 @@ export function PetWindow() {
   }, []);
 
   useEffect(() => {
-    const bootWakeKey = "corecat.bootWake.played";
+    const bootWakeKey = "cocat.bootWake.played";
 
     try {
       if (window.sessionStorage.getItem(bootWakeKey) === "1") {
@@ -569,8 +569,8 @@ export function PetWindow() {
       return undefined;
     }
 
-    void listen<CoreCatAnimationState>(
-      "corecat:interaction-state",
+    void listen<CoCatAnimationState>(
+      "cocat:interaction-state",
       (event) => {
         if (event.payload === "panelOpen") {
           if (!usePetStore.getState().isPanelOpen) {
@@ -662,13 +662,13 @@ export function PetWindow() {
   }
 
   function triggerRewardAction(action: "pet" | "sortParts") {
-    void rewardCoreCatInteraction(action).catch((error) => {
-      console.error("Failed to reward CoreCat interaction:", error);
+    void rewardCoCatInteraction(action).catch((error) => {
+      console.error("Failed to reward CoCat interaction:", error);
     });
   }
 
   function handlePointerMove(event: MouseEvent<HTMLDivElement>) {
-    const hoverHitArea = resolveCoreCatHoverHitArea(
+    const hoverHitArea = resolveCoCatHoverHitArea(
       event.clientX,
       event.clientY,
       petCanvasRef.current?.getBoundingClientRect() ?? null,
@@ -725,7 +725,7 @@ export function PetWindow() {
     >
       <div className="cwp-pet-stage">
         <div
-          aria-label="CoreCat"
+          aria-label="CoCat"
           className={`cwp-pet-container ${isDragging ? "is-dragging" : ""} ${
             staticModeEnabled ? "is-static-mode" : ""
           } ${lowPowerModeEnabled ? "is-low-power-mode" : ""}`}
@@ -778,11 +778,11 @@ export function PetWindow() {
           tabIndex={0}
         >
           <PetSpeechBubble visible={bubbleVisible}>
-            {catMessage || "CoreCat 正在守护你的工作站。"}
+            {catMessage || "CoCat 正在守护你的工作站。"}
           </PetSpeechBubble>
 
           <div className="cwp-pet-sprite-canvas" ref={petCanvasRef}>
-            <CoreCat
+            <CoCat
               catState={visualState}
               degradeVfx={systemHighLoadDegrade}
               debugPauseVfx={debugControls.pauseVfx}
@@ -845,7 +845,7 @@ export function PetWindow() {
             },
             {
               key: "hide",
-              label: "隐藏 coreCat",
+              label: "隐藏 coCat",
               danger: true,
               onClick: () => runContextMenuAction(() => void hidePetWindow()),
             },
@@ -854,18 +854,18 @@ export function PetWindow() {
         />
         {import.meta.env.DEV ? (
           <>
-            <CoreCatDebugPanel
+            <CoCatDebugPanel
               controls={debugControls}
               info={debugInfo}
               onChange={handleDebugControlsChange}
             />
-            <CoreCatPerformancePanel report={performanceReport} />
-            <CoreCatQaPanel
+            <CoCatPerformancePanel report={performanceReport} />
+            <CoCatQaPanel
               onRun={runQaSequence}
               onStop={stopQaRun}
               run={qaRun}
             />
-            <CoreCatAssetPanel report={coreCatRuntimeAssetReport} />
+            <CoCatAssetPanel report={coCatRuntimeAssetReport} />
           </>
         ) : null}
       </div>
@@ -886,9 +886,9 @@ function statusLightClass(state: CatState) {
 }
 
 function updateQaStep(
-  steps: CoreCatQaRunState["steps"],
+  steps: CoCatQaRunState["steps"],
   index: number,
-  patch: Partial<CoreCatQaRunState["steps"][number]>,
+  patch: Partial<CoCatQaRunState["steps"][number]>,
 ) {
   return steps.map((step, currentIndex) =>
     currentIndex === index ? { ...step, ...patch } : step,

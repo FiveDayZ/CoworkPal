@@ -97,7 +97,7 @@ export function registerPetWindowEvents() {
 
   unlisteners.push(
     listen<MemoryReleaseResult>("memory:release-completed", (event) => {
-      // Surface the release result in the CoreCat speech bubble. The bubble's
+      // Surface the release result in the CoCat speech bubble. The bubble's
       // visibility is gated by `enablePetBubble` in PetWindow; updating
       // catMessage here retriggers its show/hide timer so the user sees how
       // much memory was freed. Runs in the pet window's own JS context so the

@@ -15,7 +15,7 @@ export interface PetStore {
 
 export const usePetStore = create<PetStore>((set) => ({
   catState: "Idle",
-  catMessage: "CoreCat 正在待命。",
+  catMessage: "CoCat 正在待命。",
   isPanelOpen: false,
   setCatState: (catState) => set({ catState }),
   setCatMessage: (catMessage) => set({ catMessage }),

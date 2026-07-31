@@ -155,7 +155,7 @@ mod tests {
         let markdown = concat!(
             "### 4.1 入门（简单）\n",
             "| ID | 分类 | 成就名称 | 点数 | 隐藏 | 徽章名称 | 自动解锁条件 |\n",
-            "| A001 | 日常使用类 | 第一次唤醒 CoreCat | 5 | 否 | ",
+            "| A001 | 日常使用类 | 第一次唤醒 CoCat | 5 | 否 | ",
             "`cwp_badge_daily_first_launch_entry` | `app.launch.count >= 1`。 |\n",
         );
 

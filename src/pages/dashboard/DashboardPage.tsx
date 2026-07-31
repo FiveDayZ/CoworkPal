@@ -166,7 +166,7 @@ export function DashboardPage() {
               </div>
               <div className="cwp-hero-pet-canvas">
                 <img
-                  src={icons.corecatAvatar}
+                  src={icons.cocatAvatar}
                   alt="Hero Companion"
                   className="cwp-hero-pet-img"
                 />
@@ -177,7 +177,7 @@ export function DashboardPage() {
               </div>
             </div>
 
-            {/* Focus ritual card: lives under the CoreCat avatar so it does not
+            {/* Focus ritual card: lives under the CoCat avatar so it does not
                 consume the metric workspace. */}
             <div className="cwp-dashboard-focus">
               {activeFocusSession ? (
@@ -220,7 +220,7 @@ export function DashboardPage() {
                   <input
                     className="cwp-dashboard-focus-input"
                     type="text"
-                    placeholder="向 CoreCat 交付一个任务…"
+                    placeholder="向 CoCat 交付一个任务…"
                     value={focusTask}
                     maxLength={40}
                     onChange={(event) => setFocusTask(event.target.value)}

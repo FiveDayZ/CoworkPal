@@ -41,7 +41,7 @@ function notifyPanelClose() {
     return;
   }
 
-  void emit("corecat:interaction-state", "panelClose");
+  void emit("cocat:interaction-state", "panelClose");
 }
 
 export function PetQuickPanelWindow() {
@@ -244,7 +244,7 @@ export function PetQuickPanelWindow() {
           <div className="cwp-panel-title">
             <PetAvatar />
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <strong>CoreCat</strong>
+              <strong>CoCat</strong>
               <span className="cwp-panel-status-dot" />
             </div>
           </div>
@@ -287,7 +287,7 @@ export function PetQuickPanelWindow() {
         </div>
 
         <p className="cwp-panel-message" style={{ minHeight: "34px", margin: "10px 0" }}>
-          {catMessage || "CoreCat 正在观察当前工作区。"}
+          {catMessage || "CoCat 正在观察当前工作区。"}
         </p>
 
         <div className="cwp-panel-chips">
@@ -321,7 +321,7 @@ export function PetQuickPanelWindow() {
           </div>
         </div>
 
-        {/* Focus ritual: deliver a task to CoreCat and stay heads-down. */}
+        {/* Focus ritual: deliver a task to CoCat and stay heads-down. */}
         <div className="cwp-panel-focus">
           {activeFocusSession ? (
             <div className="cwp-panel-focus-active">
@@ -365,7 +365,7 @@ export function PetQuickPanelWindow() {
               <input
                 className="cwp-panel-focus-input"
                 type="text"
-                placeholder="向 CoreCat 交付一个任务…"
+                placeholder="向 CoCat 交付一个任务…"
                 value={focusTask}
                 maxLength={40}
                 onChange={(event) => setFocusTask(event.target.value)}

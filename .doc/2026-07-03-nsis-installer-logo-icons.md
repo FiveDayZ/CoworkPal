@@ -11,7 +11,7 @@
   - Scope: Adds the installer header bitmap binding while keeping the installer and uninstaller icon configuration aligned with the CoworkPal application icon.
 - `src-tauri/icons/nsis-header.bmp`
   - Module: Windows NSIS installer visual asset.
-  - Scope: New 150px x 57px header bitmap generated from the existing CoworkPal/CoreCat program logo.
+  - Scope: New 150px x 57px header bitmap generated from the existing CoworkPal/CoCat program logo.
 
 ## 3. New & Optimized Content
 

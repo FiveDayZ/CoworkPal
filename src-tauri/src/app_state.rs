@@ -22,7 +22,7 @@ pub struct AppState {
     pub achievements: RwLock<AchievementBook>,
     pub notes: RwLock<NoteBook>,
     pub last_snapshot: RwLock<Option<HardwareSnapshot>>,
-    /// All CoreCat runtime fields behind one lock so state updates are atomic.
+    /// All CoCat runtime fields behind one lock so state updates are atomic.
     pub cat_runtime: RwLock<CatRuntimeState>,
     pub storage: StorageService,
     /// `Arc` so the adapter can be cloned into `spawn_blocking` closures,

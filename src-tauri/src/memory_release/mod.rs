@@ -4,7 +4,7 @@
 //! design):
 //!
 //! - **Light tier** (no elevation, used by auto-trigger and as UAC-decline
-//!   fallback): drop low-priority standby list + trim CoreCat's own working
+//!   fallback): drop low-priority standby list + trim CoCat's own working
 //!   set. Runs in-process in `windows_api`.
 //! - **Full tier** (elevation required, manual only): the full memreduct-style
 //!   sweep — system working set, all standby/modified lists, every process's

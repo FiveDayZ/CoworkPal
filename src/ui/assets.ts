@@ -1,18 +1,18 @@
 import appIcon from "../assets/icons/app_icon.png";
-import corecatAvatar from "../assets/icons/corecat_avatar.png";
+import cocatAvatar from "../assets/icons/cocat_avatar.png";
 import trayIcon from "../assets/icons/tray_icon.png";
 
 // Themed Icons imports
 import appIconOrange from "../assets/icons/app_icon_orange.png";
-import corecatAvatarOrange from "../assets/icons/corecat_avatar_orange.png";
+import cocatAvatarOrange from "../assets/icons/cocat_avatar_orange.png";
 import trayIconOrange from "../assets/icons/tray_icon_orange.png";
 
 import appIconBlue from "../assets/icons/app_icon_blue.png";
-import corecatAvatarBlue from "../assets/icons/corecat_avatar_blue.png";
+import cocatAvatarBlue from "../assets/icons/cocat_avatar_blue.png";
 import trayIconBlue from "../assets/icons/tray_icon_blue.png";
 
 import appIconGold from "../assets/icons/app_icon_gold.png";
-import corecatAvatarGold from "../assets/icons/corecat_avatar_gold.png";
+import cocatAvatarGold from "../assets/icons/cocat_avatar_gold.png";
 import trayIconGold from "../assets/icons/tray_icon_gold.png";
 
 import moduleCpu from "../assets/modules/module_cpu_core_workbench.svg";
@@ -26,29 +26,29 @@ import { useSettingsStore } from "../stores/settingsStore";
 
 export const iconAssets = {
   app: appIcon,
-  corecatAvatar,
+  cocatAvatar,
   tray: trayIcon,
 };
 
 export const themeIconAssets = {
   coworkpal: {
     app: appIconOrange,
-    corecatAvatar: corecatAvatarOrange,
+    cocatAvatar: cocatAvatarOrange,
     tray: trayIconOrange,
   },
   classic: {
     app: appIconOrange,
-    corecatAvatar: corecatAvatarOrange,
+    cocatAvatar: cocatAvatarOrange,
     tray: trayIconOrange,
   },
   cyber: {
     app: appIconBlue,
-    corecatAvatar: corecatAvatarBlue,
+    cocatAvatar: cocatAvatarBlue,
     tray: trayIconBlue,
   },
   steampunk: {
     app: appIconGold,
-    corecatAvatar: corecatAvatarGold,
+    cocatAvatar: cocatAvatarGold,
     tray: trayIconGold,
   },
 };

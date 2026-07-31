@@ -12,7 +12,7 @@ export type WorkDayType =
 
 export type InsightSeverity = "positive" | "neutral" | "warning";
 
-export type CoreCatCommentTone =
+export type CoCatCommentTone =
   | "encouragement"
   | "tease"
   | "warning"
@@ -108,8 +108,8 @@ export interface WorkDayTitle {
   nextLevelAt?: number | null;
 }
 
-export interface CoreCatCommentary {
-  tone: CoreCatCommentTone;
+export interface CoCatCommentary {
+  tone: CoCatCommentTone;
   title: string;
   body: string;
 }
@@ -120,7 +120,7 @@ export interface DailyWorkAssessment {
   dayTypeTitle: string;
   rarity: WorkCardRarity;
   title: WorkDayTitle;
-  corecatCommentary: CoreCatCommentary;
+  cocatCommentary: CoCatCommentary;
   workprint: WorkprintSummary;
   baseline: BaselineComparison;
   timeline: WorkTimelineSegment[];
@@ -131,7 +131,7 @@ export interface DailyWorkAssessment {
   processInsights: ProcessUsageInsight[];
   dimensions: WorkLogScoreDimension[];
   score: number;
-  corecatSummary: string;
+  cocatSummary: string;
   badgeIds: string[];
 }
 
@@ -143,7 +143,7 @@ export interface DailyWorkAssessmentSummary {
   title: WorkDayTitle;
   workprint: WorkprintSummary;
   score: number;
-  corecatSummary: string;
+  cocatSummary: string;
   badgeIds: string[];
   hasTimeline: boolean;
   hasData: boolean;

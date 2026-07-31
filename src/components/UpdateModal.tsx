@@ -53,10 +53,10 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
   useEffect(() => {
     if (isOpen) {
       handleCheck();
-      void emit("corecat:interaction-state", "updateInstalling");
+      void emit("cocat:interaction-state", "updateInstalling");
     }
     return () => {
-      void emit("corecat:interaction-state", "idle");
+      void emit("cocat:interaction-state", "idle");
     };
   }, [isOpen]);
 

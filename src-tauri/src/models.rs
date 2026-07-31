@@ -237,7 +237,7 @@ pub struct CatStateChangedEvent {
     pub cat_message: String,
 }
 
-/// Mutable per-process CoreCat runtime state, gathered behind a single lock so
+/// Mutable per-process CoCat runtime state, gathered behind a single lock so
 /// that the read → decide → write cycle in `PetStateService::update_for_snapshot`
 /// is atomic and cannot be interleaved by a concurrent settings command or
 /// snapshot tick. Previously these were five separate `RwLock` fields, which left
@@ -278,7 +278,7 @@ impl Default for CatRuntimeState {
     fn default() -> Self {
         Self {
             cat_state: CatState::Idle,
-            cat_message: "CoreCat 正在待命。".to_string(),
+            cat_message: "CoCat 正在待命。".to_string(),
             last_cat_state_changed_at: current_timestamp_ms(),
             temperature_safe_since: None,
             has_emitted_cat_state: false,
@@ -659,7 +659,7 @@ pub enum FocusSessionStatus {
     Abandoned,
 }
 
-/// One "deliver a task to CoreCat and stay focused" ritual session.
+/// One "deliver a task to CoCat and stay focused" ritual session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct FocusSession {
@@ -1220,7 +1220,7 @@ pub struct DailyWorkAssessment {
     pub day_type_title: String,
     pub rarity: WorkCardRarity,
     pub title: WorkDayTitle,
-    pub corecat_commentary: CoreCatCommentary,
+    pub cocat_commentary: CoCatCommentary,
     pub workprint: WorkprintSummary,
     pub baseline: BaselineComparison,
     pub timeline: Vec<WorkTimelineSegment>,
@@ -1231,7 +1231,7 @@ pub struct DailyWorkAssessment {
     pub process_insights: Vec<ProcessUsageInsight>,
     pub dimensions: Vec<WorkLogScoreDimension>,
     pub score: u32,
-    pub corecat_summary: String,
+    pub cocat_summary: String,
     pub badge_ids: Vec<String>,
 }
 
@@ -1263,7 +1263,7 @@ pub struct DailyWorkAssessmentSummary {
     pub title: WorkDayTitle,
     pub workprint: WorkprintSummary,
     pub score: u32,
-    pub corecat_summary: String,
+    pub cocat_summary: String,
     pub badge_ids: Vec<String>,
     pub has_timeline: bool,
     pub has_data: bool,
@@ -1458,7 +1458,7 @@ pub enum SuggestionCategory {
     Streak,
 }
 
-/// Severity drives tone + whether the suggestion can bubble up to CoreCat.
+/// Severity drives tone + whether the suggestion can bubble up to CoCat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SuggestionSeverity {
@@ -1486,7 +1486,7 @@ pub struct Suggestion {
 #[serde(rename_all = "camelCase")]
 pub struct TodaySuggestions {
     pub date: String,
-    /// Top-priority picks (≤3) for the dashboard strip + CoreCat bubble.
+    /// Top-priority picks (≤3) for the dashboard strip + CoCat bubble.
     pub top: Vec<Suggestion>,
     /// Full ranked list (≤5) for the detail panel.
     pub all: Vec<Suggestion>,
@@ -1514,15 +1514,15 @@ pub struct WorkDayTitle {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CoreCatCommentary {
-    pub tone: CoreCatCommentTone,
+pub struct CoCatCommentary {
+    pub tone: CoCatCommentTone,
     pub title: String,
     pub body: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub enum CoreCatCommentTone {
+pub enum CoCatCommentTone {
     Encouragement,
     Tease,
     Warning,
@@ -1695,11 +1695,11 @@ impl WorkLogReport {
             dimensions: vec![
                 WorkLogScoreDimension {
                     key: "duration".to_string(),
-                    title: "CoreCat 运行时长".to_string(),
+                    title: "CoCat 运行时长".to_string(),
                     score: duration_score.round() as u32,
                     max_score: 30,
                     value: format!("{hours:.1}h"),
-                    explanation: "按当日 CoreCat 连续在线与生产观察时长折算，6 小时达到满额。"
+                    explanation: "按当日 CoCat 连续在线与生产观察时长折算，6 小时达到满额。"
                         .to_string(),
                     facts: vec![
                         metric_fact("运行时长", format_duration(entry.active_seconds)),
@@ -1779,8 +1779,8 @@ impl DailyWorkAssessment {
         let mvp_segments = build_mvp_segments(&timeline);
         let rarity = build_work_card_rarity(report.total_score, &features, history, &entry.date);
         let title = build_work_day_title(day_type, history);
-        let corecat_commentary =
-            build_corecat_commentary(day_type, &features, &baseline, report.total_score, &rarity, &title);
+        let cocat_commentary =
+            build_cocat_commentary(day_type, &features, &baseline, report.total_score, &rarity, &title);
         let (highlights, risks, suggestions) =
             build_assessment_insights(&features, &baseline, day_type);
         let process_insights = build_process_insights(&entry);
@@ -1791,7 +1791,7 @@ impl DailyWorkAssessment {
             day_type_title: work_day_type_title(day_type).to_string(),
             rarity,
             title,
-            corecat_commentary,
+            cocat_commentary,
             workprint,
             baseline,
             timeline,
@@ -1802,7 +1802,7 @@ impl DailyWorkAssessment {
             process_insights,
             dimensions: assessment_dimensions(report.dimensions),
             score: report.total_score,
-            corecat_summary: corecat_daily_summary(day_type, &features),
+            cocat_summary: cocat_daily_summary(day_type, &features),
             badge_ids: work_day_badges(day_type, &features),
         }
     }
@@ -1816,7 +1816,7 @@ impl DailyWorkAssessment {
             title: self.title.clone(),
             workprint: self.workprint.clone(),
             score: self.score,
-            corecat_summary: self.corecat_summary.clone(),
+            cocat_summary: self.cocat_summary.clone(),
             badge_ids: self.badge_ids.clone(),
             has_timeline: !self.timeline.is_empty(),
             has_data,
@@ -1838,10 +1838,10 @@ impl DailyWorkAssessmentTrend {
                 dominant_day_type_title: work_day_type_title(WorkDayType::Unknown).to_string(),
                 timeline_days: 0,
                 score_delta: 0,
-                summary: "CoreCat 还没有足够的历史日报来判断近期节奏。".to_string(),
+                summary: "CoCat 还没有足够的历史日报来判断近期节奏。".to_string(),
                 insights: vec![insight(
                     "等待历史样本",
-                    "保持 CoreCat 常驻几天后，这里会生成近 14 日工作画像趋势。",
+                    "保持 CoCat 常驻几天后，这里会生成近 14 日工作画像趋势。",
                     InsightSeverity::Neutral,
                     None,
                 )],
@@ -2254,7 +2254,7 @@ fn health_summary(
 ) -> String {
     if window_days == 0 {
         return format!(
-            "近 {} 天 CoreCat 还没有积累到可分析的样本，保持常驻几天后这里会生成健康趋势。",
+            "近 {} 天 CoCat 还没有积累到可分析的样本，保持常驻几天后这里会生成健康趋势。",
             range.day_count()
         );
     }
@@ -2415,7 +2415,7 @@ fn build_baseline_comparison(
             thermal_delta_ratio: 0.0,
             input_delta_ratio: 0.0,
             metrics: baseline_metrics(features, None),
-            summary: "CoreCat 正在积累你的个人工作基线，连续使用几天后会给出更贴近你习惯的对比。"
+            summary: "CoCat 正在积累你的个人工作基线，连续使用几天后会给出更贴近你习惯的对比。"
                 .to_string(),
         };
     }
@@ -2564,7 +2564,7 @@ fn build_workprint(day_type: WorkDayType, features: &WorkLogFeatures) -> Workpri
     };
     let description = match day_type {
         WorkDayType::Unknown => {
-            "今天的数据还不足以形成稳定指纹，CoreCat 会继续观察后续节奏。".to_string()
+            "今天的数据还不足以形成稳定指纹，CoCat 会继续观察后续节奏。".to_string()
         }
         _ => format!(
             "今日 Workprint 呈现为{label}：负载 {:.0}%，输入节奏 {:.0}%，IO 强度 {:.0}%，热压力 {:.0}%。",
@@ -2836,29 +2836,29 @@ fn work_day_title_pool(day_type: WorkDayType) -> [&'static str; 5] {
     }
 }
 
-fn build_corecat_commentary(
+fn build_cocat_commentary(
     day_type: WorkDayType,
     features: &WorkLogFeatures,
     baseline: &BaselineComparison,
     score: u32,
     rarity: &WorkCardRarity,
     title: &WorkDayTitle,
-) -> CoreCatCommentary {
+) -> CoCatCommentary {
     let tone = if features.thermal_warning_ratio() >= 0.03 || day_type == WorkDayType::PressureRepair
     {
-        CoreCatCommentTone::Warning
+        CoCatCommentTone::Warning
     } else if score >= 82 || rarity.tier == "SS" || rarity.tier == "S" {
-        CoreCatCommentTone::Celebration
+        CoCatCommentTone::Celebration
     } else if day_type == WorkDayType::Unknown || features.active_seconds < 900 {
-        CoreCatCommentTone::Tease
+        CoCatCommentTone::Tease
     } else {
-        CoreCatCommentTone::Encouragement
+        CoCatCommentTone::Encouragement
     };
 
     let diagnostic = work_condition_diagnostic(features, baseline);
     let (comment_title, body) = match tone {
-        CoreCatCommentTone::Celebration => (
-            "CoreCat 战报：这张卡有收藏价值",
+        CoCatCommentTone::Celebration => (
+            "CoCat 战报：这张卡有收藏价值",
             format!(
                 "喵，今天的{}拿到 {}，{} 已经升到 Lv.{}。{}",
                 work_day_type_title(day_type),
@@ -2868,22 +2868,22 @@ fn build_corecat_commentary(
                 diagnostic
             ),
         ),
-        CoreCatCommentTone::Warning => (
-            "CoreCat 警报：机器有点烫爪",
+        CoCatCommentTone::Warning => (
+            "CoCat 警报：机器有点烫爪",
             format!(
                 "今天压力信号偏高，热压力约 {:.0}%。{}",
                 features.thermal_avg, diagnostic
             ),
         ),
-        CoreCatCommentTone::Tease => (
-            "CoreCat 吐槽：这张卡还在孵化",
+        CoCatCommentTone::Tease => (
+            "CoCat 吐槽：这张卡还在孵化",
             format!(
-                "今天样本还不够厚，CoreCat 只抓到 {} 的轮廓。{}",
+                "今天样本还不够厚，CoCat 只抓到 {} 的轮廓。{}",
                 title.title, diagnostic
             ),
         ),
-        CoreCatCommentTone::Encouragement => (
-            "CoreCat 点评：节奏已经成型",
+        CoCatCommentTone::Encouragement => (
+            "CoCat 点评：节奏已经成型",
             format!(
                 "今天的{}比较清楚，负载 {:.0}、输入节奏 {:.0}/h。{}",
                 work_day_type_title(day_type),
@@ -2894,7 +2894,7 @@ fn build_corecat_commentary(
         ),
     };
 
-    CoreCatCommentary {
+    CoCatCommentary {
         tone,
         title: comment_title.to_string(),
         body,
@@ -3072,14 +3072,14 @@ fn timeline_segment_description(
 ) -> String {
     match kind {
         WorkTimelineSegmentKind::IdleCompanion => {
-            "这一段系统负载与输入活动都较低，CoreCat 基本处于安静陪伴状态。".to_string()
+            "这一段系统负载与输入活动都较低，CoCat 基本处于安静陪伴状态。".to_string()
         }
         WorkTimelineSegmentKind::SteadyProgress => format!(
             "这一段工况比较平稳，综合负载约 {:.0}%，适合归类为常规推进窗口。",
             features.average_load()
         ),
         WorkTimelineSegmentKind::DeepFocus => format!(
-            "这一段键鼠节奏较连续，输入密度约 {:.0}/h，CoreCat 标记为深度工作片段。",
+            "这一段键鼠节奏较连续，输入密度约 {:.0}/h，CoCat 标记为深度工作片段。",
             features.input_per_hour()
         ),
         WorkTimelineSegmentKind::BuildPeak => format!(
@@ -3087,7 +3087,7 @@ fn timeline_segment_description(
             features.cpu_avg
         ),
         WorkTimelineSegmentKind::ArchiveFlow => format!(
-            "磁盘与网络流动明显，本段数据流量约 {}，CoreCat 将它归档为资料流动片段。",
+            "磁盘与网络流动明显，本段数据流量约 {}，CoCat 将它归档为资料流动片段。",
             format_bytes(features.io_total())
         ),
         WorkTimelineSegmentKind::MemoryCrowded => format!(
@@ -3099,7 +3099,7 @@ fn timeline_segment_description(
             features.thermal_avg
         ),
         WorkTimelineSegmentKind::PressureRepair => format!(
-            "高负载与压力信号同时出现，综合负载约 {:.0}%，CoreCat 标记为高压抢修片段。",
+            "高负载与压力信号同时出现，综合负载约 {:.0}%，CoCat 标记为高压抢修片段。",
             features.average_load()
         ),
     }
@@ -3122,7 +3122,7 @@ fn build_assessment_insights(
         highlights.push(insight(
             "陪伴时长稳定",
             format!(
-                "CoreCat 今天陪你运行了 {}，已经形成一段可分析的工作节奏。",
+                "CoCat 今天陪你运行了 {}，已经形成一段可分析的工作节奏。",
                 format_duration(features.active_seconds)
             ),
             InsightSeverity::Positive,
@@ -3166,7 +3166,7 @@ fn build_assessment_insights(
     if features.thermal_warning_ratio() >= 0.03 || features.thermal_avg >= 48.0 {
         risks.push(insight(
             "热压力值得关注",
-            "今天出现了较明显的温度压力。CoreCat 建议后续高负载任务时留意散热和风道状态。",
+            "今天出现了较明显的温度压力。CoCat 建议后续高负载任务时留意散热和风道状态。",
             InsightSeverity::Warning,
             Some(format!("{:.0}%", features.thermal_avg)),
         ));
@@ -3181,7 +3181,7 @@ fn build_assessment_insights(
     if features.input_per_hour() >= 1200.0 && day_type != WorkDayType::PressureRepair {
         highlights.push(insight(
             "输入节奏清晰",
-            "今天键鼠活动密度较高，CoreCat 判断你有一段比较明确的实际操作窗口。",
+            "今天键鼠活动密度较高，CoCat 判断你有一段比较明确的实际操作窗口。",
             InsightSeverity::Positive,
             Some(format!("{:.0}/h", features.input_per_hour())),
         ));
@@ -3203,7 +3203,7 @@ fn build_assessment_insights(
             ),
             _ => insight(
                 "保持当前节奏",
-                "今天的工况记录已经形成可回看的工作画像，明天继续让 CoreCat 安静观察即可。",
+                "今天的工况记录已经形成可回看的工作画像，明天继续让 CoCat 安静观察即可。",
                 InsightSeverity::Neutral,
                 None,
             ),
@@ -3212,7 +3212,7 @@ fn build_assessment_insights(
 
     if highlights.is_empty() {
         highlights.push(insight(
-            "CoreCat 已记录今日节奏",
+            "CoCat 已记录今日节奏",
             "今天的数据虽然不极端，但已经足够成为后续个人基线的一部分。",
             InsightSeverity::Positive,
             None,
@@ -3368,32 +3368,32 @@ fn assessment_dimensions(mut dimensions: Vec<WorkLogScoreDimension>) -> Vec<Work
     dimensions
 }
 
-fn corecat_daily_summary(day_type: WorkDayType, features: &WorkLogFeatures) -> String {
+fn cocat_daily_summary(day_type: WorkDayType, features: &WorkLogFeatures) -> String {
     match day_type {
         WorkDayType::DeepFocus => {
-            "CoreCat 观察到你今天有一段稳定连续的工作节奏，负载和输入都比较平顺，像是一次扎实推进的深度工作日。".to_string()
+            "CoCat 观察到你今天有一段稳定连续的工作节奏，负载和输入都比较平顺，像是一次扎实推进的深度工作日。".to_string()
         }
         WorkDayType::BuildBurst => {
-            "今天工坊火力集中，CPU 与磁盘活动出现明显峰值。CoreCat 判断这更像一个编译、打包或批处理较多的工作日。".to_string()
+            "今天工坊火力集中，CPU 与磁盘活动出现明显峰值。CoCat 判断这更像一个编译、打包或批处理较多的工作日。".to_string()
         }
         WorkDayType::ArchiveFlow => {
-            "今天的数据传输和磁盘归档更活跃，CoreCat 在硬盘柜旁忙了一阵，整体更像资料整理或同步归档的一天。".to_string()
+            "今天的数据传输和磁盘归档更活跃，CoCat 在硬盘柜旁忙了一阵，整体更像资料整理或同步归档的一天。".to_string()
         }
         WorkDayType::PressureRepair => {
-            "今天机器承压明显，高负载、温度或内存拥挤都有出现。CoreCat 已把它记录为需要留意的高压工况日。".to_string()
+            "今天机器承压明显，高负载、温度或内存拥挤都有出现。CoCat 已把它记录为需要留意的高压工况日。".to_string()
         }
         WorkDayType::StableMaintenance => format!(
-            "今天 CoreCat 陪你稳定运行了 {}，系统状态整体平顺，是一次轻量但可回看的维护型工作日。",
+            "今天 CoCat 陪你稳定运行了 {}，系统状态整体平顺，是一次轻量但可回看的维护型工作日。",
             format_duration(features.active_seconds)
         ),
         WorkDayType::FragmentedSwitching => {
-            "今天的活动呈现多段切换特征，CoreCat 看到不少短促峰值，像是任务来回切换比较频繁的一天。".to_string()
+            "今天的活动呈现多段切换特征，CoCat 看到不少短促峰值，像是任务来回切换比较频繁的一天。".to_string()
         }
         WorkDayType::LowLoadCompanion => {
-            "今天 CoreCat 更多是在安静陪伴，系统负载和操作节奏都偏轻。这样的日子也适合整理环境、阅读资料或让机器休息。".to_string()
+            "今天 CoCat 更多是在安静陪伴，系统负载和操作节奏都偏轻。这样的日子也适合整理环境、阅读资料或让机器休息。".to_string()
         }
         WorkDayType::Unknown => {
-            "今天的数据还不够完整，CoreCat 会继续观察你的工作节奏，稍后生成更可靠的每日画像。".to_string()
+            "今天的数据还不够完整，CoCat 会继续观察你的工作节奏，稍后生成更可靠的每日画像。".to_string()
         }
     }
 }
@@ -3449,7 +3449,7 @@ fn trend_summary(
 ) -> String {
     if sample_days == 1 {
         return format!(
-            "CoreCat 已保存 1 天工作画像：{}，画像分 {average_score}。再积累几天后会形成更稳定的趋势判断。",
+            "CoCat 已保存 1 天工作画像：{}，画像分 {average_score}。再积累几天后会形成更稳定的趋势判断。",
             work_day_type_title(dominant_day_type)
         );
     }
@@ -3510,7 +3510,7 @@ fn trend_insights(
             insights.push(insight(
                 "节奏变化明显",
                 format!(
-                    "最近一次画像分较最早记录{}。CoreCat 会把这种变化视为近期工作节奏迁移，而不是好坏评价。",
+                    "最近一次画像分较最早记录{}。CoCat 会把这种变化视为近期工作节奏迁移，而不是好坏评价。",
                     format_score_delta(score_delta)
                 ),
                 InsightSeverity::Neutral,
@@ -3638,7 +3638,7 @@ fn baseline_summary(
         .iter()
         .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap_or(std::cmp::Ordering::Equal))
     else {
-        return "CoreCat 已经开始建立你的个人工作基线。".to_string();
+        return "CoCat 已经开始建立你的个人工作基线。".to_string();
     };
 
     if delta.abs() < 0.12 {
@@ -3811,7 +3811,7 @@ fn build_rhythm_summary(hours: &[RhythmBucket], peak_hours: &[u8]) -> String {
         .map(|h| format!("{:02}:00", h))
         .collect();
     format!(
-        "你的高效时段集中在 {}。在这些时段安排重要任务，CoreCat 会陪你一起发力。",
+        "你的高效时段集中在 {}。在这些时段安排重要任务，CoCat 会陪你一起发力。",
         labels.join("、")
     )
 }
@@ -3832,11 +3832,11 @@ pub fn date_key_from_timestamp(timestamp: i64) -> String {
 fn summarize_work_score(score: u32) -> String {
     match score {
         91..=100 => "极高投入工作日：长时间运行、硬件负载、IO 吞吐和键鼠操作都很密集。".to_string(),
-        76..=90 => "高投入工作日：CoreCat 观察到持续运行、明确任务压力和较高操作密度。".to_string(),
+        76..=90 => "高投入工作日：CoCat 观察到持续运行、明确任务压力和较高操作密度。".to_string(),
         51..=75 => "稳定推进日：运行时长、硬件参与度与操作记录较均衡，工作投入清晰。".to_string(),
         31..=50 => "轻中度工作日：有一定运行与操作记录，但高强度负载或复杂 IO 较少。".to_string(),
         1..=30 => "轻量维护日：工作窗口较短或操作密度较低，偏向整理与低强度任务。".to_string(),
-        _ => "暂无足够数据：保持 CoreCat 运行后，将自动生成当天工作投入度。".to_string(),
+        _ => "暂无足够数据：保持 CoCat 运行后，将自动生成当天工作投入度。".to_string(),
     }
 }
 
@@ -4172,7 +4172,7 @@ mod assessment_tests {
             .iter()
             .any(|metric| metric.key == "io" && metric.baseline_value != "--"));
         assert!(assessment.baseline.io_delta_ratio > 1.0);
-        assert!(assessment.corecat_commentary.body.contains("工况解释"));
+        assert!(assessment.cocat_commentary.body.contains("工况解释"));
         assert!(assessment
             .baseline
             .summary
@@ -4359,7 +4359,7 @@ mod assessment_tests {
                 title: test_title("风暴构筑师"),
                 workprint: test_workprint(),
                 score: 78,
-                corecat_summary: String::new(),
+                cocat_summary: String::new(),
                 badge_ids: vec!["BUILD".to_string()],
                 has_timeline: true,
                 has_data: true,
@@ -4372,7 +4372,7 @@ mod assessment_tests {
                 title: test_title("深潜构筑师"),
                 workprint: test_workprint(),
                 score: 86,
-                corecat_summary: String::new(),
+                cocat_summary: String::new(),
                 badge_ids: vec!["FOCUS".to_string()],
                 has_timeline: true,
                 has_data: true,
@@ -4385,7 +4385,7 @@ mod assessment_tests {
                 title: test_title("火力装配员"),
                 workprint: test_workprint(),
                 score: 60,
-                corecat_summary: String::new(),
+                cocat_summary: String::new(),
                 badge_ids: vec!["BUILD".to_string()],
                 has_timeline: false,
                 has_data: true,

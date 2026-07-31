@@ -159,7 +159,7 @@ fn rule_sustained_high_load(recent: &[(String, WorkLogEntry)]) -> Option<Suggest
                 "已经连续 {} 天高负载占比偏高，硬件和人都需要喘口气。",
                 consecutive_high
             ),
-            action_hint: "今天安排一个轻量任务，或让 CoreCat 待机降温。".to_string(),
+            action_hint: "今天安排一个轻量任务，或让 CoCat 待机降温。".to_string(),
             severity: SuggestionSeverity::Warning,
         })
     } else {
@@ -188,7 +188,7 @@ fn rule_memory_pressure(
             priority: if live_high { 80 } else { 55 },
             title: "内存吃紧".to_string(),
             body: if live_high {
-                "当前内存占用偏高，CoreCat 被挤到角落了。".to_string()
+                "当前内存占用偏高，CoCat 被挤到角落了。".to_string()
             } else {
                 format!("近 {} 天内存常处于高位，可能有常驻进程占资源。", hot_days)
             },
@@ -230,7 +230,7 @@ fn rule_streak_encouragement(recent: &[(String, WorkLogEntry)]) -> Option<Sugges
             category: SuggestionCategory::Streak,
             priority: 40,
             title: "坚持得不错！".to_string(),
-            body: format!("最近一周有 {} 天和 CoreCat 一起工作，保持这个节奏。", recent.len()),
+            body: format!("最近一周有 {} 天和 CoCat 一起工作，保持这个节奏。", recent.len()),
             action_hint: "继续保持，连续打卡能解锁更多成就。".to_string(),
             severity: SuggestionSeverity::Positive,
         })
@@ -254,7 +254,7 @@ fn rule_idle_long_session(
             priority: 50,
             title: "歇一会儿吧".to_string(),
             body: format!("今天已经在线 {:.1} 小时，现在负载很低，适合起身活动一下。", hours_today),
-            action_hint: "离开屏幕 5 分钟，CoreCat 会替你看着。".to_string(),
+            action_hint: "离开屏幕 5 分钟，CoCat 会替你看着。".to_string(),
             severity: SuggestionSeverity::Neutral,
         })
     } else {

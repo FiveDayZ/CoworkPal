@@ -16,7 +16,7 @@ const REPAIR_HEAVY_LOAD_THRESHOLD: f32 = 92.0;
 const TEMPERATURE_CHECK_ENTER_MIN_CELSIUS: f32 = 75.0;
 const TEMPERATURE_CHECK_EXIT_CELSIUS: f32 = 70.0;
 const TEMPERATURE_CHECK_EXIT_STABLE_MS: i64 = 5_000;
-/// After this much continuous work (with input present), CoreCat looks tired.
+/// After this much continuous work (with input present), CoCat looks tired.
 const FATIGUED_AFTER_MS: i64 = 90 * 60 * 1000;
 /// Once input has been silent this long (while the machine stayed on), suggest
 /// a break — the user has likely been staring at the screen without interacting.
@@ -368,18 +368,18 @@ fn message_for_state(state: &CatState, lead: Option<&ProcessUsageSnapshot>) -> S
     // Base text per state — the static fallback when no story-worthy process
     // is recognized (or the state is not "work-like").
     let base = match state {
-        CatState::Idle => "CoreCat 正在待命。",
+        CatState::Idle => "CoCat 正在待命。",
         CatState::RepairLight => "检测到轻量维护负载。",
-        CatState::RepairHeavy => "系统负载偏高，CoreCat 正在检修。",
+        CatState::RepairHeavy => "系统负载偏高，CoCat 正在检修。",
         CatState::TemperatureCheck => "温度偏高，正在关注散热状态。",
         CatState::MemoryCrowded => "内存较拥挤，建议留意后台任务。",
-        CatState::DataSorting => "系统空闲，CoreCat 正在整理数据。",
-        CatState::Sleep => "长时间未操作，CoreCat 进入休眠。",
-        CatState::Interactive => "CoreCat 正在响应你的操作。",
+        CatState::DataSorting => "系统空闲，CoCat 正在整理数据。",
+        CatState::Sleep => "长时间未操作，CoCat 进入休眠。",
+        CatState::Interactive => "CoCat 正在响应你的操作。",
         CatState::Celebrate => "清理完成，工坊状态良好。",
-        CatState::Fatigued => "连续工作很久啦，CoreCat 也想歇一会儿。",
+        CatState::Fatigued => "连续工作很久啦，CoCat 也想歇一会儿。",
         CatState::NeedsBreak => "久坐提醒：起来活动一下，喝口水吧。",
-        CatState::DeepWork => "专注仪式进行中，CoreCat 陪你一起埋头干活。",
+        CatState::DeepWork => "专注仪式进行中，CoCat 陪你一起埋头干活。",
         CatState::Distracted => "好像走神了？深呼吸，回到任务上来吧。",
         CatState::Hidden => return String::new(),
     };
@@ -394,31 +394,31 @@ fn message_for_state(state: &CatState, lead: Option<&ProcessUsageSnapshot>) -> S
 
     let enriched = match (state, category) {
         (CatState::RepairHeavy, process_classify::ProcessCategory::Compiler) => {
-            Some("编译负载很高，CoreCat 满头大汗地陪你一起敲键盘。")
+            Some("编译负载很高，CoCat 满头大汗地陪你一起敲键盘。")
         }
         (CatState::RepairLight, process_classify::ProcessCategory::Compiler) => {
-            Some("检测到编译任务，CoreCat 在旁边帮你一起敲键盘。")
+            Some("检测到编译任务，CoCat 在旁边帮你一起敲键盘。")
         }
         (CatState::RepairHeavy, process_classify::ProcessCategory::Browser) => {
-            Some("浏览器吃掉不少资源，CoreCat 挤在角落里帮它扇风。")
+            Some("浏览器吃掉不少资源，CoCat 挤在角落里帮它扇风。")
         }
         (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::Game) => {
-            Some("检测到游戏在跑，CoreCat 戴上耳机在旁边围观。")
+            Some("检测到游戏在跑，CoCat 戴上耳机在旁边围观。")
         }
         (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::Ide) => {
-            Some("你的编辑器正忙，CoreCat 趴在键盘边盯着代码。")
+            Some("你的编辑器正忙，CoCat 趴在键盘边盯着代码。")
         }
         (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::VideoCall) => {
-            Some("视频会议进行中，CoreCat 安静地躲到屏幕后面。")
+            Some("视频会议进行中，CoCat 安静地躲到屏幕后面。")
         }
         (CatState::MemoryCrowded, process_classify::ProcessCategory::Browser) => {
-            Some("浏览器吃掉不少内存，CoreCat 被挤到了角落里蹲着。")
+            Some("浏览器吃掉不少内存，CoCat 被挤到了角落里蹲着。")
         }
         (CatState::DeepWork, process_classify::ProcessCategory::Ide) => {
-            Some("你在编辑器里专注，CoreCat 趴在键盘边静静陪着。")
+            Some("你在编辑器里专注，CoCat 趴在键盘边静静陪着。")
         }
         (CatState::DeepWork, process_classify::ProcessCategory::Compiler) => {
-            Some("专注仪式 + 编译任务，CoreCat 和你一起埋头干活。")
+            Some("专注仪式 + 编译任务，CoCat 和你一起埋头干活。")
         }
         _ => None,
     };

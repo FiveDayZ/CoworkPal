@@ -48,7 +48,7 @@ export function PetAvatar({ className }: { className?: string }) {
   const icons = useThemedIcons();
   return (
     <span className={joinClassNames("cwp-pet-avatar", className)}>
-      <img alt="CoreCat" src={icons.corecatAvatar} />
+      <img alt="CoCat" src={icons.cocatAvatar} />
     </span>
   );
 }

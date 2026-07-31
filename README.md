@@ -2,17 +2,17 @@
 
 > **把你的 CPU/GPU/RAM 占用率，变成一只猫的冒险故事。**
 
-**CoworkPal** 是一款面向开发者与重度 PC 用户的轻量级桌面伴侣，基于 **Tauri 2 + React 19 + TypeScript + Rust** 构建。它实时监控你电脑的硬件状态（CPU、GPU、内存、温度、网络、磁盘），并将这些枯燥的数字转化为一只叫 **CoreCat** 的像素猫咪的动态行为、工坊养成进度、健康趋势洞察、可收藏的笔记备忘，以及可收集的成就徽章——让每一天的工作都变得更有趣、更有序。
+**CoworkPal** 是一款面向开发者与重度 PC 用户的轻量级桌面伴侣，基于 **Tauri 2 + React 19 + TypeScript + Rust** 构建。它实时监控你电脑的硬件状态（CPU、GPU、内存、温度、网络、磁盘），并将这些枯燥的数字转化为一只叫 **CoCat** 的像素猫咪的动态行为、工坊养成进度、健康趋势洞察、可收藏的笔记备忘，以及可收集的成就徽章——让每一天的工作都变得更有趣、更有序。
 
 ---
 
 ## 🌟 它能做什么？
 
-### 🐈 CoreCat 桌面宠物 · 硬件驱动的活体表演
+### 🐈 CoCat 桌面宠物 · 硬件驱动的活体表演
 
-CoreCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由你的**实时硬件状态**驱动：
+CoCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由你的**实时硬件状态**驱动：
 
-| 你的电脑状态 | CoreCat 的反应 |
+| 你的电脑状态 | CoCat 的反应 |
 |:---|:---|
 | CPU 高负载 | 疯狂整理文件、汗流浃背地修电脑 |
 | 内存快满了 | 抱头蹲在角落、发出警告声 |
@@ -22,9 +22,9 @@ CoreCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由
 | 检测到编译任务 | 陪你一起敲键盘，给出专属反应 |
 
 - **多层动画系统**：骨骼节点驱动的帧动画、CSS 变换、独立的粒子特效层（气泡、火花、蒸汽、星光）
-- **进程感知**：识别编译器 / 浏览器 / IDE / 游戏等进程类型，CoreCat 会在气泡里讲出对应的小故事
+- **进程感知**：识别编译器 / 浏览器 / IDE / 游戏等进程类型，CoCat 会在气泡里讲出对应的小故事
 - **8 位复古音效**：升级、互动、报警触发时配有机械感的像素音效反馈
-- **可互动**：点击"抚摸猫咪"或"整理零件"，CoreCat 会有专属响应动作
+- **可互动**：点击"抚摸猫咪"或"整理零件"，CoCat 会有专属响应动作
 
 ---
 
@@ -51,7 +51,7 @@ CoreCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由
 - **内存释放**：匹配开源方案中优秀的内存回收机制，支持手动一键释放（托盘菜单 / 设置面板 / 任务栏右键）与按阈值自动释放
   - 手动释放触发 UAC 提权后执行全量清理（清空 Standby / Modified 列表、系统文件缓存工作集、所有进程工作集），拒绝提权则自动降级为轻量清理
   - 自动释放监测系统内存占用，超过设定阈值（默认 8 GB，可调）时静默执行轻量清理，60 秒冷却防抖，不打扰用户
-  - 释放完成后 CoreCat 播放专属动画并在气泡中反馈释放结果
+  - 释放完成后 CoCat 播放专属动画并在气泡中反馈释放结果
 - **高精度温度源**：可选启用 [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) 接入，获取比系统热区更精确的 CPU 核心温度；未启用时回退到系统热区估算，CPU 面板会标注当前来源（高精度 / 估算）
 
 ---
@@ -102,7 +102,7 @@ CoreCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由
 
 ### 🏆 成就系统 · 133 个可收集徽章
 
-CoworkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每一个里程碑：
+CoworkPal 内置完整的成就体系，记录你与 CoCat 共同走过的每一个里程碑：
 
 - **133 个成就**，覆盖 7 大类别：使用习惯、系统监控、工坊升级、工况日志、隐藏彩蛋等
 - **6 个难度等级**：入门 → 进阶 → 熟练 → 精英 → 史诗 → 传说，难度越高徽章越稀有
@@ -124,7 +124,7 @@ CoworkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每�
 
 | 图标 | ID | 名称 | 分类 | 达成条件 | 🔒 |
 |:---:|:---:|---|---|---|:---:|
-| <img src="src/assets/achievements/cwp_badge_daily_first_launch_entry.webp" width="40" height="40" /> | A001 | 第一次唤醒 CoreCat | 日常使用 | 首次启动应用 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_first_launch_entry.webp" width="40" height="40" /> | A001 | 第一次唤醒 CoCat | 日常使用 | 首次启动应用 |  |
 | <img src="src/assets/achievements/cwp_badge_daily_30m_companion_entry.webp" width="40" height="40" /> | A002 | 30 分钟陪伴 | 日常使用 | 累计在线 30 分钟 |  |
 | <img src="src/assets/achievements/cwp_badge_daily_first_report_entry.webp" width="40" height="40" /> | A003 | 第一份工况报告 | 日常使用 | 生成 1 份工况日报 |  |
 | <img src="src/assets/achievements/cwp_badge_explore_dashboard_entry.webp" width="40" height="40" /> | A004 | 看过控制台 | 功能探索 | 浏览「控制台」1 次 |  |
@@ -133,9 +133,9 @@ CoworkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每�
 | <img src="src/assets/achievements/cwp_badge_explore_first_setting_entry.webp" width="40" height="40" /> | A007 | 保存第一项设置 | 功能探索 | 保存设置 1 次 |  |
 | <img src="src/assets/achievements/cwp_badge_explore_monitor_bar_entry.webp" width="40" height="40" /> | A008 | 开启悬浮监控条 | 功能探索 | 开启悬浮监控条 |  |
 | <img src="src/assets/achievements/cwp_badge_explore_taskbar_monitor_entry.webp" width="40" height="40" /> | A009 | 点亮任务栏监控 | 功能探索 | 将「showMonitorDataInTaskbar」设为开启 |  |
-| <img src="src/assets/achievements/cwp_badge_explore_pet_panel_entry.webp" width="40" height="40" /> | A010 | 打开 CoreCat 面板 | 功能探索 | 打开 CoreCat 面板 1 次 |  |
-| <img src="src/assets/achievements/cwp_badge_daily_first_pet_entry.webp" width="40" height="40" /> | A011 | 第一次摸摸 CoreCat | 日常使用 | 抚摸 CoreCat 1 次 |  |
-| <img src="src/assets/achievements/cwp_badge_daily_first_drag_entry.webp" width="40" height="40" /> | A012 | 搬动小伙伴 | 日常使用 | 拖动 CoreCat 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_pet_panel_entry.webp" width="40" height="40" /> | A010 | 打开 CoCat 面板 | 功能探索 | 打开 CoCat 面板 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_first_pet_entry.webp" width="40" height="40" /> | A011 | 第一次摸摸 CoCat | 日常使用 | 抚摸 CoCat 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_first_drag_entry.webp" width="40" height="40" /> | A012 | 搬动小伙伴 | 日常使用 | 拖动 CoCat 1 次 |  |
 | <img src="src/assets/achievements/cwp_badge_workshop_first_module_entry.webp" width="40" height="40" /> | A013 | 第一颗模块螺丝 | 工坊养成 | 首次升级任意模块 |  |
 | <img src="src/assets/achievements/cwp_badge_workshop_first_level_entry.webp" width="40" height="40" /> | A014 | 工坊第一次升级 | 工坊养成 | 工坊首次升级 |  |
 | <img src="src/assets/achievements/cwp_badge_data_parts_100_entry.webp" width="40" height="40" /> | A015 | 100 零件入库 | 数据里程碑 | 累计获得 100 零件 |  |
@@ -158,9 +158,9 @@ CoworkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每�
 | <img src="src/assets/achievements/cwp_badge_daily_3_reports_normal.webp" width="40" height="40" /> | A024 | 三份工况报告 | 日常使用 | 生成 3 份工况日报 |  |
 | <img src="src/assets/achievements/cwp_badge_task_score_60_x3_normal.webp" width="40" height="40" /> | A025 | 三次稳定推进 | 任务效率 | 3 天日报评分≥60 |  |
 | <img src="src/assets/achievements/cwp_badge_explore_all_pages_normal.webp" width="40" height="40" /> | A026 | 主界面巡礼 | 功能探索 | 浏览过 7 个不同页面 |  |
-| <img src="src/assets/achievements/cwp_badge_daily_pet_30_normal.webp" width="40" height="40" /> | A027 | 30 次抚摸 | 日常使用 | 抚摸 CoreCat 30 次 |  |
-| <img src="src/assets/achievements/cwp_badge_daily_panel_20_normal.webp" width="40" height="40" /> | A028 | 面板常客 | 日常使用 | 打开 CoreCat 面板 20 次 |  |
-| <img src="src/assets/achievements/cwp_badge_daily_drag_10_normal.webp" width="40" height="40" /> | A029 | 桌面搬运练习 | 日常使用 | 拖动 CoreCat 10 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_pet_30_normal.webp" width="40" height="40" /> | A027 | 30 次抚摸 | 日常使用 | 抚摸 CoCat 30 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_panel_20_normal.webp" width="40" height="40" /> | A028 | 面板常客 | 日常使用 | 打开 CoCat 面板 20 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_drag_10_normal.webp" width="40" height="40" /> | A029 | 桌面搬运练习 | 日常使用 | 拖动 CoCat 10 次 |  |
 | <img src="src/assets/achievements/cwp_badge_explore_three_themes_normal.webp" width="40" height="40" /> | A030 | 三色试验 | 功能探索 | 切换过 3 种主题 |  |
 | <img src="src/assets/achievements/cwp_badge_explore_metric_custom_normal.webp" width="40" height="40" /> | A031 | 自定义监控项 | 功能探索 | 修改「visibleMonitorMetrics」设置 且当前可见指标数 >= 3 |  |
 | <img src="src/assets/achievements/cwp_badge_workshop_level_3_normal.webp" width="40" height="40" /> | A032 | 工坊 3 级 | 工坊养成 | 工坊达到 3 级 |  |
@@ -198,7 +198,7 @@ CoworkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每�
 | <img src="src/assets/achievements/cwp_badge_task_gpu_70_3h_skilled.webp" width="40" height="40" /> | A055 | GPU 点亮 3 小时 | 任务效率 | GPU>70%累计 3.0 小时 |  |
 | <img src="src/assets/achievements/cwp_badge_data_disk_100gib_skilled.webp" width="40" height="40" /> | A056 | 100 GiB 本地流转 | 数据里程碑 | 累计磁盘读写 100 GiB |  |
 | <img src="src/assets/achievements/cwp_badge_data_network_50gib_skilled.webp" width="40" height="40" /> | A057 | 50 GiB 网络流转 | 数据里程碑 | 累计网络流量 50 GiB |  |
-| <img src="src/assets/achievements/cwp_badge_daily_pet_500_skilled.webp" width="40" height="40" /> | A058 | 500 次 CoreCat 互动 | 日常使用 | CoreCat 互动（点击+面板+拖动）总计 500 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_pet_500_skilled.webp" width="40" height="40" /> | A058 | 500 次 CoCat 互动 | 日常使用 | CoCat 互动（点击+面板+拖动）总计 500 次 |  |
 | <img src="src/assets/achievements/cwp_badge_explore_settings_20_skilled.webp" width="40" height="40" /> | A059 | 设置调校师 | 功能探索 | 保存设置 20 次；修改过 5 种设置项 |  |
 | <img src="src/assets/achievements/cwp_badge_social_exports_5_skilled.webp" width="40" height="40" /> | A060 | 五张分享卡 | 社交协作 | 各类分享导出总计 5 次 |  |
 | <img src="src/assets/achievements/cwp_badge_worklog_rarity_a_skilled.webp" width="40" height="40" /> | A122 | 第一张 A 级工况卡 | 任务效率 | 获得 A 级工况卡 |  |
@@ -290,7 +290,7 @@ CoworkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每�
 | <img src="src/assets/achievements/cwp_badge_health_no_corruption_365_legendary.webp" width="40" height="40" /> | A113 | 全年无存档修复 | 硬件健康 | 活跃 365 天（每日≥1.0 小时）；且从未发生存档损坏 |  |
 | <img src="src/assets/achievements/cwp_badge_data_visible_100_legendary.webp" width="40" height="40" /> | A114 | 百枚可见徽章 | 数据里程碑 | non_hidden_解锁 100 项成就 |  |
 | <img src="src/assets/achievements/cwp_badge_hidden_12_months_reports_legendary.webp" width="40" height="40" /> | A115 | 十二个月都有工况 | 隐藏彩蛋 | 连续 12 个月每月≥20天有日报 | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_hidden_all_animations_legendary.webp" width="40" height="40" /> | A116 | CoreCat 全动画见证 | 隐藏彩蛋 | 见证全部 18 种动画各 10 次 | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_hidden_all_animations_legendary.webp" width="40" height="40" /> | A116 | CoCat 全动画见证 | 隐藏彩蛋 | 见证全部 18 种动画各 10 次 | 🔒 |
 | <img src="src/assets/achievements/cwp_badge_hidden_midnight_maintenance_legendary.webp" width="40" height="40" /> | A117 | 午夜维护长征 | 隐藏彩蛋 | 30 天凌晨高负载（0-5点≥30 分钟，高负载≥30 分钟） | 🔒 |
 | <img src="src/assets/achievements/cwp_badge_hidden_error_glitch_404_legendary.webp" width="40" height="40" /> | A118 | 404 修复师 | 隐藏彩蛋 | 触发 ErrorGlitch 404 次 | 🔒 |
 | <img src="src/assets/achievements/cwp_badge_hidden_all_difficulties_legendary.webp" width="40" height="40" /> | A119 | 六档难度全频段 | 隐藏彩蛋 | 6 个难度各有 10 个解锁成就 | 🔒 |
@@ -352,7 +352,7 @@ CoworkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每�
 graph TD
     A[Tauri 2 应用壳 · Rust 后端] -->|多窗口调度 & 硬件采样| B(命令桥接层)
     B -->|Zustand 状态流| C[React 19 · TypeScript 前端]
-    C --> D[CoreCat 动作状态机]
+    C --> D[CoCat 动作状态机]
     C --> E[粒子特效层]
     C --> F[8位复古音效]
     C --> G[工坊养成 & 数值计算]
@@ -385,7 +385,7 @@ graph TD
 ├── scripts/                  # 辅助工具脚本
 │   ├── generate_badges.py            # 成就徽章像素图批量生成脚本
 │   ├── optimize-animation-pngs.mjs   # 帧动画无损压缩脚本
-│   └── run-corecat-animation-tests.mjs  # 状态机回归测试脚本
+│   └── run-cocat-animation-tests.mjs  # 状态机回归测试脚本
 ├── src-tauri/                # Tauri 2 后端 (Rust)
 │   ├── src/
 │   │   ├── monitoring/       # 硬件监测（CPU/GPU/内存/网络/磁盘/温度 + LibreHardwareMonitor）
@@ -400,10 +400,10 @@ graph TD
 └── src/                      # 前端 (React 19 + TypeScript)
     ├── assets/
     │   ├── achievements/     # 133 枚像素风格成就徽章 (.webp)
-    │   ├── pets/             # CoreCat 动画帧与头像
+    │   ├── pets/             # CoCat 动画帧与头像
     │   └── screenshots/      # README 展示截图
     ├── pages/                # 多页面组件（控制台/工坊/日报/体检/笔记/成就/设置/关于）
-    ├── pet/                  # CoreCat 状态机、骨骼节点、粒子特效
+    ├── pet/                  # CoCat 状态机、骨骼节点、粒子特效
     ├── services/             # 成就触发器、数值计算、Markdown 渲染、Tauri 桥接
     ├── stores/               # 全局状态（11 个 Store）
     └── ui/                   # 基础组件库与像素图标系统

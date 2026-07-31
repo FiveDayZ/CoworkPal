@@ -24,7 +24,7 @@
 ## 4. Fixed Bugs
 
 - Problem: The `25 分钟` and `50 分钟` buttons were horizontally placed inside the dashboard focus ritual.
-  - Recurrence condition: Open the dashboard / 控制台 page and view the focus ritual below the CoreCat avatar.
+  - Recurrence condition: Open the dashboard / 控制台 page and view the focus ritual below the CoCat avatar.
   - Phenomenon: The duration selector consumed too much horizontal space and could make the focus ritual area feel incomplete or cramped.
   - Repair scheme: Stack the two duration buttons vertically and compact their height and spacing.
 

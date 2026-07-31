@@ -187,7 +187,7 @@ export function MainWindow() {
                   <PetAvatar />
                   <div className="cwp-sidebar-status-info">
                     <span className="cwp-sidebar-status-name">
-                      CoreCat
+                      CoCat
                     </span>
                     <span className="cwp-sidebar-status-online">
                       ● 陪伴中

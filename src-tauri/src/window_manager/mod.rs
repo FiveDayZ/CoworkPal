@@ -162,7 +162,7 @@ impl LazyWindowSpec {
             }),
             "pet" => Some(Self {
                 label: "pet",
-                title: "CoreCat",
+                title: "CoCat",
                 url: "/pet",
                 width: 196.0,
                 height: 166.0,

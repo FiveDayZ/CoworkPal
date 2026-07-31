@@ -179,29 +179,29 @@ export function catStateSeverity(state: CatState) {
 export function messageForCatState(state: CatState): string {
   switch (state) {
     case "Idle":
-      return "CoreCat 正在待命。";
+      return "CoCat 正在待命。";
     case "RepairLight":
       return "检测到轻量维护负载。";
     case "RepairHeavy":
-      return "系统负载偏高，CoreCat 正在检修。";
+      return "系统负载偏高，CoCat 正在检修。";
     case "TemperatureCheck":
       return "温度偏高，正在关注散热状态。";
     case "MemoryCrowded":
       return "内存较拥挤，建议留意后台任务。";
     case "DataSorting":
-      return "系统空闲，CoreCat 正在整理数据。";
+      return "系统空闲，CoCat 正在整理数据。";
     case "Sleep":
-      return "长时间未操作，CoreCat 进入休眠。";
+      return "长时间未操作，CoCat 进入休眠。";
     case "Interactive":
-      return "CoreCat 正在响应你的操作。";
+      return "CoCat 正在响应你的操作。";
     case "Celebrate":
       return "清理完成，工坊状态良好。";
     case "Fatigued":
-      return "连续工作很久啦，CoreCat 也想歇一会儿。";
+      return "连续工作很久啦，CoCat 也想歇一会儿。";
     case "NeedsBreak":
       return "久坐提醒：起来活动一下，喝口水吧。";
     case "DeepWork":
-      return "专注仪式进行中，CoreCat 陪你一起埋头干活。";
+      return "专注仪式进行中，CoCat 陪你一起埋头干活。";
     case "Distracted":
       return "好像走神了？深呼吸，回到任务上来吧。";
     case "Hidden":

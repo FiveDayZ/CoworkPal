@@ -48,7 +48,7 @@ export function TodaySuggestionsStrip() {
           <PixelIcon name="lightbulb" size={14} />
           <strong>今日建议</strong>
         </div>
-        <div className="cwp-suggestions-empty">CoreCat 正在分析最近的使用习惯…</div>
+        <div className="cwp-suggestions-empty">CoCat 正在分析最近的使用习惯…</div>
       </section>
     );
   }

@@ -1,6 +1,6 @@
 # 内存释放模块设计
 
-> 对齐 [henrypp/memreduct](https://github.com/henrypp/memreduct) 的内存回收机制，为 CoreCat 新增手动 + 自动两套内存释放能力。
+> 对齐 [henrypp/memreduct](https://github.com/henrypp/memreduct) 的内存回收机制，为 CoCat 新增手动 + 自动两套内存释放能力。
 
 ## 决策汇总
 
