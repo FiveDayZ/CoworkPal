@@ -394,7 +394,12 @@ fn query_nvidia_smi() -> Option<NvidiaSmiSample> {
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
 
-    let output = command.output().ok()?;
+    // Bounded: a hung nvidia-smi (wedgeed driver) must not hold the hardware
+    // adapter lock forever.
+    let output = crate::process_util::run_command_with_timeout(
+        command,
+        crate::process_util::DEFAULT_SUBPROCESS_TIMEOUT,
+    )?;
 
     if !output.status.success() {
         return None;
@@ -475,6 +480,37 @@ function IsVirtualDeviceName($Value) {
   if ($null -eq $Text) { return $false }
   return $Text -match '(?i)virtual|remote|mirror|indirect|idd|oray|gameviewer|parsec|splashtop|spacedesk|dummy|basic render|basic display'
 }
+# Build a map of GPU name -> accurate dedicated video memory (bytes) from the
+# Display class registry. Win32_VideoController.AdapterRAM is a uint32 and is
+# truncated for GPUs with >= 4GB VRAM (e.g. an 8GB RTX 4060 Laptop reports
+# ~4095MB). The registry value HardwareInformation.qwMemorySize is a uint64 and
+# reports the true size, so we prefer it and fall back to AdapterRAM otherwise.
+$GpuMemoryByName = @{}
+$DisplayClassPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
+if (Test-Path $DisplayClassPath) {
+  try {
+    foreach ($sub in Get-ChildItem $DisplayClassPath -ErrorAction SilentlyContinue) {
+      if ($sub.PSChildName -notmatch '^\d{4}$') { continue }
+      $props = Get-ItemProperty -Path $sub.PSPath -ErrorAction SilentlyContinue
+      if ($null -eq $props) { continue }
+      $desc = Clean $props.DriverDesc
+      $qw = $props.'HardwareInformation.qwMemorySize'
+      if ($null -ne $desc -and $null -ne $qw) {
+        $qwBytes = Capacity $qw
+        if ($null -ne $qwBytes -and $qwBytes -gt 0) {
+          $GpuMemoryByName[$desc] = $qwBytes
+        }
+      }
+    }
+  } catch {}
+}
+function GpuMemoryBytes($Name, $AdapterRam) {
+  $name = Clean $Name
+  if ($null -ne $name -and $GpuMemoryByName.ContainsKey($name)) {
+    return $GpuMemoryByName[$name]
+  }
+  return Capacity $AdapterRam
+}
 $DisplayWmi = @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction SilentlyContinue | Where-Object {
   $_.Active -eq $true -and
   (Clean $_.InstanceName) -like 'DISPLAY\*' -and
@@ -514,7 +550,7 @@ $Inventory = [ordered]@{
     -not (IsVirtualDeviceName $_.Name) -and
     -not (IsVirtualDeviceName $_.AdapterCompatibility)
   } | ForEach-Object {
-    Device $_.Name $_.DriverVersion $_.AdapterCompatibility $_.AdapterRAM
+    Device $_.Name $_.DriverVersion $_.AdapterCompatibility (GpuMemoryBytes $_.Name $_.AdapterRAM)
   } | Where-Object { $_ -ne $null })
   displays = @(if ($DisplayWmi.Count -gt 0) { $DisplayWmi } else { $DisplayFallback })
   disks = @(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue | ForEach-Object {
@@ -542,7 +578,12 @@ $Inventory | ConvertTo-Json -Depth 5 -Compress
     ]);
     command.creation_flags(CREATE_NO_WINDOW);
 
-    let output = command.output().ok()?;
+    // Bounded: a wedged WMI/CIM provider must not hold the hardware adapter
+    // lock forever (this runs in the sampling pump's spawn_blocking thread).
+    let output = crate::process_util::run_command_with_timeout(
+        command,
+        crate::process_util::DEFAULT_SUBPROCESS_TIMEOUT,
+    )?;
     if !output.status.success() {
         return None;
     }

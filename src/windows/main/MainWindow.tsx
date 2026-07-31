@@ -38,6 +38,27 @@ const routeLabels: Record<MainRoute, { icon: PixelIconName; text: string }> = {
   about: { icon: "info", text: "关于" },
 };
 
+/**
+ * Reload the data stores the main-window pages render from, so a "重试" after a
+ * data-driven render crash can repair the underlying data instead of looping on
+ * the same broken snapshot. Dynamic imports keep this out of the initial bundle.
+ */
+function reloadPageStores() {
+  void Promise.all([
+    import("../../stores/notesStore"),
+    import("../../stores/workshopStore"),
+    import("../../stores/achievementStore"),
+    import("../../stores/settingsStore"),
+  ]).then(
+    ([{ useNotesStore }, { useWorkshopStore }, { useAchievementStore }, { useSettingsStore }]) => {
+      void useNotesStore.getState().loadNotes();
+      void useWorkshopStore.getState().loadWorkshopState();
+      void useAchievementStore.getState().loadSummary();
+      void useSettingsStore.getState().loadSettings();
+    },
+  );
+}
+
 export function MainWindow() {
   const route = useUiStore((state) => state.mainRoute);
   const setRoute = useUiStore((state) => state.setMainRoute);
@@ -216,7 +237,7 @@ export function MainWindow() {
           />
 
           <section className="cwp-main-content">
-            <ErrorBoundary>
+            <ErrorBoundary onReset={reloadPageStores}>
               <Suspense fallback={null}>
                 <CurrentPage />
               </Suspense>

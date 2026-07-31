@@ -21,11 +21,11 @@ use crate::{
     },
     memory_release::{self, ReleaseKind, ReleaseResult},
     models::{
-        build_rhythm_profile, current_timestamp_ms, today_key, AppSettings, AppSettingsPatch,
-        CatState, DailyWorkAssessment, DailyWorkAssessmentSummary, DailyWorkAssessmentTrend,
-        FocusSession, FocusSessionBook, FocusSessionStatus, HardwareSnapshot, HealthTrendReport,
-        LastMemoryRelease, NoteBook, NoteColor, NoteKind, RhythmProfile, TrendRange,
-        TodaySuggestions, WorkLogEntry, WorkLogReport, WorkshopState,
+        build_rhythm_profile, current_timestamp_ms, generate_unique_id, today_key, AppSettings,
+        AppSettingsPatch, CatState, DailyWorkAssessment, DailyWorkAssessmentSummary,
+        DailyWorkAssessmentTrend, FocusSession, FocusSessionBook, FocusSessionStatus,
+        HardwareSnapshot, HealthTrendReport, LastMemoryRelease, NoteBook, NoteColor, NoteKind,
+        RhythmProfile, TrendRange, TodaySuggestions, WorkLogEntry, WorkLogReport, WorkshopState,
     },
     pet::FOCUS_NUDGE_HOLD_MS,
     taskbar_embed,
@@ -202,19 +202,29 @@ pub async fn update_app_settings(
     let launch_at_startup = patch.launch_at_startup;
     let achievement_payloads = settings_patch_achievement_payloads(&patch);
 
+    let settings = {
+        let mut settings = state.settings.write().await;
+        // Snapshot before applying so we can roll back on a failed save.
+        let previous = settings.clone();
+        settings.apply_patch(patch);
+        if let Err(error) = state.storage.save_settings(&settings) {
+            *settings = previous;
+            return Err(format!("failed to save settings: {error}"));
+        }
+        settings.clone()
+    };
+
+    // Sync the launch-at-startup registry ONLY after settings persisted
+    // successfully. Previously this ran before save_settings, so a failed save
+    // left the registry changed while memory/disk rolled back — a split state
+    // where the app would auto-start despite showing "disabled".
     if let Some(enabled) = launch_at_startup {
         sync_launch_at_startup(enabled)?;
     }
 
-    let settings = {
-        let mut settings = state.settings.write().await;
-        settings.apply_patch(patch);
-        state.storage.save_settings(&settings)?;
-        settings.clone()
-    };
-
-    app.emit(SETTINGS_UPDATED, settings.clone())
-        .map_err(|error| format!("failed to emit {SETTINGS_UPDATED}: {error}"))?;
+    if let Err(error) = app.emit(SETTINGS_UPDATED, settings.clone()) {
+        tracing::warn!("failed to emit {SETTINGS_UPDATED}: {error}");
+    }
 
     taskbar_embed::sync_taskbar_monitor(&app).await;
 
@@ -269,9 +279,11 @@ fn sync_launch_at_startup(enabled: bool) -> Result<(), String> {
         command.args(["delete", RUN_KEY, "/v", VALUE_NAME, "/f"]);
     }
 
-    let output = command
-        .output()
-        .map_err(|error| format!("failed to update startup registry: {error}"))?;
+    let output = crate::process_util::run_command_with_timeout(
+        command,
+        crate::process_util::DEFAULT_SUBPROCESS_TIMEOUT,
+    )
+    .ok_or_else(|| "failed to update startup registry: subprocess timed out or failed".to_string())?;
 
     if output.status.success() || (!enabled && output.status.code() == Some(1)) {
         return Ok(());
@@ -349,7 +361,7 @@ pub async fn start_focus_session(
     let duration_minutes = duration_minutes.clamp(5, 180);
     let duration_seconds = duration_minutes * 60;
     let now = current_timestamp_ms();
-    let id = format!("focus-{now}");
+    let id = generate_unique_id("focus");
 
     let next_book = {
         let mut sessions = state.focus_sessions.write().await;
@@ -370,11 +382,18 @@ pub async fn start_focus_session(
             distraction_count: 0,
             focus_quality: 0.0,
         });
-        if let Err(error) = state.storage.save_focus_sessions(&sessions) {
-            tracing::warn!("failed to save focus sessions: {error}");
-        }
         sessions.clone()
+        // Lock released before the blocking fs::write below (S5: never hold the
+        // RwLock across disk IO).
     };
+
+    // Persist outside the lock. If the write fails, roll the in-memory state
+    // back so memory and disk stay consistent, then surface the error (C1).
+    if let Err(error) = state.storage.save_focus_sessions(&next_book) {
+        let mut sessions = state.focus_sessions.write().await;
+        sessions.sessions.retain(|s| s.id != id);
+        return Err(format!("failed to save focus session: {error}"));
+    }
 
     // Mark the active session on the cat runtime so the pet state machine can
     // enter DeepWork / Distracted. Lock acquired after focus_sessions released.
@@ -389,8 +408,9 @@ pub async fn start_focus_session(
     }
 
     let _ = emit_corecat_interaction_state(&app, "dataSorting");
-    app.emit(FOCUS_SESSION_UPDATED, next_book.clone())
-        .map_err(|error| format!("failed to emit {FOCUS_SESSION_UPDATED}: {error}"))?;
+    if let Err(error) = app.emit(FOCUS_SESSION_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {FOCUS_SESSION_UPDATED}: {error}");
+    }
     Ok(next_book)
 }
 
@@ -410,15 +430,33 @@ pub async fn complete_focus_session(
             .ok_or_else(|| format!("no active focus session with id {session_id}"))?;
 
         let quality = compute_focus_quality(session.distraction_count);
+        let previous_status = session.status;
+        let previous_ended_at = session.ended_at;
+        let previous_quality = session.focus_quality;
         session.focus_quality = quality;
         session.status = FocusSessionStatus::Completed;
         session.ended_at = Some(now);
         let snapshot = session.clone();
-        if let Err(error) = state.storage.save_focus_sessions(&sessions) {
-            tracing::warn!("failed to save focus sessions: {error}");
-        }
-        (sessions.clone(), snapshot)
+        (sessions.clone(), (snapshot, previous_status, previous_ended_at, previous_quality))
+        // Lock released before the blocking fs::write below (S5).
     };
+    let (completed, previous_status, previous_ended_at, previous_quality) = completed;
+
+    // Persist outside the lock; roll back on failure so a failed write cannot
+    // leave the session marked Completed in memory while unsaved on disk (C1).
+    if let Err(error) = state.storage.save_focus_sessions(&next_book) {
+        let mut sessions = state.focus_sessions.write().await;
+        if let Some(session) = sessions
+            .sessions
+            .iter_mut()
+            .find(|s| s.id == session_id)
+        {
+            session.status = previous_status;
+            session.ended_at = previous_ended_at;
+            session.focus_quality = previous_quality;
+        }
+        return Err(format!("failed to save focus session: {error}"));
+    }
 
     // Clear the active marker on the cat runtime.
     {
@@ -432,10 +470,31 @@ pub async fn complete_focus_session(
         }
     }
 
-    // Land the workshop reward, scaled by focus_quality.
+    // Land the workshop reward, scaled by focus_quality. focus_quality is
+    // clamped to [0.4, 1.0] by compute_focus_quality so it can't be NaN here,
+    // but guard defensively — a non-finite award would permanently corrupt the
+    // workshop economy (NaN propagates through all arithmetic and can't be
+    // undone except by reset). Apply the same guard to both parts and insight.
     let planned_minutes = completed.planned_duration_seconds / 60;
-    let parts_award = (planned_minutes as f64 * FOCUS_PARTS_PER_MINUTE * completed.focus_quality).round() as u32;
-    let insight_award = planned_minutes as f64 * FOCUS_INSIGHT_PER_MINUTE * completed.focus_quality;
+    let raw_parts = planned_minutes as f64 * FOCUS_PARTS_PER_MINUTE * completed.focus_quality;
+    let parts_award = if raw_parts.is_finite() && raw_parts >= 0.0 {
+        raw_parts.round() as u32
+    } else {
+        0
+    };
+    let raw_insight = planned_minutes as f64 * FOCUS_INSIGHT_PER_MINUTE * completed.focus_quality;
+    let insight_award = if raw_insight.is_finite() && raw_insight >= 0.0 {
+        raw_insight
+    } else {
+        0.0
+    };
+    // Land the workshop reward. Unlike most write commands, this saves INSIDE
+    // the workshop write lock (deliberately deviating from the usual "lock-free
+    // IO" S5 pattern). complete_focus_session is a rare, user-initiated action,
+    // and the monitoring pump writes workshop every ~2s — saving the reward
+    // outside the lock let the pump's tick land between our mutate and our save,
+    // so our stale snapshot would overwrite the pump's production (or vice
+    // versa). Holding the lock across the save makes the reward atomic.
     let next_workshop = {
         let mut workshop = state.workshop.write().await;
         workshop.parts += parts_award as f64;
@@ -443,7 +502,37 @@ pub async fn complete_focus_session(
         workshop.today_parts += parts_award as f64;
         workshop.today_insight += insight_award;
         if let Err(error) = state.storage.save_workshop(&workshop) {
-            tracing::warn!("failed to save workshop after focus reward: {error}");
+            // Roll back the in-memory reward so it matches the unchanged disk.
+            workshop.parts -= parts_award as f64;
+            workshop.insight -= insight_award;
+            workshop.today_parts -= parts_award as f64;
+            workshop.today_insight -= insight_award;
+            // The session was already persisted as Completed (above) and
+            // cat_runtime was already cleared, so the backend is in a consistent
+            // "session ended" state — but without this emit the frontend never
+            // learns the session ended and keeps showing it as active. Drop the
+            // workshop lock before emitting/awaiting (lock-order safety).
+            drop(workshop);
+            let _ = app.emit(FOCUS_SESSION_UPDATED, next_book.clone());
+            // The session IS completed (persisted), so record its completion
+            // achievement even though the reward failed to land — otherwise the
+            // user finishes a focus session but never gets credit toward focus.
+            if let Err(ach_error) = record_internal_achievement_event(
+                &app,
+                "focus.session.completed",
+                format!("focus.session:{}:{}", completed.id, now),
+                serde_json::json!({
+                    "taskLabel": completed.task_label,
+                    "plannedDurationSeconds": completed.planned_duration_seconds,
+                    "distractionCount": completed.distraction_count,
+                    "focusQuality": completed.focus_quality,
+                }),
+            )
+            .await
+            {
+                tracing::warn!("failed to record focus completion achievement event: {ach_error}");
+            }
+            return Err(format!("failed to save workshop after focus reward: {error}"));
         }
         workshop.clone()
     };
@@ -465,10 +554,12 @@ pub async fn complete_focus_session(
     }
 
     let _ = emit_corecat_interaction_state(&app, "celebrate");
-    app.emit(FOCUS_SESSION_UPDATED, next_book.clone())
-        .map_err(|error| format!("failed to emit {FOCUS_SESSION_UPDATED}: {error}"))?;
-    app.emit(WORKSHOP_UPDATED, next_workshop.clone())
-        .map_err(|error| format!("failed to emit {WORKSHOP_UPDATED}: {error}"))?;
+    if let Err(error) = app.emit(FOCUS_SESSION_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {FOCUS_SESSION_UPDATED}: {error}");
+    }
+    if let Err(error) = app.emit(WORKSHOP_UPDATED, next_workshop.clone()) {
+        tracing::warn!("failed to emit {WORKSHOP_UPDATED}: {error}");
+    }
     Ok((next_book, next_workshop))
 }
 
@@ -488,11 +579,18 @@ pub async fn abandon_focus_session(
             .ok_or_else(|| format!("no active focus session with id {session_id}"))?;
         session.status = FocusSessionStatus::Abandoned;
         session.ended_at = Some(now);
-        if let Err(error) = state.storage.save_focus_sessions(&sessions) {
-            tracing::warn!("failed to save focus sessions: {error}");
-        }
         sessions.clone()
+        // Lock released before the blocking fs::write below (S5).
     };
+
+    if let Err(error) = state.storage.save_focus_sessions(&next_book) {
+        let mut sessions = state.focus_sessions.write().await;
+        if let Some(session) = sessions.sessions.iter_mut().find(|s| s.id == session_id) {
+            session.status = FocusSessionStatus::Active;
+            session.ended_at = None;
+        }
+        return Err(format!("failed to save focus session: {error}"));
+    }
 
     {
         let mut runtime = state.cat_runtime.write().await;
@@ -505,8 +603,9 @@ pub async fn abandon_focus_session(
         }
     }
 
-    app.emit(FOCUS_SESSION_UPDATED, next_book.clone())
-        .map_err(|error| format!("failed to emit {FOCUS_SESSION_UPDATED}: {error}"))?;
+    if let Err(error) = app.emit(FOCUS_SESSION_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {FOCUS_SESSION_UPDATED}: {error}");
+    }
     Ok(next_book)
 }
 
@@ -527,11 +626,11 @@ pub async fn create_note(
     color: NoteColor,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<NoteBook, String> {
+) -> Result<(NoteBook, String), String> {
     let now = current_timestamp_ms();
-    let id = format!("note-{now}");
+    let id = generate_unique_id("note");
     let note = crate::models::Note {
-        id,
+        id: id.clone(),
         kind,
         title: title.trim().to_string(),
         body,
@@ -546,15 +645,24 @@ pub async fn create_note(
     let next_book = {
         let mut notes = state.notes.write().await;
         notes.notes.push(note);
-        if let Err(error) = state.storage.save_notes(&notes) {
-            tracing::warn!("failed to save notes: {error}");
-        }
         notes.clone()
+        // Lock released before the blocking fs::write below (S5).
     };
 
-    app.emit(NOTES_UPDATED, next_book.clone())
-        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
-    Ok(next_book)
+    // Persist outside the lock; roll back the in-memory push on failure so the
+    // user is not shown a note that was never written to disk (C1).
+    if let Err(error) = state.storage.save_notes(&next_book) {
+        let mut notes = state.notes.write().await;
+        notes.notes.retain(|n| n.id != id);
+        return Err(format!("failed to save note: {error}"));
+    }
+
+    if let Err(error) = app.emit(NOTES_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {NOTES_UPDATED}: {error}");
+    }
+    // Return the new note's id alongside the book so the frontend does not have
+    // to guess it by matching kind+title (which collides on duplicate titles).
+    Ok((next_book, id))
 }
 
 #[tauri::command]
@@ -573,19 +681,41 @@ pub async fn update_note(
         let Some(note) = notes.notes.iter_mut().find(|n| n.id == id) else {
             return Err(format!("note {id} not found"));
         };
+        // Capture previous values so we can roll back on a failed write (C1).
+        let previous = (
+            note.title.clone(),
+            note.body.clone(),
+            note.memo_due_at,
+            note.color,
+            note.updated_at,
+        );
         note.title = title.trim().to_string();
         note.body = body;
         note.memo_due_at = memo_due_at;
         note.color = color;
         note.updated_at = now;
-        if let Err(error) = state.storage.save_notes(&notes) {
-            tracing::warn!("failed to save notes: {error}");
-        }
-        notes.clone()
+        let snapshot = (notes.clone(), previous);
+        snapshot
+        // Lock released before the blocking fs::write below (S5).
     };
+    let (next_book, previous) = next_book;
 
-    app.emit(NOTES_UPDATED, next_book.clone())
-        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
+    if let Err(error) = state.storage.save_notes(&next_book) {
+        let (prev_title, prev_body, prev_memo, prev_color, prev_updated) = previous;
+        let mut notes = state.notes.write().await;
+        if let Some(note) = notes.notes.iter_mut().find(|n| n.id == id) {
+            note.title = prev_title;
+            note.body = prev_body;
+            note.memo_due_at = prev_memo;
+            note.color = prev_color;
+            note.updated_at = prev_updated;
+        }
+        return Err(format!("failed to save note: {error}"));
+    }
+
+    if let Err(error) = app.emit(NOTES_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {NOTES_UPDATED}: {error}");
+    }
     Ok(next_book)
 }
 
@@ -602,14 +732,22 @@ pub async fn toggle_note_pinned(
         };
         note.pinned = !note.pinned;
         note.updated_at = current_timestamp_ms();
-        if let Err(error) = state.storage.save_notes(&notes) {
-            tracing::warn!("failed to save notes: {error}");
-        }
         notes.clone()
+        // Lock released before the blocking fs::write below (S5).
     };
 
-    app.emit(NOTES_UPDATED, next_book.clone())
-        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
+    if let Err(error) = state.storage.save_notes(&next_book) {
+        // Roll back the toggle so memory matches the still-old disk file (C1).
+        let mut notes = state.notes.write().await;
+        if let Some(note) = notes.notes.iter_mut().find(|n| n.id == id) {
+            note.pinned = !note.pinned;
+        }
+        return Err(format!("failed to save note: {error}"));
+    }
+
+    if let Err(error) = app.emit(NOTES_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {NOTES_UPDATED}: {error}");
+    }
     Ok(next_book)
 }
 
@@ -626,14 +764,21 @@ pub async fn toggle_note_archived(
         };
         note.archived = !note.archived;
         note.updated_at = current_timestamp_ms();
-        if let Err(error) = state.storage.save_notes(&notes) {
-            tracing::warn!("failed to save notes: {error}");
-        }
         notes.clone()
+        // Lock released before the blocking fs::write below (S5).
     };
 
-    app.emit(NOTES_UPDATED, next_book.clone())
-        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
+    if let Err(error) = state.storage.save_notes(&next_book) {
+        let mut notes = state.notes.write().await;
+        if let Some(note) = notes.notes.iter_mut().find(|n| n.id == id) {
+            note.archived = !note.archived;
+        }
+        return Err(format!("failed to save note: {error}"));
+    }
+
+    if let Err(error) = app.emit(NOTES_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {NOTES_UPDATED}: {error}");
+    }
     Ok(next_book)
 }
 
@@ -643,17 +788,34 @@ pub async fn delete_note(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<NoteBook, String> {
-    let next_book = {
+    let (next_book, removed) = {
         let mut notes = state.notes.write().await;
-        notes.notes.retain(|n| n.id != id);
-        if let Err(error) = state.storage.save_notes(&notes) {
-            tracing::warn!("failed to save notes: {error}");
+        // Partition instead of `retain`: keeps the removed note(s) so we can
+        // restore them if the subsequent write fails (C1).
+        let mut removed: Vec<crate::models::Note> = Vec::new();
+        let mut kept = Vec::with_capacity(notes.notes.len());
+        for note in notes.notes.drain(..) {
+            if note.id == id {
+                removed.push(note);
+            } else {
+                kept.push(note);
+            }
         }
-        notes.clone()
+        notes.notes = kept;
+        (notes.clone(), removed)
+        // Lock released before the blocking fs::write below (S5).
     };
 
-    app.emit(NOTES_UPDATED, next_book.clone())
-        .map_err(|error| format!("failed to emit {NOTES_UPDATED}: {error}"))?;
+    if let Err(error) = state.storage.save_notes(&next_book) {
+        // Restore the removed note(s) so the list reflects the unchanged disk.
+        let mut notes = state.notes.write().await;
+        notes.notes.extend(removed);
+        return Err(format!("failed to save note: {error}"));
+    }
+
+    if let Err(error) = app.emit(NOTES_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {NOTES_UPDATED}: {error}");
+    }
     Ok(next_book)
 }
 
@@ -704,6 +866,88 @@ pub async fn export_note(id: String, state: State<'_, AppState>, app: AppHandle)
         .map_err(|error| format!("failed to write note file: {error}"))?;
 
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Import a `.md` file as a new note. Shows a native open dialog; the file's
+/// content becomes the note body (verbatim Markdown). The title is derived from
+/// the first H1 heading in the file (`# Title`), falling back to the file stem.
+/// Returns the id of the created note on success, or null if the user cancelled.
+#[tauri::command]
+pub async fn import_note(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Option<String>, String> {
+    // Native open dialog (blocking — run on the dialog plugin's own thread).
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("Markdown", &["md"])
+        .set_title("选择要导入的 Markdown 文件")
+        .blocking_pick_file();
+
+    let Some(file_path) = file_path else {
+        // User cancelled the open dialog.
+        return Ok(None);
+    };
+    let path = file_path
+        .as_path()
+        .ok_or_else(|| "invalid file path".to_string())?
+        .to_path_buf();
+
+    // Read the file content. Markdown files are UTF-8 text.
+    let content = std::fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read file: {error}"))?;
+
+    // Derive a title: prefer the first H1 heading (`# Title`), else the file
+    // stem (filename without extension). Trim and cap to keep it readable.
+    let title = content
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim_start();
+            trimmed
+                .strip_prefix("# ")
+                .map(|rest| rest.trim().to_string())
+                .filter(|t| !t.is_empty())
+        })
+        .or_else(|| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "导入的笔记".to_string());
+
+    let now = current_timestamp_ms();
+    let id = generate_unique_id("note");
+    let note = crate::models::Note {
+        id: id.clone(),
+        kind: NoteKind::Note,
+        title,
+        body: content,
+        created_at: now,
+        updated_at: now,
+        pinned: false,
+        archived: false,
+        memo_due_at: None,
+        color: NoteColor::Default,
+    };
+
+    let next_book = {
+        let mut notes = state.notes.write().await;
+        notes.notes.push(note);
+        notes.clone()
+        // Lock released before the blocking fs::write below (S5).
+    };
+
+    if let Err(error) = state.storage.save_notes(&next_book) {
+        let mut notes = state.notes.write().await;
+        notes.notes.retain(|n| n.id != id);
+        return Err(format!("failed to save imported note: {error}"));
+    }
+
+    if let Err(error) = app.emit(NOTES_UPDATED, next_book.clone()) {
+        tracing::warn!("failed to emit {NOTES_UPDATED}: {error}");
+    }
+    Ok(Some(id))
 }
 
 #[tauri::command]
@@ -1075,20 +1319,32 @@ pub async fn toggle_production_paused(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<AppSettings, String> {
-    let is_production_paused = {
-        let settings = state.settings.read().await;
-        !settings.is_production_paused
+    // Read-modify-write under a SINGLE write lock. The previous version read the
+    // current value under a read lock, released it, then called
+    // update_app_settings (which re-acquires the write lock) — leaving a window
+    // in which two rapid toggles could both read `false` and both write `true`,
+    // so the user's two clicks net to "paused" instead of "toggled". Doing the
+    // flip inside one critical section makes the toggle atomic.
+    //
+    // Note: save_settings is called INSIDE the lock here, which deviates from
+    // the "lock-free IO" (S5) pattern used by other settings writes. This is
+    // intentional: splitting the save out would reintroduce the TOCTOU above,
+    // and toggle is a rare user action so blocking settings readers for the
+    // duration of one small JSON write is acceptable.
+    let settings = {
+        let mut settings = state.settings.write().await;
+        settings.is_production_paused = !settings.is_production_paused;
+        state.storage.save_settings(&settings)?;
+        settings.clone()
     };
 
-    update_app_settings(
-        AppSettingsPatch {
-            is_production_paused: Some(is_production_paused),
-            ..Default::default()
-        },
-        state,
-        app,
-    )
-    .await
+    if let Err(error) = app.emit(SETTINGS_UPDATED, settings.clone()) {
+        tracing::warn!("failed to emit {SETTINGS_UPDATED}: {error}");
+    }
+
+    taskbar_embed::sync_taskbar_monitor(&app).await;
+
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -1253,16 +1509,70 @@ pub async fn update_workshop_state(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkshopState, String> {
-    let previous_workshop = state.workshop.read().await.clone();
-    let next_workshop = {
+    // Reject obviously invalid state from the frontend: a non-positive level or
+    // negative/non-finite resources have no business meaning and would corrupt
+    // the economy (NaN would bypass the monitoring NaN guard since it writes
+    // directly, not via apply_tick).
+    if workshop.workshop_level < 1 {
+        return Err("invalid workshop state: level must be >= 1".to_string());
+    }
+    if !workshop.parts.is_finite()
+        || !workshop.insight.is_finite()
+        || !workshop.today_parts.is_finite()
+        || !workshop.today_insight.is_finite()
+    {
+        return Err("invalid workshop state: resources must be finite numbers".to_string());
+    }
+    if workshop.parts < 0.0
+        || workshop.insight < 0.0
+        || workshop.today_parts < 0.0
+        || workshop.today_insight < 0.0
+    {
+        return Err("invalid workshop state: resources must not be negative".to_string());
+    }
+    // Capture previous_workshop and apply the new value under the SAME write
+    // lock. Reading it separately (read lock, release, write lock) left a
+    // TOCTOU window where a concurrent writer could change workshop between
+    // the read and the write, and a failed-save rollback would then restore a
+    // stale `previous_workshop`, clobbering that concurrent write.
+    let (previous_workshop, next_workshop) = {
         let mut w = state.workshop.write().await;
-        *w = workshop;
-        state.storage.save_workshop(&w)?;
-        w.clone()
+        let previous = w.clone();
+        // MERGE instead of wholesale overwrite (*w = workshop). The frontend
+        // sends a snapshot of the workshop it last saw, but the monitoring pump
+        // updates several fields every ~2s (total_online_seconds, today_parts,
+        // today_insight, last_production_time, last_daily_reset_date). A full
+        // overwrite would clobber those with stale values from the snapshot,
+        // causing resources/on-line time to jump backwards after each upgrade —
+        // which in turn made parts hover right around a cost threshold, so the
+        // user's upgrade attempts kept failing the resource check and needed
+        // many retries. Preserve the pump-maintained fields; only accept the
+        // economy decisions the frontend legitimately owns.
+        w.parts = workshop.parts;
+        w.insight = workshop.insight;
+        w.workshop_level = workshop.workshop_level;
+        w.cat_affinity_level = workshop.cat_affinity_level;
+        w.module_levels = workshop.module_levels.clone();
+        // total_online_seconds / today_parts / today_insight /
+        // last_production_time / last_daily_reset_date stay as the pump left
+        // them. (today_parts/insight SHOULD drop when resources are spent on an
+        // upgrade, but they are cumulative "earned today" counters, not
+        // spendable balances — so keeping them is correct.)
+        (previous, w.clone())
+        // Lock released before the blocking fs::write below (S5).
     };
 
-    app.emit(WORKSHOP_UPDATED, next_workshop.clone())
-        .map_err(|error| format!("failed to emit {WORKSHOP_UPDATED}: {error}"))?;
+    // Persist outside the lock; roll back to the prior state on failure so the
+    // in-memory workshop never diverges from disk (C1/S6).
+    if let Err(error) = state.storage.save_workshop(&next_workshop) {
+        let mut w = state.workshop.write().await;
+        *w = previous_workshop.clone();
+        return Err(format!("failed to save workshop: {error}"));
+    }
+
+    if let Err(error) = app.emit(WORKSHOP_UPDATED, next_workshop.clone()) {
+        tracing::warn!("failed to emit {WORKSHOP_UPDATED}: {error}");
+    }
     record_workshop_upgrade_events(&app, &previous_workshop, &next_workshop).await;
     Ok(next_workshop)
 }

@@ -1045,11 +1045,12 @@ export async function createNote(args: {
   body: string;
   memoDueAt: number | null;
   color: NoteColor;
-}): Promise<NoteBook> {
+}): Promise<[NoteBook, string]> {
   if (!isTauriRuntime()) {
-    return { ...emptyNoteBook };
+    // Browser preview: fabricate a stable-ish id so callers that read it work.
+    return [{ ...emptyNoteBook }, `note-preview-${Date.now()}`];
   }
-  return invoke<NoteBook>("create_note", args);
+  return invoke<[NoteBook, string]>("create_note", args);
 }
 
 export async function updateNote(args: {
@@ -1096,6 +1097,19 @@ export async function exportNote(id: string): Promise<string | null> {
     return null;
   }
   return invoke<string | null>("export_note", { id });
+}
+
+/**
+ * Import a `.md` file as a new note. Shows a native open dialog; the file
+ * content becomes the note body, and the title is derived from the first H1
+ * heading or the filename. Returns the new note's id on success, or null if
+ * the user cancelled the dialog. (Browser preview: no-op, returns null.)
+ */
+export async function importNote(): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+  return invoke<string | null>("import_note");
 }
 
 export async function getRhythmProfile(): Promise<RhythmProfile> {

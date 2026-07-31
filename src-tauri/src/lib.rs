@@ -7,6 +7,7 @@ pub mod memory_release;
 mod models;
 mod monitoring;
 mod pet;
+mod process_util;
 mod storage;
 mod suggestions;
 mod taskbar_embed;
@@ -125,6 +126,7 @@ pub fn run() {
             commands::toggle_note_archived,
             commands::delete_note,
             commands::export_note,
+            commands::import_note,
             commands::get_rhythm_profile,
             commands::get_health_trend,
             commands::get_today_suggestions,

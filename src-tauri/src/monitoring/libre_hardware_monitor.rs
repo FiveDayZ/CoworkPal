@@ -153,7 +153,12 @@ fn query_via_wmi() -> Option<f32> {
         ]);
         command.creation_flags(CREATE_NO_WINDOW);
 
-        let output = command.output().ok()?;
+        // Bounded: if the root/LibreHardwareMonitor WMI namespace wedges, the
+        // powershell call can hang and would otherwise hold the adapter lock.
+        let output = crate::process_util::run_command_with_timeout(
+            command,
+            crate::process_util::DEFAULT_SUBPROCESS_TIMEOUT,
+        )?;
         if !output.status.success() {
             return None;
         }
@@ -169,6 +174,7 @@ fn query_via_wmi() -> Option<f32> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 struct WmiSensor {
     #[serde(default)]
     name: serde_json::Value,
@@ -240,7 +246,11 @@ mod tests {
 
     #[test]
     fn rejects_implausible_wmi_values() {
-        let json = r#"{"Name":"CPU Package","Value":0}"#;
+        // 150°C is outside the plausible range (-30..125), so it must be
+        // dropped. (Note: 0°C is plausible and is NOT rejected — an earlier
+        // version of this test wrongly expected None for 0, which only
+        // "passed" because the parser was entirely broken at the time.)
+        let json = r#"{"Name":"CPU Package","Value":150}"#;
         assert_eq!(parse_wmi_temperature(json), None);
     }
 

@@ -21,6 +21,9 @@ export interface WorkLogStore {
   assessmentTrend: DailyWorkAssessmentTrend | null;
   rhythmProfile: RhythmProfile | null;
   selectedDate: string;
+  /** Today's report that arrived while viewing another date, to be applied
+   *  when the user returns to today (avoids showing stale data). */
+  pendingTodayReport: WorkLogReport | null;
   setReport: (report: WorkLogReport) => void;
   setAssessment: (assessment: DailyWorkAssessment) => void;
   setSelectedDate: (date: string) => void;
@@ -41,27 +44,63 @@ export const useWorkLogStore = create<WorkLogStore>((set, get) => ({
   assessmentTrend: null,
   rhythmProfile: null,
   selectedDate: todayKey(),
+  pendingTodayReport: null,
   setReport: (report) => set({ report }),
   setAssessment: (assessment) => set({ assessment }),
-  setSelectedDate: (selectedDate) => set({ selectedDate }),
+  setSelectedDate: (selectedDate) => {
+    const previous = get();
+    // If the user is switching back to today and a fresher today-report
+    // arrived while they were on a historical date, apply it immediately so
+    // they don't see stale data (and the caller's load is a no-op refresh).
+    // Guard against a midnight rollover: only apply the pending report if it
+    // actually corresponds to today (otherwise a report cached before midnight
+    // would be wrongly shown for the new day).
+    const today = todayKey();
+    if (
+      selectedDate === today &&
+      previous.selectedDate !== today &&
+      previous.pendingTodayReport &&
+      previous.pendingTodayReport.date === today
+    ) {
+      set({ selectedDate, report: previous.pendingTodayReport, pendingTodayReport: null });
+    } else {
+      set({ selectedDate });
+    }
+  },
   loadAssessmentHistory: async (limit) => {
-    const assessmentHistory = await getDailyWorkAssessmentHistory(limit);
-    set({ assessmentHistory });
+    try {
+      const assessmentHistory = await getDailyWorkAssessmentHistory(limit);
+      set({ assessmentHistory });
+    } catch (error) {
+      console.error("Failed to load assessment history", error);
+    }
   },
   loadAssessmentTrend: async (limit) => {
-    const assessmentTrend = await getDailyWorkAssessmentTrend(limit);
-    set({ assessmentTrend });
+    try {
+      const assessmentTrend = await getDailyWorkAssessmentTrend(limit);
+      set({ assessmentTrend });
+    } catch (error) {
+      console.error("Failed to load assessment trend", error);
+    }
   },
   loadRhythmProfile: async () => {
-    const rhythmProfile = await getRhythmProfile();
-    set({ rhythmProfile });
+    try {
+      const rhythmProfile = await getRhythmProfile();
+      set({ rhythmProfile });
+    } catch (error) {
+      console.error("Failed to load rhythm profile", error);
+    }
   },
   loadWorkLogReport: async (date) => {
     const selectedDate = date ?? get().selectedDate;
-    const [report, assessment] = await Promise.all([
-      getWorkLogReport(selectedDate),
-      getDailyWorkAssessment(selectedDate),
-    ]);
-    set({ assessment, report, selectedDate: report.date });
+    try {
+      const [report, assessment] = await Promise.all([
+        getWorkLogReport(selectedDate),
+        getDailyWorkAssessment(selectedDate),
+      ]);
+      set({ assessment, report, selectedDate: report.date });
+    } catch (error) {
+      console.error("Failed to load work log report", error);
+    }
   },
 }));

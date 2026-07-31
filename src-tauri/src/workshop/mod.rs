@@ -4,7 +4,11 @@ use crate::models::{AppSettings, HardwareSnapshot, ModuleUpgradeLevels, Workshop
 
 const BASE_PARTS_PER_MINUTE: f64 = 1.6;
 const BASE_INSIGHT_PER_MINUTE: f64 = 0.13;
-const MAX_DELTA_SECONDS: i64 = 30;
+/// Cap a single tick's credited time. This MUST match the work-log's cap
+/// (models.rs record_snapshot clamps to 60s) so the workshop's online-seconds
+/// tracking and the work-log's active-seconds tracking stay consistent when the
+/// sampling pump drops frames — otherwise the two would diverge over time.
+const MAX_DELTA_SECONDS: i64 = 60;
 
 pub struct ProductionService;
 
@@ -202,7 +206,13 @@ fn stability_relief(
 fn temperature_overage(value: Option<f32>, warning: f32) -> f64 {
     value
         .filter(|temp| *temp > warning)
-        .map(|temp| ((temp - warning) / 30.0).clamp(0.0, 1.0) as f64)
+        .map(|temp| {
+            // Degrees above the warning threshold needed to reach full thermal
+            // penalty. 30°C is a fixed gradient (not user-configurable): a CPU at
+            // warning+30 is running dangerously hot, so that span maps to [0,1].
+            const FULL_PENALTY_SPAN_CELSIUS: f32 = 30.0;
+            ((temp - warning) / FULL_PENALTY_SPAN_CELSIUS).clamp(0.0, 1.0) as f64
+        })
         .unwrap_or(0.0)
 }
 

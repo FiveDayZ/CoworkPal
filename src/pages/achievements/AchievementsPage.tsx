@@ -4,7 +4,7 @@ import {
   getAchievementDetail,
   trackAchievementEvent,
 } from "../../services/tauriCommands";
-import { copyTextToClipboard } from "../../services/clipboard";
+import { copyTextToClipboard, readTextFromClipboard } from "../../services/clipboard";
 import { useAchievementStore } from "../../stores/achievementStore";
 import type {
   AchievementCard,
@@ -214,6 +214,26 @@ export function AchievementsPage() {
     showExportHint("图鉴快照已复制");
   }
 
+  // Import an external profile snapshot from the clipboard. Validates that the
+  // clipboard text looks like a CoreWorkPal snapshot (starts with the marker)
+  // before recording the import event — this powers achievement A078.
+  async function handleImportProfileSnapshot() {
+    const text = await readTextFromClipboard();
+    if (!text || !text.includes("CoreWorkPal")) {
+      showExportHint("剪贴板中没有有效的快照内容");
+      return;
+    }
+    const now = Date.now();
+    await trackAchievementEvent({
+      eventName: "share.profile_snapshot.import",
+      occurredAt: now,
+      idempotencyKey: `share.profile_snapshot.import:${now}`,
+      payload: { format: "text" },
+      source: "achievement-page",
+    });
+    showExportHint("外部快照已导入");
+  }
+
   async function handleExportAchievementCard(card: AchievementCard) {
     const now = Date.now();
     const text = [
@@ -308,6 +328,18 @@ export function AchievementsPage() {
           type="button"
         >
           复制图鉴快照
+        </button>
+        <button
+          className="cwp-achievements-action"
+          onClick={() => {
+            void handleImportProfileSnapshot().catch((error) => {
+              console.error("Failed to import achievement profile snapshot", error);
+              showExportHint("导入失败，请重试");
+            });
+          }}
+          type="button"
+        >
+          导入外部快照
         </button>
         {exportHint ? (
           <span className="cwp-achievements-export-hint">{exportHint}</span>

@@ -51,7 +51,47 @@ export function PetQuickPanelWindow() {
   const catMessage = usePetStore((state) => state.catMessage);
   const settings = useSettingsStore((state) => state.settings);
   const updateSettings = useSettingsStore((state) => state.updateSettings);
+  const applyOptimistic = useSettingsStore((state) => state.applyOptimistic);
   const loadSettings = useSettingsStore((state) => state.loadSettings);
+  // Fire-and-forget wrapper: updateSettings rethrows on failure (after
+  // reconciling state), so swallow the rejection to avoid unhandled warnings.
+  const safeUpdate = (patch: Parameters<typeof updateSettings>[0]) => {
+    void updateSettings(patch).catch((error) => {
+      console.error("failed to persist settings", error);
+    });
+  };
+  // Debounced commit for continuous slider inputs (catSize/catOpacity). A drag
+  // fires many onChange events; without this each one would trigger an IPC +
+  // disk write. We apply the value optimistically (live slider) and coalesce
+  // persistence into one write after the user pauses. Mirrors SettingsPage.
+  const sliderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSliderPatch = useRef<Parameters<typeof updateSettings>[0]>({});
+  function commitSlider(patch: Parameters<typeof updateSettings>[0]) {
+    applyOptimistic(patch);
+    Object.assign(pendingSliderPatch.current, patch);
+    if (sliderDebounceRef.current) {
+      clearTimeout(sliderDebounceRef.current);
+    }
+    sliderDebounceRef.current = setTimeout(() => {
+      sliderDebounceRef.current = null;
+      const patchToCommit = pendingSliderPatch.current;
+      pendingSliderPatch.current = {};
+      safeUpdate(patchToCommit);
+    }, 250);
+  }
+  useEffect(() => {
+    return () => {
+      if (sliderDebounceRef.current) {
+        // Flush the pending slider patch instead of discarding it.
+        clearTimeout(sliderDebounceRef.current);
+        const pending = pendingSliderPatch.current;
+        pendingSliderPatch.current = {};
+        if (Object.keys(pending).length > 0) {
+          safeUpdate(pending);
+        }
+      }
+    };
+  }, []);
   const activeFocusSession = useFocusStore((state) => state.activeSession);
   const isStartingFocus = useFocusStore((state) => state.isStarting);
   const startFocus = useFocusStore((state) => state.start);
@@ -297,10 +337,27 @@ export function PetQuickPanelWindow() {
                 分心 {activeFocusSession.distractionCount} 次
               </div>
               <div className="cwp-panel-focus-actions">
-                <CompactButton onClick={() => void completeFocus()} variant="primary">
+                <CompactButton
+                  onClick={() =>
+                    void completeFocus().catch((e) => {
+                      console.error("complete focus failed", e);
+                      setFocusError(typeof e === "string" ? e : "完成专注失败，请重试");
+                    })
+                  }
+                  variant="primary"
+                >
                   完成
                 </CompactButton>
-                <CompactButton onClick={() => void abandonFocus()}>放弃</CompactButton>
+                <CompactButton
+                  onClick={() =>
+                    void abandonFocus().catch((e) => {
+                      console.error("abandon focus failed", e);
+                      setFocusError(typeof e === "string" ? e : "放弃专注失败，请重试");
+                    })
+                  }
+                >
+                  放弃
+                </CompactButton>
               </div>
             </div>
           ) : (
@@ -353,7 +410,7 @@ export function PetQuickPanelWindow() {
           </CompactButton>
           <CompactButton
             onClick={() =>
-              void updateSettings({
+              safeUpdate({
                 isProductionPaused: !(settings?.isProductionPaused ?? false),
               })
             }
@@ -372,7 +429,7 @@ export function PetQuickPanelWindow() {
           label="大小"
           max={1.5}
           min={0.6}
-          onChange={(value) => void updateSettings({ catSize: value })}
+          onChange={(value) => commitSlider({ catSize: value })}
           step={0.05}
           value={settings?.catSize ?? 1}
           valueLabel={`${Math.round((settings?.catSize ?? 1) * 100)}%`}
@@ -381,7 +438,7 @@ export function PetQuickPanelWindow() {
           label="透明"
           max={1}
           min={0.2}
-          onChange={(value) => void updateSettings({ catOpacity: value })}
+          onChange={(value) => commitSlider({ catOpacity: value })}
           step={0.05}
           value={settings?.catOpacity ?? 0.95}
           valueLabel={`${Math.round((settings?.catOpacity ?? 0.95) * 100)}%`}
@@ -391,20 +448,20 @@ export function PetQuickPanelWindow() {
           <ToggleSwitch
             checked={settings?.enablePetBubble ?? true}
             label="气泡提示"
-            onChange={(checked) => void updateSettings({ enablePetBubble: checked })}
+            onChange={(checked) => safeUpdate({ enablePetBubble: checked })}
           />
           <ToggleSwitch
             checked={settings?.enableStaticCatMode ?? false}
             label="静态模式"
             onChange={(checked) =>
-              void updateSettings({ enableStaticCatMode: checked })
+              safeUpdate({ enableStaticCatMode: checked })
             }
           />
           <ToggleSwitch
             checked={settings?.enableLowPowerMode ?? false}
             label="低功耗"
             onChange={(checked) =>
-              void updateSettings({ enableLowPowerMode: checked })
+              safeUpdate({ enableLowPowerMode: checked })
             }
           />
         </div>

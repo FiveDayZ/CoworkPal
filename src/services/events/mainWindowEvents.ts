@@ -23,6 +23,10 @@ import {
 } from "./eventUtils";
 import { registerPetStateListeners } from "./petStateEvents";
 
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function registerMainWindowEvents() {
   const unlisteners: Array<Promise<UnlistenFn>> = [];
 
@@ -59,6 +63,10 @@ export function registerMainWindowEvents() {
       const workLogStore = useWorkLogStore.getState();
       if (workLogStore.selectedDate === event.payload.date) {
         workLogStore.setReport(event.payload);
+      } else if (event.payload.date === todayKey()) {
+        // Today's report updated while the user is viewing another date. Stash
+        // it so returning to today shows fresh data instead of a stale load.
+        useWorkLogStore.setState({ pendingTodayReport: event.payload });
       }
     }),
   );
@@ -68,13 +76,22 @@ export function registerMainWindowEvents() {
   unlisteners.push(
     listen<AchievementUnlockedEvent>("achievement:unlocked", (event) => {
       const achievementStore = useAchievementStore.getState();
+      // pushUnlocked already updates summary + cards incrementally in-memory, so
+      // for the common case we trust the local delta and skip the full reload.
+      // Only when the achievements page has never been opened (cards empty) do
+      // we fall back to a full fetch. Previously every unlock fired BOTH a
+      // loadSummary and loadCards — redundant IPC that, during a batch unlock,
+      // could storm the backend and let a stale response overwrite the fresh
+      // incremental state.
       achievementStore.pushUnlocked(event.payload);
-      void achievementStore.loadSummary().catch((error) => {
-        console.error("Failed to reload achievement summary", error);
-      });
-      void achievementStore.loadCards().catch((error) => {
-        console.error("Failed to reload achievement cards", error);
-      });
+      if (achievementStore.cards.length === 0) {
+        void achievementStore.loadSummary().catch((error) => {
+          console.error("Failed to reload achievement summary", error);
+        });
+        void achievementStore.loadCards().catch((error) => {
+          console.error("Failed to reload achievement cards", error);
+        });
+      }
     }),
   );
 

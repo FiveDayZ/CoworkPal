@@ -291,7 +291,13 @@ fn is_temperature_below_exit_threshold(snapshot: &HardwareSnapshot) -> bool {
         all_safe &= value < TEMPERATURE_CHECK_EXIT_CELSIUS;
     }
 
-    !has_temperature || all_safe
+    // Only declare "safe" when we actually have a reading that confirms it.
+    // Previously a missing reading (!has_temperature) was treated as safe, so a
+    // momentary sensor dropout (e.g. LibreHardwareMonitor restarting) would
+    // immediately dismiss an active high-temperature alert even though the CPU
+    // was still hot. Now a missing reading keeps the alert active until real
+    // cool-down data arrives.
+    has_temperature && all_safe
 }
 
 fn next_temperature_safe_since(

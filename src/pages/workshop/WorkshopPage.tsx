@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import {
   formatBytes,
@@ -60,6 +60,10 @@ export function WorkshopPage() {
   const snapshot = useHardwareStore((state) => state.snapshot);
   const [selectedModuleKey, setSelectedModuleKey] =
     useState<WorkshopModuleKey | null>(null);
+  // Guards upgrade actions while a saveWorkshopState round-trip is in flight.
+  // Without this, a double-click could fire two saves before the store
+  // refreshes currentParts/currentInsight, deducting resources twice.
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
 
   const moduleLevels = normalizeModuleLevels(workshop?.moduleLevels);
   const currentLevel = workshop?.workshopLevel ?? 1;
@@ -68,29 +72,43 @@ export function WorkshopPage() {
   const nextLevel = currentLevel + 1;
   const workshopCost = getWorkshopUpgradeCost(currentLevel);
   const isWorkshopMaxed = currentLevel >= MAX_WORKSHOP_LEVEL;
+  // parts/insight are f64 accumulated by the monitoring pump (small float
+  // deltas), while costs are integers. A tiny epsilon avoids a resource that
+  // is effectively "enough" (e.g. 99.99999999) from failing the >= check due
+  // to float representation, which made upgrades flicker/require retries.
+  const RESOURCE_EPSILON = 0.001;
   const canUpgradeWorkshop =
     !isWorkshopMaxed &&
-    currentParts >= workshopCost.parts &&
-    currentInsight >= workshopCost.insight;
+    currentParts >= workshopCost.parts - RESOURCE_EPSILON &&
+    currentInsight >= workshopCost.insight - RESOURCE_EPSILON;
   const modules = buildModules(moduleLevels, snapshot, settings);
   const selectedModule =
     modules.find((module) => module.key === selectedModuleKey) ?? null;
 
   const handleUpgradeWorkshop = async () => {
-    if (!canUpgradeWorkshop || !workshop) return;
+    if (upgradeBusy || !canUpgradeWorkshop || !workshop) return;
+    setUpgradeBusy(true);
     playAudioFeedback("meow", settings?.enableSound ?? false);
-    await saveWorkshopState({
-      ...workshop,
-      parts: currentParts - workshopCost.parts,
-      insight: currentInsight - workshopCost.insight,
-      workshopLevel: nextLevel,
-      moduleLevels,
-    });
-    void triggerCoreCatUpgradeAnimation("workshopUpgrade");
+    try {
+      await saveWorkshopState({
+        ...workshop,
+        // Clamp to 0 so a tiny float underflow (e.g. 100.0 - 100 = -1e-13) is
+        // not sent as a negative value, which the backend's validation rejects.
+        parts: Math.max(0, currentParts - workshopCost.parts),
+        insight: Math.max(0, currentInsight - workshopCost.insight),
+        workshopLevel: nextLevel,
+        moduleLevels,
+      });
+      void triggerCoreCatUpgradeAnimation("workshopUpgrade");
+    } catch (error) {
+      alert(`升级失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setUpgradeBusy(false);
+    }
   };
 
   const handleSubUpgrade = async (type: "parts" | "process") => {
-    if (!selectedModule || !workshop) return;
+    if (upgradeBusy || !selectedModule || !workshop) return;
 
     const currentSubLevel = moduleLevels[selectedModule.key][type];
     if (currentSubLevel >= MAX_MODULE_SUB_LEVEL) {
@@ -98,7 +116,11 @@ export function WorkshopPage() {
       return;
     }
     const cost = getSubCost(currentSubLevel, type, currentLevel);
-    if (currentParts < cost.parts || currentInsight < cost.insight) {
+    // Same float-epsilon tolerance as canUpgradeWorkshop above.
+    if (
+      currentParts < cost.parts - RESOURCE_EPSILON ||
+      currentInsight < cost.insight - RESOURCE_EPSILON
+    ) {
       alert(getResourceShortageMessage(cost, currentParts, currentInsight));
       return;
     }
@@ -112,14 +134,36 @@ export function WorkshopPage() {
       },
     };
 
-    await saveWorkshopState({
-      ...workshop,
-      parts: currentParts - cost.parts,
-      insight: currentInsight - cost.insight,
-      moduleLevels: nextModuleLevels,
-    });
-    void triggerCoreCatUpgradeAnimation("moduleUpgrade");
+    setUpgradeBusy(true);
+    try {
+      await saveWorkshopState({
+        ...workshop,
+        parts: Math.max(0, currentParts - cost.parts),
+        insight: Math.max(0, currentInsight - cost.insight),
+        moduleLevels: nextModuleLevels,
+      });
+      void triggerCoreCatUpgradeAnimation("moduleUpgrade");
+    } catch (error) {
+      alert(`强化失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setUpgradeBusy(false);
+    }
   };
+
+  // Esc closes the module detail modal (it previously had only a close button),
+  // but not while an upgrade is in flight (matches NoteViewModal/NoteEditModal
+  // disabling Esc during a pending save).
+  useEffect(() => {
+    if (!selectedModuleKey || upgradeBusy) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSelectedModuleKey(null);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedModuleKey, upgradeBusy]);
 
   return (
     <div className="cwp-page">
@@ -227,18 +271,29 @@ export function WorkshopPage() {
           </div>
         </div>
         <button
-          className={`cwp-upgrade-btn ${!canUpgradeWorkshop ? "disabled" : ""} ${isWorkshopMaxed ? "is-maxed" : ""}`}
+          className={`cwp-upgrade-btn ${!canUpgradeWorkshop || upgradeBusy ? "disabled" : ""} ${isWorkshopMaxed ? "is-maxed" : ""}`}
           onClick={handleUpgradeWorkshop}
-          disabled={!canUpgradeWorkshop}
+          disabled={!canUpgradeWorkshop || upgradeBusy}
           type="button"
           style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
         >
-          <PixelIcon name="energy" size={14} /> {isWorkshopMaxed ? "已达上限" : "升级工坊"}
+          <PixelIcon name="energy" size={14} /> {upgradeBusy ? "升级中…" : isWorkshopMaxed ? "已达上限" : "升级工坊"}
         </button>
       </div>
 
       {selectedModule && (
-        <div className="cwp-workshop-detail-modal show">
+        <div
+          className="cwp-modal-overlay"
+          onClick={upgradeBusy ? undefined : () => setSelectedModuleKey(null)}
+          role="presentation"
+        >
+        <div
+          className="cwp-workshop-detail-modal show"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${selectedModule.titleZh} 强化`}
+        >
           <div className="cwp-modal-header">
             <span className="cwp-modal-title">{selectedModule.titleZh} 强化</span>
             <button
@@ -273,6 +328,7 @@ export function WorkshopPage() {
               name="零件强化"
               onUpgrade={() => void handleSubUpgrade("parts")}
               rule={selectedModule.partsRule}
+              busy={upgradeBusy}
             />
             <SubUpgradeRow
               cost={getSubCost(
@@ -286,8 +342,10 @@ export function WorkshopPage() {
               name="工艺优化"
               onUpgrade={() => void handleSubUpgrade("process")}
               rule={selectedModule.processRule}
+              busy={upgradeBusy}
             />
           </div>
+        </div>
         </div>
       )}
     </div>
@@ -325,6 +383,7 @@ function SubUpgradeRow({
   name,
   onUpgrade,
   rule,
+  busy,
 }: {
   cost: ResourceCost;
   currentInsight: number;
@@ -333,9 +392,14 @@ function SubUpgradeRow({
   name: string;
   onUpgrade: () => void;
   rule: string;
+  busy: boolean;
 }) {
   const isMaxed = level >= MAX_MODULE_SUB_LEVEL;
-  const disabled = isMaxed || currentParts < cost.parts || currentInsight < cost.insight;
+  // Float-epsilon tolerance (matches the upgrade handlers): resources
+  // accumulated as f64 may be 0.0001 short of an integer cost due to rounding.
+  const EPS = 0.001;
+  const disabled =
+    busy || isMaxed || currentParts < cost.parts - EPS || currentInsight < cost.insight - EPS;
   return (
     <div className="cwp-sub-upgrade-row">
       <div className="cwp-sub-upgrade-info">
@@ -351,7 +415,7 @@ function SubUpgradeRow({
         onClick={onUpgrade}
         type="button"
       >
-        {isMaxed ? "已达上限" : formatCost(cost)}
+        {isMaxed ? "已达上限" : busy ? "升级中…" : formatCost(cost)}
       </button>
     </div>
   );

@@ -197,7 +197,7 @@ fn run_full_via_self_restart_blocking() -> Result<u64, HelperError> {
         core::{w, HSTRING, PCWSTR},
         Win32::{
             Foundation::{CloseHandle, GetLastError, WAIT_OBJECT_0},
-            System::Threading::WaitForSingleObject,
+            System::Threading::{TerminateProcess, WaitForSingleObject},
             UI::{
                 Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW},
                 WindowsAndMessaging::SW_HIDE,
@@ -255,6 +255,21 @@ fn run_full_via_self_restart_blocking() -> Result<u64, HelperError> {
         // real handle that must be closed afterwards. Timeout in ms as u32.
         let wait_ms = HELPER_TIMEOUT.as_millis().min(u32::MAX as u128) as u32;
         let wait = unsafe { WaitForSingleObject(handle, wait_ms) };
+
+        // On timeout the elevated helper is still running. Before closing the
+        // handle, terminate the process so it cannot linger as an orphaned
+        // elevated process consuming resources (S8). TerminateProcess is safe
+        // here: `handle` is a real process handle we own and have not yet freed.
+        if wait.0 == 258 {
+            // WAIT_TIMEOUT
+            let killed = unsafe { TerminateProcess(handle, 1) }.is_ok();
+            if killed {
+                // Reap the terminated process so it does not become a zombie.
+                let _ = unsafe { WaitForSingleObject(handle, 0) };
+            }
+            tracing::warn!("memory-release helper exceeded timeout and was terminated");
+        }
+
         let _ = unsafe { CloseHandle(handle) };
         if wait == WAIT_OBJECT_0 {
             read_helper_result(&result_path)

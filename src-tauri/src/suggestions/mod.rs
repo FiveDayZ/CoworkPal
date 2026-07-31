@@ -98,7 +98,10 @@ fn high_load_ratio(entry: &WorkLogEntry) -> f64 {
     if entry.active_seconds == 0 {
         0.0
     } else {
-        entry.high_load_seconds as f64 / entry.active_seconds as f64
+        // Clamp to [0, 1] in case of dirty data where high_load_seconds somehow
+        // exceeds active_seconds (e.g. accumulated from overlapping ticks) — an
+        // out-of-range ratio would mislead the sustained-high-load suggestion.
+        (entry.high_load_seconds as f64 / entry.active_seconds as f64).clamp(0.0, 1.0)
     }
 }
 

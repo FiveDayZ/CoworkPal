@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   hideMonitorBar,
   hidePetWindow,
@@ -13,7 +13,7 @@ import { copyTextToClipboard } from "../../services/clipboard";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
-import type { MonitorBarMode, MonitorMetric } from "../../types/settings";
+import type { AppSettingsPatch, MonitorBarMode, MonitorMetric } from "../../types/settings";
 import { defaultModuleLevels } from "../../types/workshop";
 import { useThemedIcons } from "../../ui/assets";
 import { PixelIcon } from "../../ui/PixelIcon";
@@ -47,6 +47,16 @@ export function SettingsPage() {
   const settings = useSettingsStore((state) => state.settings);
   const icons = useThemedIcons();
   const updateSettings = useSettingsStore((state) => state.updateSettings);
+  const applyOptimistic = useSettingsStore((state) => state.applyOptimistic);
+  // Fire-and-forget wrapper for discrete settings writes (toggles, theme, ...).
+  // updateSettings rethrows on failure (after reconciling state via re-fetch),
+  // so we swallow the rejection here to avoid unhandled-promise warnings — the
+  // store has already corrected the UI, there is nothing else to surface.
+  const safeUpdate = (patch: AppSettingsPatch) => {
+    void updateSettings(patch).catch((error) => {
+      console.error("failed to persist settings", error);
+    });
+  };
   const setPetStatus = usePetStore((state) => state.setPetStatus);
   const saveWorkshopState = useWorkshopStore((store) => store.saveWorkshopState);
   const visibleMetrics = settings?.visibleMonitorMetrics ?? [];
@@ -61,6 +71,54 @@ export function SettingsPage() {
   // True while a manual release is in flight (UAC prompt + helper run). Keeps
   // the button from being double-clicked and gives affordance feedback.
   const [releasing, setReleasing] = useState(false);
+
+  // Slider/continuous inputs are coalesced here: every drag fires many onChange
+  // events, and we must not invoke updateAppSettings (a disk write + IPC round
+  // trip) per pixel. The latest pending patch is held in a ref and flushed once
+  // the user pauses for DEBOUNCE_MS. The store applies each patch optimistically
+  // immediately, so the on-screen value stays live; only persistence is gated.
+  const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pending patches are MERGED, not replaced: dragging slider A then slider B
+  // within the debounce window must persist both, not drop A's change.
+  const pendingSettingsPatch = useRef<AppSettingsPatch>({});
+  function scheduleSettingsCommit(patch: AppSettingsPatch) {
+    // Apply the value to local state immediately so the slider/thumb and its
+    // numeric label stay perfectly live during a drag.
+    applyOptimistic(patch);
+    // Merge into the pending patch so all sliders touched this window persist.
+    Object.assign(pendingSettingsPatch.current, patch);
+    if (settingsDebounceRef.current) {
+      clearTimeout(settingsDebounceRef.current);
+    }
+    settingsDebounceRef.current = setTimeout(() => {
+      settingsDebounceRef.current = null;
+      const patchToCommit = pendingSettingsPatch.current;
+      pendingSettingsPatch.current = {};
+      // updateSettings rethrows on failure (after re-fetching authoritative
+      // state). Catch here to avoid an unhandled rejection — the store has
+      // already reconciled, so there is nothing else for the UI to do.
+      void updateSettings(patchToCommit).catch((error) => {
+        console.error("failed to persist settings", error);
+      });
+    }, 250);
+  }
+  useEffect(() => {
+    return () => {
+      if (settingsDebounceRef.current) {
+        // Flush the pending patch instead of discarding it, so a quick
+        // drag-then-leave doesn't lose the last value (it was already shown
+        // optimistically; this persists it).
+        clearTimeout(settingsDebounceRef.current);
+        const pending = pendingSettingsPatch.current;
+        pendingSettingsPatch.current = {};
+        if (Object.keys(pending).length > 0) {
+          void updateSettings(pending).catch((error) =>
+            console.error("failed to flush settings on unmount", error),
+          );
+        }
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -112,7 +170,7 @@ export function SettingsPage() {
 
   function setCatVisible(checked: boolean) {
     if (!isTauriRuntime) {
-      void updateSettings({ isCatVisible: checked });
+      safeUpdate({ isCatVisible: checked });
       return;
     }
     void (checked ? showPetWindow() : hidePetWindow());
@@ -120,7 +178,7 @@ export function SettingsPage() {
 
   function setMonitorBarVisible(checked: boolean) {
     if (!isTauriRuntime) {
-      void updateSettings({ isMonitorBarVisible: checked });
+      safeUpdate({ isMonitorBarVisible: checked });
       return;
     }
     void (checked ? showMonitorBar() : hideMonitorBar());
@@ -199,7 +257,7 @@ export function SettingsPage() {
           <div className="cwp-portrait-actions">
             <button
               className="cwp-portrait-btn primary"
-              onClick={() => void handleToggleCoreCatPause()}
+              onClick={() => void handleToggleCoreCatPause().catch((error) => console.error("toggle production pause failed", error))}
               type="button"
             >
               {settings?.isProductionPaused ? "唤醒 CoreCat" : "暂停 / 沉睡"}
@@ -240,7 +298,7 @@ export function SettingsPage() {
                   step="0.05"
                   value={settings?.catSize ?? 1}
                   className="custom-range"
-                  onChange={(e) => void updateSettings({ catSize: Number(e.target.value) })}
+                  onChange={(e) => scheduleSettingsCommit({ catSize: Number(e.target.value) })}
                 />
                 <span className="slider-val">
                   {Math.round((settings?.catSize ?? 1) * 100)}%
@@ -255,7 +313,7 @@ export function SettingsPage() {
                   step="0.05"
                   value={settings?.catOpacity ?? 0.95}
                   className="custom-range"
-                  onChange={(e) => void updateSettings({ catOpacity: Number(e.target.value) })}
+                  onChange={(e) => scheduleSettingsCommit({ catOpacity: Number(e.target.value) })}
                 />
                 <span className="slider-val">
                   {Math.round((settings?.catOpacity ?? 0.95) * 100)}%
@@ -267,7 +325,7 @@ export function SettingsPage() {
                 <select
                   className="cwp-custom-select"
                   value={settings?.themeName || "coreworkpal"}
-                  onChange={(e) => void updateSettings({ themeName: e.target.value })}
+                  onChange={(e) => safeUpdate({ themeName: e.target.value })}
                   style={{ height: "20px", padding: "0 4px" }}
                 >
                   <option value="coreworkpal">默认皮肤</option>
@@ -295,7 +353,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.enablePetBubble ?? true}
-                      onChange={(e) => void updateSettings({ enablePetBubble: e.target.checked })}
+                      onChange={(e) => safeUpdate({ enablePetBubble: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
                   </label>
@@ -306,7 +364,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.enableStaticCatMode ?? false}
-                      onChange={(e) => void updateSettings({ enableStaticCatMode: e.target.checked })}
+                      onChange={(e) => safeUpdate({ enableStaticCatMode: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
                   </label>
@@ -342,7 +400,7 @@ export function SettingsPage() {
                       <button
                         className={`cwp-metric-select ${active ? "is-active" : ""}`}
                         key={mode.key}
-                        onClick={() => void updateSettings({ monitorBarMode: mode.key })}
+                        onClick={() => safeUpdate({ monitorBarMode: mode.key })}
                         type="button"
                       >
                         {mode.label}
@@ -365,7 +423,7 @@ export function SettingsPage() {
                           const nextMetrics = checked
                             ? visibleMetrics.filter((item) => item !== metric.key)
                             : [...visibleMetrics, metric.key];
-                          void updateSettings({ visibleMonitorMetrics: nextMetrics });
+                          safeUpdate({ visibleMonitorMetrics: nextMetrics });
                         }}
                         style={{ fontSize: "9px" }}
                         type="button"
@@ -392,7 +450,7 @@ export function SettingsPage() {
                       type="checkbox"
                       checked={settings?.showMonitorDataInTaskbar ?? false}
                       onChange={(e) =>
-                        void updateSettings({
+                        safeUpdate({
                           showMonitorDataInTaskbar: e.target.checked,
                         })
                       }
@@ -411,7 +469,7 @@ export function SettingsPage() {
                       <button
                         className={`cwp-metric-select ${active ? "is-active" : ""}`}
                         key={mode.key}
-                        onClick={() => void updateSettings({ taskbarMonitorMode: mode.key })}
+                        onClick={() => safeUpdate({ taskbarMonitorMode: mode.key })}
                         type="button"
                       >
                         {mode.label}
@@ -434,7 +492,7 @@ export function SettingsPage() {
                           const nextMetrics = checked
                             ? visibleTaskbarMetrics.filter((item) => item !== metric.key)
                             : [...visibleTaskbarMetrics, metric.key];
-                          void updateSettings({ visibleTaskbarMetrics: nextMetrics });
+                          safeUpdate({ visibleTaskbarMetrics: nextMetrics });
                         }}
                         style={{ fontSize: "9px" }}
                         type="button"
@@ -460,7 +518,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.enableLowPowerMode ?? false}
-                      onChange={(e) => void updateSettings({ enableLowPowerMode: e.target.checked })}
+                      onChange={(e) => safeUpdate({ enableLowPowerMode: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
                   </label>
@@ -472,7 +530,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.launchAtStartup ?? false}
-                      onChange={(e) => void updateSettings({ launchAtStartup: e.target.checked })}
+                      onChange={(e) => safeUpdate({ launchAtStartup: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
                   </label>
@@ -484,7 +542,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.enableNotifications ?? false}
-                      onChange={(e) => void updateSettings({ enableNotifications: e.target.checked })}
+                      onChange={(e) => safeUpdate({ enableNotifications: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
                   </label>
@@ -496,7 +554,7 @@ export function SettingsPage() {
                 <select
                   className="cwp-custom-select"
                   value={settings?.enableSound ? "enabled" : "none"}
-                  onChange={(e) => void updateSettings({ enableSound: e.target.value !== "none" })}
+                  onChange={(e) => safeUpdate({ enableSound: e.target.value !== "none" })}
                   style={{ height: "20px", padding: "0 4px" }}
                 >
                   <option value="none">静音</option>
@@ -521,7 +579,7 @@ export function SettingsPage() {
                     max="95"
                     min="10"
                     onChange={(e) =>
-                      void updateSettings({
+                      scheduleSettingsCommit({
                         dataSortingCpuThreshold: Number(e.target.value),
                       })
                     }
@@ -540,7 +598,7 @@ export function SettingsPage() {
                     max="98"
                     min="50"
                     onChange={(e) =>
-                      void updateSettings({
+                      scheduleSettingsCommit({
                         memoryCrowdedThreshold: Number(e.target.value),
                       })
                     }
@@ -559,7 +617,7 @@ export function SettingsPage() {
                     max="100"
                     min="75"
                     onChange={(e) =>
-                      void updateSettings({
+                      scheduleSettingsCommit({
                         cpuTemperatureWarning: Number(e.target.value),
                       })
                     }
@@ -578,7 +636,7 @@ export function SettingsPage() {
                     max="105"
                     min="75"
                     onChange={(e) =>
-                      void updateSettings({
+                      scheduleSettingsCommit({
                         gpuTemperatureWarning: Number(e.target.value),
                       })
                     }
@@ -597,7 +655,7 @@ export function SettingsPage() {
                     max="100"
                     min="50"
                     onChange={(e) =>
-                      void updateSettings({
+                      scheduleSettingsCommit({
                         errorGlitchCpuThreshold: Number(e.target.value),
                       })
                     }
@@ -624,7 +682,7 @@ export function SettingsPage() {
                     type="checkbox"
                     checked={settings?.memoryReleaseEnabled ?? true}
                     onChange={(e) =>
-                      void updateSettings({ memoryReleaseEnabled: e.target.checked })
+                      safeUpdate({ memoryReleaseEnabled: e.target.checked })
                     }
                   />
                   <span className="cwp-switch-slider"></span>
@@ -637,7 +695,7 @@ export function SettingsPage() {
                     type="checkbox"
                     checked={settings?.memoryAutoReleaseEnabled ?? false}
                     onChange={(e) =>
-                      void updateSettings({
+                      safeUpdate({
                         memoryAutoReleaseEnabled: e.target.checked,
                       })
                     }
@@ -652,7 +710,7 @@ export function SettingsPage() {
                   max="64"
                   min="1"
                   onChange={(e) =>
-                    void updateSettings({
+                    scheduleSettingsCommit({
                       memoryAutoReleaseThresholdGib: Number(e.target.value),
                     })
                   }
@@ -715,7 +773,7 @@ export function SettingsPage() {
                     type="checkbox"
                     checked={settings?.libreHardwareMonitorEnabled ?? true}
                     onChange={(e) =>
-                      void updateSettings({
+                      safeUpdate({
                         libreHardwareMonitorEnabled: e.target.checked,
                       })
                     }

@@ -200,14 +200,14 @@ export function DashboardPage() {
                   <div className="cwp-dashboard-focus-actions">
                     <button
                       className="cwp-hero-btn"
-                      onClick={() => void completeFocus()}
+                      onClick={() => void completeFocus().catch((e) => console.error("complete focus failed", e))}
                       type="button"
                     >
                       完成
                     </button>
                     <button
                       className="cwp-hero-btn"
-                      onClick={() => void abandonFocus()}
+                      onClick={() => void abandonFocus().catch((e) => console.error("abandon focus failed", e))}
                       type="button"
                     >
                       放弃

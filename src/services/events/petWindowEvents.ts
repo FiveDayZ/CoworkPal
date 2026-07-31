@@ -79,6 +79,12 @@ export function registerPetWindowEvents() {
 
   unlisteners.push(
     listen("cleanup:succeeded", () => {
+      // NOTE: this is intentionally a SECOND listener for the same event that
+      // registerPetStateListeners (above) also handles. That one renders the
+      // immediate Celebrate reaction + notification; this one only latches a
+      // flag so the NEXT hardware-derived state pass can fold "cleanup just
+      // succeeded" into its derivation (catStateRules returns Celebrate when
+      // cleanupSucceeded is set). They serve different layers, not a duplicate.
       pendingCleanupSucceeded = true;
     }),
   );

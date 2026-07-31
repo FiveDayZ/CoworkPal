@@ -79,7 +79,10 @@ function plainText(body: string): string {
     .replace(/[`*_#>-]/g, " ")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .toLowerCase();
-  // Bounded LRU-ish: evict oldest when the cache grows too large.
+  // Bounded FIFO eviction (NOT LRU — a cache hit doesn't move the entry to the
+  // back): when full, drop the oldest-inserted key. Sufficient for the search
+  // use case since misses are cheap. Body length is capped at 100k by the
+  // editor (NoteEditModal maxLength), so 500 entries bound worst-case memory.
   if (plainTextCache.size >= PLAIN_TEXT_CACHE_LIMIT) {
     plainTextCache.delete(plainTextCache.keys().next().value as string);
   }
@@ -154,6 +157,7 @@ export function NotesPage() {
   const loadError = useNotesStore((state) => state.loadError);
   const loadNotes = useNotesStore((state) => state.loadNotes);
   const openEditNew = useNotesStore((state) => state.openEditNew);
+  const importNote = useNotesStore((state) => state.importNote);
   const viewId = useNotesStore((state) => state.viewId);
   const editTarget = useNotesStore((state) => state.editTarget);
 
@@ -198,9 +202,10 @@ export function NotesPage() {
   const hasDueFilter = dueFilter !== "any";
   const hasAdvancedFilter = hasDateFilter || hasDueFilter;
 
-  // Search filtering uses the debounced query (avoids scanning all notes per
-  // keystroke); highlighting uses the live query so the user sees their input
-  // marked immediately.
+  // Search filtering AND highlighting both use the debounced query. Highlight
+  // used to use the live query, but that re-ran renderMarkdown (regex per line)
+  // for every note on every keystroke — a CPU spike with many/long notes. The
+  // 120ms debounce is imperceptible to the user yet bounds the work.
   const visibleNotes = useMemo(() => {
     const filtered = filterNotes(allNotes, filter);
     const searched = debouncedQuery.trim()
@@ -221,6 +226,21 @@ export function NotesPage() {
 
   function handleCreate(kind: NoteKind) {
     openEditNew(kind);
+  }
+
+  // Import a .md file as a new note. The backend shows the open dialog and
+  // reads the file; on success the store reloads and the new note appears.
+  const [importing, setImporting] = useState(false);
+  async function handleImport() {
+    if (importing) return;
+    setImporting(true);
+    try {
+      await importNote();
+    } catch (error) {
+      console.error("failed to import note", error);
+    } finally {
+      setImporting(false);
+    }
   }
 
   // Resolve the note currently open in the view modal (may be undefined if it
@@ -252,6 +272,15 @@ export function NotesPage() {
             title="新建笔记"
           >
             <PixelIcon name="log" size={12} /> 笔记
+          </button>
+          <button
+            type="button"
+            className="cwp-notes-new-btn"
+            onClick={() => void handleImport()}
+            disabled={importing}
+            title="从 Markdown 文件导入"
+          >
+            <PixelIcon name="log" size={12} /> {importing ? "导入中…" : "导入"}
           </button>
         </div>
       </div>
@@ -364,7 +393,7 @@ export function NotesPage() {
         ) : (
           <div className="cwp-notes-content">
             {visibleNotes.map((note) => (
-              <NoteListItem key={note.id} note={note} query={query} />
+              <NoteListItem key={note.id} note={note} query={debouncedQuery} />
             ))}
           </div>
         )}

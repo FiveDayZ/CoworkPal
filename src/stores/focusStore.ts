@@ -45,17 +45,29 @@ export const useFocusStore = create<FocusStore>((set, get) => ({
     if (!activeSession) {
       return;
     }
-    const [book, workshop] = await completeFocusSession(activeSession.id);
-    set({ book, activeSession: deriveActive(book) });
-    // completeFocusSession lands workshop rewards; sync the workshop store.
-    useWorkshopStore.getState().setWorkshopState(workshop);
+    try {
+      const [book, workshop] = await completeFocusSession(activeSession.id);
+      set({ book, activeSession: deriveActive(book) });
+      // completeFocusSession lands workshop rewards; sync the workshop store.
+      useWorkshopStore.getState().setWorkshopState(workshop);
+    } catch (error) {
+      // The session remains active on failure (backend rolls back), so we only
+      // log here; the caller (pet panel) keeps the user in the active session.
+      console.error("Failed to complete focus session", error);
+      throw error;
+    }
   },
   abandon: async () => {
     const { activeSession } = get();
     if (!activeSession) {
       return;
     }
-    const book = await abandonFocusSession(activeSession.id);
-    set({ book, activeSession: deriveActive(book) });
+    try {
+      const book = await abandonFocusSession(activeSession.id);
+      set({ book, activeSession: deriveActive(book) });
+    } catch (error) {
+      console.error("Failed to abandon focus session", error);
+      throw error;
+    }
   },
 }));

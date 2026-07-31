@@ -34,6 +34,25 @@ impl StorageService {
     pub fn new_with_root(root: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         fs::create_dir_all(root.join("logs"))?;
         fs::create_dir_all(root.join("backups"))?;
+        // Clean up stale temp files left by a previous process that crashed
+        // between fs::write and fs::rename in write_json. These are named
+        // `<file>.<pid>.tmp`; any whose PID isn't this process's is stale.
+        // Best-effort: failures are logged but don't block startup.
+        let current_pid = std::process::id();
+        if let Ok(entries) = fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.ends_with(".tmp") {
+                        // Only remove temp files not belonging to this process.
+                        // (Our own temp files include our PID; a same-PID reuse
+                        // across restarts is effectively impossible in practice.)
+                        if !name.contains(&current_pid.to_string()) {
+                            let _ = fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+        }
         Ok(Self {
             root,
             corruption_rebuilds: Arc::new(Mutex::new(Vec::new())),
@@ -132,11 +151,25 @@ impl StorageService {
 
         match serde_json::from_str::<T>(&content) {
             Ok(value) => {
-                self.write_json(file_name, &value)?;
+                // Normal load: return the parsed value WITHOUT rewriting the
+                // file. The previous code rewrote every data file on every
+                // launch (read + atomic rewrite), which added startup latency
+                // and disk wear — especially for the ever-growing work_logs.json
+                // — and on a full disk could even turn a healthy file into a
+                // failed write that aborted launch. Callers that genuinely need
+                // a writeback (settings migration) do so explicitly via save_*.
                 Ok(value)
             }
             Err(error) => {
-                self.backup_corrupted_file(&path, file_name)?;
+                // Back up the corrupted file for diagnosis, but don't let a
+                // backup failure (e.g. backups dir not writable) block rebuild —
+                // previously this returned Err and left the data permanently
+                // unloadable on every launch. Warn and proceed to rebuild.
+                if let Err(backup_error) = self.backup_corrupted_file(&path, file_name) {
+                    tracing::warn!(
+                        "could not back up corrupted {file_name}: {backup_error}; rebuilding anyway"
+                    );
+                }
                 let value = T::default();
                 self.write_json(file_name, &value)?;
                 self.record_corruption_rebuild(file_name);
@@ -151,7 +184,13 @@ impl StorageService {
         T: Serialize,
     {
         let path = self.root.join(file_name);
-        let temp_path = self.root.join(format!("{file_name}.tmp"));
+        // Include the PID in the temp file name so two concurrently-running
+        // instances don't clobber each other's temp file before the atomic
+        // rename (the previous fixed `{file_name}.tmp` let instance B overwrite
+        // instance A's temp, then A's rename could commit B's content).
+        let temp_path = self
+            .root
+            .join(format!("{file_name}.{}.tmp", std::process::id()));
         let content = serde_json::to_string_pretty(value)
             .map_err(|error| format!("failed to serialize {file_name}: {error}"))?;
 
@@ -197,7 +236,11 @@ fn query_smbios_uuid() -> Option<String> {
         ]);
         command.creation_flags(CREATE_NO_WINDOW);
 
-        if let Ok(output) = command.output() {
+        // Bounded: a wedged WMI provider at startup must not hang app launch.
+        if let Some(output) = crate::process_util::run_command_with_timeout(
+            command,
+            crate::process_util::DEFAULT_SUBPROCESS_TIMEOUT,
+        ) {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let uuid = stdout.trim().to_string();

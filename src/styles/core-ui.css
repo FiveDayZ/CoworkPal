@@ -7778,6 +7778,22 @@ input[type="range"]::-moz-range-thumb,
   font-size: 9px;
 }
 
+.cwp-note-edit-error {
+  color: var(--color-danger, #e55757);
+  font-weight: 700;
+}
+
+.cwp-note-view-toast {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--color-surface-800, rgba(127, 127, 127, 0.18));
+  color: var(--color-text);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
 /* ── Notes modals (view / edit) ────────────────────────────────────── */
 /* Overlay: full-screen dim + blur, click-to-close. Matches UpdateModal. */
 .cwp-modal-overlay {
@@ -7939,6 +7955,151 @@ input[type="range"]::-moz-range-thumb,
 
 .cwp-note-rendered strong {
   color: var(--color-text-primary);
+}
+
+/* ── Reading mode: header action buttons (theme toggle, fullscreen) ── */
+.cwp-notes-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cwp-note-reading-toggle {
+  background: transparent;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 8px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.cwp-note-reading-toggle:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+  background: var(--color-surface-800);
+}
+
+/* ── Fullscreen immersive reading ── */
+/* The overlay fills the window and the modal expands to near-fullscreen. */
+.cwp-modal-overlay.is-fullscreen {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.cwp-notes-modal.is-fullscreen {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 0;
+  border: none;
+}
+
+.cwp-notes-modal.is-fullscreen .cwp-notes-modal-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 24px 32px 48px;
+}
+
+/* Larger, more readable typography in fullscreen for comfortable reading. */
+.cwp-notes-modal.is-fullscreen .cwp-note-rendered {
+  font-size: 15px;
+  line-height: 1.85;
+}
+
+.cwp-notes-modal.is-fullscreen .cwp-note-rendered h3 { font-size: 20px; }
+.cwp-notes-modal.is-fullscreen .cwp-note-rendered h4 { font-size: 17px; }
+.cwp-notes-modal.is-fullscreen .cwp-note-rendered h5 { font-size: 15px; }
+.cwp-notes-modal.is-fullscreen .cwp-note-rendered p { margin: 10px 0; }
+.cwp-notes-modal.is-fullscreen .cwp-note-rendered ul { margin: 10px 0; padding-left: 24px; }
+
+/* ── Day reading mode: warm paper-like light background ── */
+.cwp-notes-modal.is-reading-day {
+  background: #faf8f5;
+  border-color: #e8e2d8;
+}
+
+.cwp-notes-modal.is-reading-day .cwp-notes-modal-stripe {
+  background: #c9b896;
+}
+
+.cwp-notes-modal.is-reading-day .cwp-modal-title,
+.cwp-notes-modal.is-reading-day .cwp-notes-modal-meta,
+.cwp-notes-modal.is-reading-day .cwp-note-rendered {
+  color: #3a3530;
+}
+
+.cwp-notes-modal.is-reading-day .cwp-note-rendered h3,
+.cwp-notes-modal.is-reading-day .cwp-note-rendered h4,
+.cwp-notes-modal.is-reading-day .cwp-note-rendered h5,
+.cwp-notes-modal.is-reading-day .cwp-note-rendered strong {
+  color: #1a1714;
+}
+
+.cwp-notes-modal.is-reading-day .cwp-note-rendered code {
+  background: #efe9dd;
+  border-color: #ddd3c2;
+  color: #4a3f33;
+}
+
+.cwp-notes-modal.is-reading-day .cwp-note-rendered a {
+  color: #8a5a2a;
+}
+
+.cwp-notes-modal.is-reading-day .cwp-notes-modal-close,
+.cwp-notes-modal.is-reading-day .cwp-note-reading-toggle {
+  color: #6b6155;
+  border-color: #ddd3c2;
+}
+
+/* ── Night reading mode: dark background, soft light text ── */
+.cwp-notes-modal.is-reading-night {
+  background: #2d2d2d;
+  border-color: #3a3a3a;
+}
+
+.cwp-notes-modal.is-reading-night .cwp-notes-modal-stripe {
+  background: #555;
+}
+
+.cwp-notes-modal.is-reading-night .cwp-modal-title,
+.cwp-notes-modal.is-reading-night .cwp-notes-modal-meta,
+.cwp-notes-modal.is-reading-night .cwp-note-rendered {
+  color: #c8c8c8;
+}
+
+.cwp-notes-modal.is-reading-night .cwp-note-rendered h3,
+.cwp-notes-modal.is-reading-night .cwp-note-rendered h4,
+.cwp-notes-modal.is-reading-night .cwp-note-rendered h5,
+.cwp-notes-modal.is-reading-night .cwp-note-rendered strong {
+  color: #e0e0e0;
+}
+
+.cwp-notes-modal.is-reading-night .cwp-note-rendered code {
+  background: #1e1e1e;
+  border-color: #404040;
+  color: #d0d0d0;
+}
+
+.cwp-notes-modal.is-reading-night .cwp-note-rendered a {
+  color: #7ab8e0;
+}
+
+.cwp-notes-modal.is-reading-night .cwp-notes-modal-close,
+.cwp-notes-modal.is-reading-night .cwp-note-reading-toggle {
+  color: #999;
+  border-color: #404040;
+}
+
+.cwp-notes-modal.is-reading-night .cwp-notes-modal-body {
+  scrollbar-color: rgba(200, 200, 200, 0.25) transparent;
+}
+
+.cwp-notes-modal.is-reading-night .cwp-notes-modal-body::-webkit-scrollbar-thumb {
+  background: rgba(200, 200, 200, 0.25);
 }
 
 /* Footer: actions row + edit foot (color picker + buttons). */

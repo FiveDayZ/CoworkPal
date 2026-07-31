@@ -6,6 +6,25 @@ import { PixelIcon } from "../../ui/PixelIcon";
 const COLOR_OPTIONS: NoteColor[] = ["default", "orange", "cyan", "gold"];
 
 /**
+ * Format an epoch-ms timestamp as a `YYYY-MM-DDTHH:mm` string in the user's
+ * LOCAL timezone, suitable for an `<input type="datetime-local">` value.
+ *
+ * This replaces the previous `new Date(ms).toISOString().slice(0,16)`, which
+ * produced a UTC string but was then re-parsed as local on save — round-tripping
+ * an existing reminder through the editor silently shifted it by the UTC offset
+ * (e.g. 8 hours in UTC+8). Formatting in local time keeps the displayed and
+ * stored value identical across an edit round-trip.
+ */
+function toLocalDatetimeInput(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
+/**
  * Edit/Create modal. The same component handles both flows:
  *  - `existing === null`  → creating a new note (kind from store.newKind)
  *  - `existing !== null`  → editing an existing note
@@ -27,24 +46,48 @@ export function NoteEditModal({ existing }: { existing: Note | null }) {
   const [body, setBody] = useState(existing?.body ?? "");
   const [color, setColor] = useState<NoteColor>(existing?.color ?? "default");
   const [memoDueAt, setMemoDueAt] = useState<string>(
-    existing?.memoDueAt ? new Date(existing.memoDueAt).toISOString().slice(0, 16) : "",
+    existing?.memoDueAt ? toLocalDatetimeInput(existing.memoDueAt) : "",
   );
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     // Reset local state whenever the modal's target changes (open a different note).
     setTitle(existing?.title ?? "");
     setBody(existing?.body ?? "");
     setColor(existing?.color ?? "default");
-    setMemoDueAt(
-      existing?.memoDueAt ? new Date(existing.memoDueAt).toISOString().slice(0, 16) : "",
-    );
+    setMemoDueAt(existing?.memoDueAt ? toLocalDatetimeInput(existing.memoDueAt) : "");
+    setSaveError(null);
   }, [existing]);
 
   async function handleSave() {
     if (saving) return;
     setSaving(true);
-    const dueMs = memoDueAt ? new Date(memoDueAt).getTime() : null;
+    setSaveError(null);
+    // Parse the datetime-local value defensively. An empty/cleared value maps
+    // to null (no reminder); a malformed value must never become NaN — that
+    // would slip past the type system and corrupt sorting/filtering downstream.
+    const rawMs = memoDueAt ? new Date(memoDueAt).getTime() : null;
+    const dueMs = rawMs !== null && Number.isFinite(rawMs) ? rawMs : null;
+    // Validate reminder time for memos: block save (with a message) rather than
+    // silently discarding the user's input. Past times more than 1 day ago or
+    // absurd far-future values have no legitimate use and would pollute the
+    // "overdue" grouping. Blocking keeps the modal open so the user can fix it.
+    if (kind === "memo" && dueMs !== null) {
+      const now = Date.now();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const maxFutureMs = now + 80 * 365 * oneDayMs;
+      if (dueMs < now - oneDayMs) {
+        setSaveError("提醒时间过早，请选择更近的时间。");
+        setSaving(false);
+        return;
+      }
+      if (dueMs > maxFutureMs) {
+        setSaveError("提醒时间过远，请选择更近的时间。");
+        setSaving(false);
+        return;
+      }
+    }
     try {
       if (isCreating) {
         await createNote({
@@ -64,6 +107,17 @@ export function NoteEditModal({ existing }: { existing: Note | null }) {
         });
       }
       closeEdit();
+    } catch (error) {
+      // Surface the failure instead of silently swallowing it: previously the
+      // try/finally had no catch, so a failed save left the modal open with no
+      // indication anything went wrong, and the user could believe it saved.
+      setSaveError(
+        typeof error === "string"
+          ? error
+          : error instanceof Error
+            ? error.message
+            : "保存失败，请稍后重试。",
+      );
     } finally {
       setSaving(false);
     }
@@ -75,6 +129,20 @@ export function NoteEditModal({ existing }: { existing: Note | null }) {
     closeEdit();
   }
 
+  // Window-level Esc close so it works regardless of focus (the title input had
+  // no Esc handler before; only the textarea did). Disabled while saving.
+  useEffect(() => {
+    if (saving) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        void handleCancel();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [saving]);
+
   const titlePlaceholder = kind === "memo" ? "备忘录标题…" : "笔记标题…";
   const bodyPlaceholder =
     kind === "memo"
@@ -85,7 +153,7 @@ export function NoteEditModal({ existing }: { existing: Note | null }) {
     : kind === "memo" ? "编辑备忘录" : "编辑笔记";
 
   return (
-    <div className="cwp-modal-overlay" onClick={handleCancel} role="presentation">
+    <div className="cwp-modal-overlay" onClick={saving ? undefined : handleCancel} role="presentation">
       <div
         className={`cwp-notes-modal is-${color}`}
         onClick={(e) => e.stopPropagation()}
@@ -126,12 +194,15 @@ export function NoteEditModal({ existing }: { existing: Note | null }) {
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder={bodyPlaceholder}
+              // Cap body length to keep the IPC payload, on-disk JSON, the
+              // markdown renderer (regex per line), and the list-page plainText
+              // cache bounded. 100k chars is far beyond any reasonable note
+              // while preventing multi-MB pastes from freezing the editor/list.
+              maxLength={100000}
               rows={kind === "memo" ? 3 : 8}
               onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  void handleCancel();
-                }
+                // Esc is handled at the window level (see useEffect above) so it
+                // works from any field; here we only keep the Ctrl/Cmd+S shortcut.
                 if (e.key === "s" && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
                   void handleSave();
@@ -174,7 +245,14 @@ export function NoteEditModal({ existing }: { existing: Note | null }) {
               </button>
             </div>
           </div>
-          <div className="cwp-note-edit-hint">Ctrl+S 保存 · Esc 取消</div>
+          <div className="cwp-note-edit-hint">
+            Ctrl+S 保存 · Esc 取消
+            {saveError ? (
+              <span className="cwp-note-edit-error" role="alert">
+                {" "}· {saveError}
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { checkUpdate, downloadUpdate, installUpdate } from "../services/tauriCommands";
 import type { UpdateCheckResult, DownloadProgress } from "../types/update";
@@ -27,7 +27,29 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
   const [progress, setProgress] = useState<DownloadProgress>({ bytesDownloaded: 0, totalBytes: 0, percent: 0 });
   const [pat, setPat] = useState(() => localStorage.getItem("cwp_updater_pat") || "");
   const [showSettings, setShowSettings] = useState(false);
+  // Set when the user cancels a download. The backend IPC can't be truly aborted,
+  // but this lets us ignore the eventual result/progress and return to the
+  // "new-version" step so the user isn't stuck watching a download they gave up on.
+  const downloadCancelledRef = useRef(false);
+  // Monotonic id per download attempt. When a download is cancelled and a new
+  // one starts, the old in-flight IPC's result is ignored by comparing its id
+  // against the current one — otherwise the stale result could set a wrong/
+  // incomplete path as "ready".
+  const downloadIdRef = useRef(0);
   const [downloadedPath, setDownloadedPath] = useState("");
+
+  // Wrap onClose so closing the modal during a download also marks it
+  // cancelled — otherwise the in-flight IPC would keep running and, on
+  // completion, try to setState on an unmounted component (and a reopen
+  // could trigger a duplicate download).
+  const handleClose = () => {
+    if (step === "downloading") {
+      downloadCancelledRef.current = true;
+      downloadIdRef.current += 1;
+    }
+    onClose();
+  };
+
   useEffect(() => {
     if (isOpen) {
       handleCheck();
@@ -79,16 +101,31 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
 
   const handleDownload = async () => {
     if (!updateResult) return;
+    downloadCancelledRef.current = false;
+    const thisDownloadId = ++downloadIdRef.current;
     setStep("downloading");
     setProgress({ bytesDownloaded: 0, totalBytes: updateResult.assetSize, percent: 0 });
     try {
       const path = await downloadUpdate(updateResult.assetId || 0, updateResult.assetName, pat || undefined);
+      // Ignore if cancelled OR superseded by a newer download attempt — the
+      // newest download owns the result.
+      if (downloadCancelledRef.current || thisDownloadId !== downloadIdRef.current) return;
       setDownloadedPath(path);
       setStep("ready");
     } catch (e: unknown) {
+      if (downloadCancelledRef.current || thisDownloadId !== downloadIdRef.current) return;
       setErrorMsg(toErrorMessage(e));
       setStep("error");
     }
+  };
+
+  const handleCancelDownload = () => {
+    // The backend download keeps running (we can't abort the IPC), but we stop
+    // tracking it and return the user to the version-info step. Incrementing the
+    // id also invalidates any in-flight result from this download.
+    downloadCancelledRef.current = true;
+    downloadIdRef.current += 1;
+    setStep("new-version");
   };
 
   const handleInstall = async () => {
@@ -116,7 +153,11 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
   };
 
   return (
-    <div className="cwp-modal-overlay" style={{
+    <div
+      className="cwp-modal-overlay"
+      onClick={step === "downloading" ? undefined : handleClose}
+      role="presentation"
+      style={{
       position: "fixed",
       top: 0,
       left: 0,
@@ -129,22 +170,28 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
       alignItems: "center",
       justifyContent: "center"
     }}>
-      <div className="cwp-workshop-detail-modal show" style={{ 
+      <div
+        className="cwp-workshop-detail-modal show"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="在线自动更新"
+        style={{
         position: "relative",
         top: "auto",
         left: "auto",
         transform: "none",
-        display: "block", 
-        opacity: 1, 
-        width: "320px", 
-        zIndex: 10000 
+        display: "block",
+        opacity: 1,
+        width: "320px",
+        zIndex: 10000
       }}>
         <div className="cwp-modal-header">
           <span className="cwp-modal-title" style={{ display: "flex", alignItems: "center" }}>
             <PixelIcon name="energy" size={14} style={{ marginRight: "6px" }} />
             在线自动更新
           </span>
-          <button onClick={onClose} className="cwp-custom-btn" style={{ 
+          <button onClick={handleClose} className="cwp-custom-btn" style={{ 
             background: "transparent", 
             border: "none", 
             color: "var(--color-text-muted)", 
@@ -172,7 +219,7 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
               <p style={{ fontSize: "14px", color: "var(--color-tech-cyan)", fontFamily: "var(--font-pixel-title)", marginBottom: "8px" }}>已是最新版本</p>
               <p style={{ fontSize: "11px", color: "var(--color-text-muted)", marginBottom: "2px" }}>本地版本：v{updateResult?.currentVersion}</p>
               <p style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>线上版本：{updateResult?.latestVersion}</p>
-              <button onClick={onClose} className="cwp-custom-btn" style={{ 
+              <button onClick={handleClose} className="cwp-custom-btn" style={{ 
                 marginTop: "20px", 
                 width: "100%", 
                 height: "26px",
@@ -220,7 +267,7 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
                 }}>
                   立即下载
                 </button>
-                <button onClick={onClose} className="cwp-custom-btn" style={{ 
+                <button onClick={handleClose} className="cwp-custom-btn" style={{ 
                   width: "80px", 
                   height: "26px",
                   background: "var(--color-bg-800)",
@@ -247,6 +294,9 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
                 <span>已下载: {formatSize(progress.bytesDownloaded)}</span>
                 <span>总大小: {formatSize(progress.totalBytes)}</span>
               </div>
+              <button onClick={handleCancelDownload} className="cwp-custom-btn" style={{ alignSelf: "center", fontSize: "10px", padding: "4px 14px" }}>
+                取消
+              </button>
             </div>
           )}
 
@@ -306,7 +356,7 @@ export function UpdateModal({ isOpen, onClose }: UpdateModalProps) {
                 }}>
                   配置
                 </button>
-                <button onClick={onClose} className="cwp-custom-btn" style={{ 
+                <button onClick={handleClose} className="cwp-custom-btn" style={{ 
                   width: "60px", 
                   height: "26px",
                   background: "var(--color-bg-800)",

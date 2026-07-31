@@ -3970,6 +3970,44 @@ pub fn current_timestamp_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+/// Build an entity id of the form `{prefix}-{ms}-{8-char-random}`.
+///
+/// The millisecond timestamp gives chronological ordering; the random suffix
+/// (seeded from nanosecond wall-clock + an atomic counter, so it is unique even
+/// when two ids are produced within the same millisecond) eliminates the
+/// collision risk that a bare timestamp id had — where two rapid creates would
+/// share an id and `delete_note`/`retain` would then act on both at once.
+pub fn generate_unique_id(prefix: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    // Seed mixes nanosecond time with a per-process monotonic counter, so
+    // back-to-back calls in the same nanosecond still diverge.
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut state = nanos ^ seq.wrapping_mul(0x9E3779B97F4A7C15);
+    if state == 0 {
+        state = 0x12345678ABCDEF01;
+    }
+
+    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let mut suffix = String::with_capacity(8);
+    for _ in 0..8 {
+        // xorshift64 step
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        suffix.push(CHARS[(state % CHARS.len() as u64) as usize] as char);
+    }
+
+    format!("{}-{}-{}", prefix, current_timestamp_ms(), suffix)
+}
+
 #[cfg(test)]
 mod assessment_tests {
     use super::*;

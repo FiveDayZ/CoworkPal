@@ -1,5 +1,57 @@
 import { lazy, Suspense } from "react";
+import type { ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+
+/**
+ * Recovery action for the compact overlay windows: re-fetch settings (the one
+ * store every overlay reads) so a stale/invalid settings object can be repaired
+ * on retry. Other stores (hardware/workshop) are event-fed and self-heal on the
+ * next broadcast, so we don't force-reload them here.
+ */
+function reloadOverlayStores() {
+  void import("../stores/settingsStore").then(({ useSettingsStore }) =>
+    useSettingsStore.getState().loadSettings(),
+  );
+}
+
+/**
+ * Recovery action for the main window: reload the data stores its pages render
+ * from, so a "重试" after a data-driven render crash can actually repair the
+ * underlying data instead of re-rendering the same broken snapshot.
+ */
+function reloadMainWindowStores() {
+  void Promise.all([
+    import("../stores/settingsStore"),
+    import("../stores/notesStore"),
+    import("../stores/workshopStore"),
+    import("../stores/achievementStore"),
+  ]).then(
+    ([
+      { useSettingsStore },
+      { useNotesStore },
+      { useWorkshopStore },
+      { useAchievementStore },
+    ]) => {
+      void useSettingsStore.getState().loadSettings();
+      void useNotesStore.getState().loadNotes();
+      void useWorkshopStore.getState().loadWorkshopState();
+      void useAchievementStore.getState().loadSummary();
+    },
+  );
+}
+
+/** ErrorBoundary variant that renders a compact recovery UI sized for overlay
+ *  windows. Uses the `compact` prop (not `fallback`) so the retry button — which
+ *  triggers `onReset` → reloadOverlayStores — is still rendered, keeping the
+ *  overlay recoverable instead of permanently stuck on "渲染异常". */
+function CompactErrorBoundary({ children }: { children: ReactNode }) {
+  return (
+    <ErrorBoundary compact onReset={reloadOverlayStores}>
+      {children}
+    </ErrorBoundary>
+  );
+}
 
 type WindowLabel = "main" | "pet" | "monitor-bar" | "pet-panel" | "taskbar-monitor";
 
@@ -64,7 +116,9 @@ export function WindowRouter() {
   if (label === "pet") {
     return (
       <Suspense fallback={null}>
-        <PetWindow />
+        <CompactErrorBoundary>
+          <PetWindow />
+        </CompactErrorBoundary>
       </Suspense>
     );
   }
@@ -72,7 +126,9 @@ export function WindowRouter() {
   if (label === "monitor-bar") {
     return (
       <Suspense fallback={null}>
-        <MonitorBarWindow />
+        <CompactErrorBoundary>
+          <MonitorBarWindow />
+        </CompactErrorBoundary>
       </Suspense>
     );
   }
@@ -80,7 +136,9 @@ export function WindowRouter() {
   if (label === "pet-panel") {
     return (
       <Suspense fallback={null}>
-        <PetQuickPanelWindow />
+        <CompactErrorBoundary>
+          <PetQuickPanelWindow />
+        </CompactErrorBoundary>
       </Suspense>
     );
   }
@@ -88,14 +146,22 @@ export function WindowRouter() {
   if (label === "taskbar-monitor") {
     return (
       <Suspense fallback={null}>
-        <TaskbarMonitorWindow />
+        <CompactErrorBoundary>
+          <TaskbarMonitorWindow />
+        </CompactErrorBoundary>
       </Suspense>
     );
   }
 
+  // MainWindow already wraps its page area in its own ErrorBoundary; an outer
+  // one here is a belt-and-suspenders catch for any error thrown before that.
+  // On retry we reload the main window's primary data stores so a render error
+  // caused by stale/corrupt data can actually recover instead of looping.
   return (
     <Suspense fallback={null}>
-      <MainWindow />
+      <ErrorBoundary onReset={reloadMainWindowStores}>
+        <MainWindow />
+      </ErrorBoundary>
     </Suspense>
   );
 }
