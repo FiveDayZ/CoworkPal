@@ -13,14 +13,12 @@ tauri-dev*.log
 final-*.png
 .tmp/
 .codegraph/
-CoreWorkPalUI/
 docs/
 stderr.txt
 stdout.txt
 .docs/
 src-tauri/tauri.windows.conf.json
 AGENTS.md.md
-CoreWorkPal.code-workspace
 
 # ZCode 会话计划（本地工作产物，不上传）
 .zcode/plans/
