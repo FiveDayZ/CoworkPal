@@ -124,26 +124,26 @@ CoreWorkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的�
 
 | 图标 | ID | 名称 | 分类 | 达成条件 | 🔒 |
 |:---:|:---:|---|---|---|:---:|
-| <img src="src/assets/achievements/cwp_badge_daily_first_launch_entry.webp" width="40" height="40" /> | A001 | 第一次唤醒 CoreCat | 日常使用 | `app.launch.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_30m_companion_entry.webp" width="40" height="40" /> | A002 | 30 分钟陪伴 | 日常使用 | `lifetime.total_online_seconds >= 1800` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_first_report_entry.webp" width="40" height="40" /> | A003 | 第一份工况报告 | 日常使用 | `worklog.daily_generated.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_dashboard_entry.webp" width="40" height="40" /> | A004 | 看过控制台 | 功能探索 | `page.view.count(pageKey='dashboard') >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_workshop_entry.webp" width="40" height="40" /> | A005 | 看过工坊 | 功能探索 | `page.view.count(pageKey='workshop') >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_devices_entry.webp" width="40" height="40" /> | A006 | 看过设备清单 | 功能探索 | `page.view.count(pageKey='devices') >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_first_setting_entry.webp" width="40" height="40" /> | A007 | 保存第一项设置 | 功能探索 | `settings.update.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_monitor_bar_entry.webp" width="40" height="40" /> | A008 | 开启悬浮监控条 | 功能探索 | `monitor_bar.open.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_taskbar_monitor_entry.webp" width="40" height="40" /> | A009 | 点亮任务栏监控 | 功能探索 | `settings.update.count(changedKey='showMonitorDataInTaskbar', value=true) >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_pet_panel_entry.webp" width="40" height="40" /> | A010 | 打开 CoreCat 面板 | 功能探索 | `pet.panel.open.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_first_pet_entry.webp" width="40" height="40" /> | A011 | 第一次摸摸 CoreCat | 日常使用 | `pet.click.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_first_drag_entry.webp" width="40" height="40" /> | A012 | 搬动小伙伴 | 日常使用 | `pet.drag_end.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_first_module_entry.webp" width="40" height="40" /> | A013 | 第一颗模块螺丝 | 工坊养成 | `workshop.module_upgrade.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_first_level_entry.webp" width="40" height="40" /> | A014 | 工坊第一次升级 | 工坊养成 | `workshop.level_up.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_data_parts_100_entry.webp" width="40" height="40" /> | A015 | 100 零件入库 | 数据里程碑 | `lifetime.parts_earned >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_data_insight_10_entry.webp" width="40" height="40" /> | A016 | 10 灵感入库 | 数据里程碑 | `lifetime.insight_earned >= 10` |  |
-| <img src="src/assets/achievements/cwp_badge_task_keys_100_entry.webp" width="40" height="40" /> | A017 | 键盘热身 | 任务效率 | `lifetime.keyboard_press_count >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_task_clicks_50_entry.webp" width="40" height="40" /> | A018 | 鼠标热身 | 任务效率 | `lifetime.mouse_click_count >= 50` |  |
-| <img src="src/assets/achievements/cwp_badge_social_first_report_export_entry.webp" width="40" height="40" /> | A019 | 第一张报告卡 | 社交协作 | `share.report_card.export.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_gallery_entry.webp" width="40" height="40" /> | A020 | 打开成就图鉴 | 功能探索 | `achievement.gallery.view.count >= 1` |  |
+| <img src="src/assets/achievements/cwp_badge_daily_first_launch_entry.webp" width="40" height="40" /> | A001 | 第一次唤醒 CoreCat | 日常使用 | 首次启动应用 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_30m_companion_entry.webp" width="40" height="40" /> | A002 | 30 分钟陪伴 | 日常使用 | 累计在线 30 分钟 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_first_report_entry.webp" width="40" height="40" /> | A003 | 第一份工况报告 | 日常使用 | 生成 1 份工况日报 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_dashboard_entry.webp" width="40" height="40" /> | A004 | 看过控制台 | 功能探索 | 浏览「控制台」1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_workshop_entry.webp" width="40" height="40" /> | A005 | 看过工坊 | 功能探索 | 浏览「工坊」1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_devices_entry.webp" width="40" height="40" /> | A006 | 看过设备清单 | 功能探索 | 浏览「设备」1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_first_setting_entry.webp" width="40" height="40" /> | A007 | 保存第一项设置 | 功能探索 | 保存设置 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_monitor_bar_entry.webp" width="40" height="40" /> | A008 | 开启悬浮监控条 | 功能探索 | 开启悬浮监控条 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_taskbar_monitor_entry.webp" width="40" height="40" /> | A009 | 点亮任务栏监控 | 功能探索 | 将「showMonitorDataInTaskbar」设为开启 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_pet_panel_entry.webp" width="40" height="40" /> | A010 | 打开 CoreCat 面板 | 功能探索 | 打开 CoreCat 面板 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_first_pet_entry.webp" width="40" height="40" /> | A011 | 第一次摸摸 CoreCat | 日常使用 | 抚摸 CoreCat 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_first_drag_entry.webp" width="40" height="40" /> | A012 | 搬动小伙伴 | 日常使用 | 拖动 CoreCat 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_first_module_entry.webp" width="40" height="40" /> | A013 | 第一颗模块螺丝 | 工坊养成 | 首次升级任意模块 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_first_level_entry.webp" width="40" height="40" /> | A014 | 工坊第一次升级 | 工坊养成 | 工坊首次升级 |  |
+| <img src="src/assets/achievements/cwp_badge_data_parts_100_entry.webp" width="40" height="40" /> | A015 | 100 零件入库 | 数据里程碑 | 累计获得 100 零件 |  |
+| <img src="src/assets/achievements/cwp_badge_data_insight_10_entry.webp" width="40" height="40" /> | A016 | 10 灵感入库 | 数据里程碑 | 累计获得 10 灵感 |  |
+| <img src="src/assets/achievements/cwp_badge_task_keys_100_entry.webp" width="40" height="40" /> | A017 | 键盘热身 | 任务效率 | 累计按键 100 次 |  |
+| <img src="src/assets/achievements/cwp_badge_task_clicks_50_entry.webp" width="40" height="40" /> | A018 | 鼠标热身 | 任务效率 | 累计鼠标点击 50 次 |  |
+| <img src="src/assets/achievements/cwp_badge_social_first_report_export_entry.webp" width="40" height="40" /> | A019 | 第一张报告卡 | 社交协作 | 导出报告卡 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_gallery_entry.webp" width="40" height="40" /> | A020 | 打开成就图鉴 | 功能探索 | 打开成就图鉴 |  |
 
 </details>
 
@@ -152,27 +152,27 @@ CoreWorkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的�
 
 | 图标 | ID | 名称 | 分类 | 达成条件 | 🔒 |
 |:---:|:---:|---|---|---|:---:|
-| <img src="src/assets/achievements/cwp_badge_daily_4h_companion_normal.webp" width="40" height="40" /> | A021 | 4 小时陪伴 | 日常使用 | `lifetime.total_online_seconds >= 14400` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_3_active_days_normal.webp" width="40" height="40" /> | A022 | 三日有迹 | 长期打卡 | `calendar.days(active_seconds >= 1800) >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_3_consecutive_normal.webp" width="40" height="40" /> | A023 | 连续三天开工 | 长期打卡 | `calendar.consecutive_days(active_seconds >= 1800) >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_3_reports_normal.webp" width="40" height="40" /> | A024 | 三份工况报告 | 日常使用 | `worklog.daily_generated.count >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_task_score_60_x3_normal.webp" width="40" height="40" /> | A025 | 三次稳定推进 | 任务效率 | `calendar.days(report_score >= 60) >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_all_pages_normal.webp" width="40" height="40" /> | A026 | 主界面巡礼 | 功能探索 | `distinct_count(page.view.pageKey in ['dashboard','workshop','devices','worklog','settings','about','achievements']) >= 7` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_pet_30_normal.webp" width="40" height="40" /> | A027 | 30 次抚摸 | 日常使用 | `pet.click.count >= 30` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_panel_20_normal.webp" width="40" height="40" /> | A028 | 面板常客 | 日常使用 | `pet.panel.open.count >= 20` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_drag_10_normal.webp" width="40" height="40" /> | A029 | 桌面搬运练习 | 日常使用 | `pet.drag_end.count >= 10` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_three_themes_normal.webp" width="40" height="40" /> | A030 | 三色试验 | 功能探索 | `distinct_count(settings.update.themeName) >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_metric_custom_normal.webp" width="40" height="40" /> | A031 | 自定义监控项 | 功能探索 | `settings.update.count(changedKey='visibleMonitorMetrics') >= 1 且当前可见指标数 >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_level_3_normal.webp" width="40" height="40" /> | A032 | 工坊 3 级 | 工坊养成 | `workshop.level >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_any_module_3_normal.webp" width="40" height="40" /> | A033 | 单模块 3 级 | 工坊养成 | `max(workshop.module_level.parts, workshop.module_level.process) >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_three_modules_normal.webp" width="40" height="40" /> | A034 | 三类模块动过手 | 工坊养成 | `distinct_count(workshop.module_upgrade.moduleKey) >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_data_parts_1000_normal.webp" width="40" height="40" /> | A035 | 1000 零件入库 | 数据里程碑 | `lifetime.parts_earned >= 1000` |  |
-| <img src="src/assets/achievements/cwp_badge_data_insight_100_normal.webp" width="40" height="40" /> | A036 | 100 灵感入库 | 数据里程碑 | `lifetime.insight_earned >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_task_high_load_1h_normal.webp" width="40" height="40" /> | A037 | 1 小时高负载 | 任务效率 | `lifetime.high_load_seconds >= 3600` |  |
-| <img src="src/assets/achievements/cwp_badge_data_io_10gib_normal.webp" width="40" height="40" /> | A038 | 10 GiB 数据流 | 数据里程碑 | `lifetime.disk_bytes_total + lifetime.network_bytes_total >= 10737418240` |  |
-| <img src="src/assets/achievements/cwp_badge_task_input_1500_normal.webp" width="40" height="40" /> | A039 | 1500 次输入 | 任务效率 | `lifetime.keyboard_press_count + lifetime.mouse_click_count >= 1500` |  |
-| <img src="src/assets/achievements/cwp_badge_social_first_badge_export_normal.webp" width="40" height="40" /> | A040 | 第一张徽章卡 | 社交协作 | `share.achievement_card.export.count >= 1` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_rarity_b_normal.webp" width="40" height="40" /> | A121 | 第一张 B 级工况卡 | 任务效率 | `worklog.rarity.max_rank >= 2` |  |
+| <img src="src/assets/achievements/cwp_badge_daily_4h_companion_normal.webp" width="40" height="40" /> | A021 | 4 小时陪伴 | 日常使用 | 累计在线 4.0 小时 |  |
+| <img src="src/assets/achievements/cwp_badge_streak_3_active_days_normal.webp" width="40" height="40" /> | A022 | 三日有迹 | 长期打卡 | 累计 3 个活跃日（每日在线≥30 分钟） |  |
+| <img src="src/assets/achievements/cwp_badge_streak_3_consecutive_normal.webp" width="40" height="40" /> | A023 | 连续三天开工 | 长期打卡 | 连续 3 天在线（每日≥30 分钟） |  |
+| <img src="src/assets/achievements/cwp_badge_daily_3_reports_normal.webp" width="40" height="40" /> | A024 | 三份工况报告 | 日常使用 | 生成 3 份工况日报 |  |
+| <img src="src/assets/achievements/cwp_badge_task_score_60_x3_normal.webp" width="40" height="40" /> | A025 | 三次稳定推进 | 任务效率 | 3 天日报评分≥60 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_all_pages_normal.webp" width="40" height="40" /> | A026 | 主界面巡礼 | 功能探索 | 浏览过 7 个不同页面 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_pet_30_normal.webp" width="40" height="40" /> | A027 | 30 次抚摸 | 日常使用 | 抚摸 CoreCat 30 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_panel_20_normal.webp" width="40" height="40" /> | A028 | 面板常客 | 日常使用 | 打开 CoreCat 面板 20 次 |  |
+| <img src="src/assets/achievements/cwp_badge_daily_drag_10_normal.webp" width="40" height="40" /> | A029 | 桌面搬运练习 | 日常使用 | 拖动 CoreCat 10 次 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_three_themes_normal.webp" width="40" height="40" /> | A030 | 三色试验 | 功能探索 | 切换过 3 种主题 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_metric_custom_normal.webp" width="40" height="40" /> | A031 | 自定义监控项 | 功能探索 | 修改「visibleMonitorMetrics」设置 且当前可见指标数 >= 3 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_level_3_normal.webp" width="40" height="40" /> | A032 | 工坊 3 级 | 工坊养成 | 工坊达到 3 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_any_module_3_normal.webp" width="40" height="40" /> | A033 | 单模块 3 级 | 工坊养成 | 任意模块任一轨道 3 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_three_modules_normal.webp" width="40" height="40" /> | A034 | 三类模块动过手 | 工坊养成 | 升级过 3 个不同模块 |  |
+| <img src="src/assets/achievements/cwp_badge_data_parts_1000_normal.webp" width="40" height="40" /> | A035 | 1000 零件入库 | 数据里程碑 | 累计获得 1,000 零件 |  |
+| <img src="src/assets/achievements/cwp_badge_data_insight_100_normal.webp" width="40" height="40" /> | A036 | 100 灵感入库 | 数据里程碑 | 累计获得 100 灵感 |  |
+| <img src="src/assets/achievements/cwp_badge_task_high_load_1h_normal.webp" width="40" height="40" /> | A037 | 1 小时高负载 | 任务效率 | 高负载累计 1.0 小时 |  |
+| <img src="src/assets/achievements/cwp_badge_data_io_10gib_normal.webp" width="40" height="40" /> | A038 | 10 GiB 数据流 | 数据里程碑 | 累计数据流量（磁盘+网络）达 10 GiB |  |
+| <img src="src/assets/achievements/cwp_badge_task_input_1500_normal.webp" width="40" height="40" /> | A039 | 1500 次输入 | 任务效率 | 累计输入（按键+点击）1,500 次 |  |
+| <img src="src/assets/achievements/cwp_badge_social_first_badge_export_normal.webp" width="40" height="40" /> | A040 | 第一张徽章卡 | 社交协作 | 导出徽章卡 1 次 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_rarity_b_normal.webp" width="40" height="40" /> | A121 | 第一张 B 级工况卡 | 任务效率 | 获得 B 级工况卡 |  |
 
 </details>
 
@@ -181,29 +181,29 @@ CoreWorkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的�
 
 | 图标 | ID | 名称 | 分类 | 达成条件 | 🔒 |
 |:---:|:---:|---|---|---|:---:|
-| <img src="src/assets/achievements/cwp_badge_daily_24h_companion_skilled.webp" width="40" height="40" /> | A041 | 24 小时陪伴 | 日常使用 | `lifetime.total_online_seconds >= 86400` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_14_active_days_skilled.webp" width="40" height="40" /> | A042 | 14 个活跃日 | 长期打卡 | `calendar.days(active_seconds >= 1800) >= 14` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_7_consecutive_skilled.webp" width="40" height="40" /> | A043 | 连续七天开工 | 长期打卡 | `calendar.consecutive_days(active_seconds >= 3600) >= 7` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_14_reports_skilled.webp" width="40" height="40" /> | A044 | 14 份工况报告 | 日常使用 | `worklog.daily_generated.count >= 14` |  |
-| <img src="src/assets/achievements/cwp_badge_task_score_70_x10_skilled.webp" width="40" height="40" /> | A045 | 十次优良工况 | 任务效率 | `calendar.days(report_score >= 70) >= 10` |  |
-| <img src="src/assets/achievements/cwp_badge_task_four_day_types_skilled.webp" width="40" height="40" /> | A046 | 四种工作日类型 | 任务效率 | `distinct_count(worklog.daily_generated.dayType where dayType != 'unknown') >= 4` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_level_10_skilled.webp" width="40" height="40" /> | A047 | 工坊 10 级 | 工坊养成 | `workshop.level >= 10` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_all_parts_5_skilled.webp" width="40" height="40" /> | A048 | 六模块零件 5 级 | 工坊养成 | `6 个模块的 parts 等级全部 >= 5` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_all_process_5_skilled.webp" width="40" height="40" /> | A049 | 六模块工艺 5 级 | 工坊养成 | `6 个模块的 process 等级全部 >= 5` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_any_track_20_skilled.webp" width="40" height="40" /> | A050 | 单轨 20 级 | 工坊养成 | `任意模块任一升级轨等级 >= 20` |  |
-| <img src="src/assets/achievements/cwp_badge_data_parts_10000_skilled.webp" width="40" height="40" /> | A051 | 10000 零件入库 | 数据里程碑 | `lifetime.parts_earned >= 10000` |  |
-| <img src="src/assets/achievements/cwp_badge_data_insight_1000_skilled.webp" width="40" height="40" /> | A052 | 1000 灵感入库 | 数据里程碑 | `lifetime.insight_earned >= 1000` |  |
-| <img src="src/assets/achievements/cwp_badge_task_cpu_50_10h_skilled.webp" width="40" height="40" /> | A053 | CPU 推进 10 小时 | 任务效率 | `lifetime.cpu_over_50_seconds >= 36000` |  |
-| <img src="src/assets/achievements/cwp_badge_task_ram_70_5h_skilled.webp" width="40" height="40" /> | A054 | 内存仓库 5 小时 | 任务效率 | `lifetime.memory_over_70_seconds >= 18000` |  |
-| <img src="src/assets/achievements/cwp_badge_task_gpu_70_3h_skilled.webp" width="40" height="40" /> | A055 | GPU 点亮 3 小时 | 任务效率 | `lifetime.gpu_over_70_seconds >= 10800` |  |
-| <img src="src/assets/achievements/cwp_badge_data_disk_100gib_skilled.webp" width="40" height="40" /> | A056 | 100 GiB 本地流转 | 数据里程碑 | `lifetime.disk_bytes_total >= 107374182400` |  |
-| <img src="src/assets/achievements/cwp_badge_data_network_50gib_skilled.webp" width="40" height="40" /> | A057 | 50 GiB 网络流转 | 数据里程碑 | `lifetime.network_bytes_total >= 53687091200` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_pet_500_skilled.webp" width="40" height="40" /> | A058 | 500 次 CoreCat 互动 | 日常使用 | `pet.click.count + pet.panel.open.count + pet.drag_end.count >= 500` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_settings_20_skilled.webp" width="40" height="40" /> | A059 | 设置调校师 | 功能探索 | `settings.update.count >= 20 且 distinct_count(settings.update.changedKey) >= 5` |  |
-| <img src="src/assets/achievements/cwp_badge_social_exports_5_skilled.webp" width="40" height="40" /> | A060 | 五张分享卡 | 社交协作 | `share.report_card.export.count + share.achievement_card.export.count + share.profile_snapshot.export.count >= 5` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_rarity_a_skilled.webp" width="40" height="40" /> | A122 | 第一张 A 级工况卡 | 任务效率 | `worklog.rarity.max_rank >= 3` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_title_pressure_lv2_skilled.webp" width="40" height="40" /> | A127 | 高压修复师登阶 | 任务效率 | `worklog.title_level.pressure >= 2` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_title_any_lv3_skilled.webp" width="40" height="40" /> | A129 | 任意职级三级 | 任务效率 | `worklog.title_level.max >= 3` |  |
+| <img src="src/assets/achievements/cwp_badge_daily_24h_companion_skilled.webp" width="40" height="40" /> | A041 | 24 小时陪伴 | 日常使用 | 累计在线 1 天 |  |
+| <img src="src/assets/achievements/cwp_badge_streak_14_active_days_skilled.webp" width="40" height="40" /> | A042 | 14 个活跃日 | 长期打卡 | 累计 14 个活跃日（每日在线≥30 分钟） |  |
+| <img src="src/assets/achievements/cwp_badge_streak_7_consecutive_skilled.webp" width="40" height="40" /> | A043 | 连续七天开工 | 长期打卡 | 连续 7 天在线（每日≥1.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_daily_14_reports_skilled.webp" width="40" height="40" /> | A044 | 14 份工况报告 | 日常使用 | 生成 14 份工况日报 |  |
+| <img src="src/assets/achievements/cwp_badge_task_score_70_x10_skilled.webp" width="40" height="40" /> | A045 | 十次优良工况 | 任务效率 | 10 天日报评分≥70 |  |
+| <img src="src/assets/achievements/cwp_badge_task_four_day_types_skilled.webp" width="40" height="40" /> | A046 | 四种工作日类型 | 任务效率 | 体验过 4 种工作日类型 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_level_10_skilled.webp" width="40" height="40" /> | A047 | 工坊 10 级 | 工坊养成 | 工坊达到 10 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_all_parts_5_skilled.webp" width="40" height="40" /> | A048 | 六模块零件 5 级 | 工坊养成 | 6 个模块零件轨全 5 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_all_process_5_skilled.webp" width="40" height="40" /> | A049 | 六模块工艺 5 级 | 工坊养成 | 6 个模块工艺轨全 5 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_any_track_20_skilled.webp" width="40" height="40" /> | A050 | 单轨 20 级 | 工坊养成 | 任意模块任一轨道 20 级 |  |
+| <img src="src/assets/achievements/cwp_badge_data_parts_10000_skilled.webp" width="40" height="40" /> | A051 | 10000 零件入库 | 数据里程碑 | 累计获得 10,000 零件 |  |
+| <img src="src/assets/achievements/cwp_badge_data_insight_1000_skilled.webp" width="40" height="40" /> | A052 | 1000 灵感入库 | 数据里程碑 | 累计获得 1,000 灵感 |  |
+| <img src="src/assets/achievements/cwp_badge_task_cpu_50_10h_skilled.webp" width="40" height="40" /> | A053 | CPU 推进 10 小时 | 任务效率 | CPU>50%累计 10.0 小时 |  |
+| <img src="src/assets/achievements/cwp_badge_task_ram_70_5h_skilled.webp" width="40" height="40" /> | A054 | 内存仓库 5 小时 | 任务效率 | 内存>70%累计 5.0 小时 |  |
+| <img src="src/assets/achievements/cwp_badge_task_gpu_70_3h_skilled.webp" width="40" height="40" /> | A055 | GPU 点亮 3 小时 | 任务效率 | GPU>70%累计 3.0 小时 |  |
+| <img src="src/assets/achievements/cwp_badge_data_disk_100gib_skilled.webp" width="40" height="40" /> | A056 | 100 GiB 本地流转 | 数据里程碑 | 累计磁盘读写 100 GiB |  |
+| <img src="src/assets/achievements/cwp_badge_data_network_50gib_skilled.webp" width="40" height="40" /> | A057 | 50 GiB 网络流转 | 数据里程碑 | 累计网络流量 50 GiB |  |
+| <img src="src/assets/achievements/cwp_badge_daily_pet_500_skilled.webp" width="40" height="40" /> | A058 | 500 次 CoreCat 互动 | 日常使用 | CoreCat 互动（点击+面板+拖动）总计 500 次 |  |
+| <img src="src/assets/achievements/cwp_badge_explore_settings_20_skilled.webp" width="40" height="40" /> | A059 | 设置调校师 | 功能探索 | 保存设置 20 次；修改过 5 种设置项 |  |
+| <img src="src/assets/achievements/cwp_badge_social_exports_5_skilled.webp" width="40" height="40" /> | A060 | 五张分享卡 | 社交协作 | 各类分享导出总计 5 次 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_rarity_a_skilled.webp" width="40" height="40" /> | A122 | 第一张 A 级工况卡 | 任务效率 | 获得 A 级工况卡 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_title_pressure_lv2_skilled.webp" width="40" height="40" /> | A127 | 高压修复师登阶 | 任务效率 | 高压修复师 2 阶 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_title_any_lv3_skilled.webp" width="40" height="40" /> | A129 | 任意职级三级 | 任务效率 | 任意职系 3 阶 |  |
 
 </details>
 
@@ -212,29 +212,29 @@ CoreWorkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的�
 
 | 图标 | ID | 名称 | 分类 | 达成条件 | 🔒 |
 |:---:|:---:|---|---|---|:---:|
-| <img src="src/assets/achievements/cwp_badge_daily_7d_companion_elite.webp" width="40" height="40" /> | A061 | 7 天累计陪伴 | 日常使用 | `lifetime.total_online_seconds >= 604800` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_60_active_days_elite.webp" width="40" height="40" /> | A062 | 60 个活跃日 | 长期打卡 | `calendar.days(active_seconds >= 3600) >= 60` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_30_consecutive_elite.webp" width="40" height="40" /> | A063 | 连续 30 天开工 | 长期打卡 | `calendar.consecutive_days(active_seconds >= 3600) >= 30` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_60_reports_elite.webp" width="40" height="40" /> | A064 | 60 份工况报告 | 日常使用 | `worklog.daily_generated.count >= 60` |  |
-| <img src="src/assets/achievements/cwp_badge_task_score_75_x30_elite.webp" width="40" height="40" /> | A065 | 三十次高质量工况 | 任务效率 | `calendar.days(report_score >= 75) >= 30` |  |
-| <img src="src/assets/achievements/cwp_badge_task_deep_focus_15_elite.webp" width="40" height="40" /> | A066 | 15 个深度专注日 | 任务效率 | `calendar.days(report_day_type = 'deepFocus') >= 15` |  |
-| <img src="src/assets/achievements/cwp_badge_task_build_burst_15_elite.webp" width="40" height="40" /> | A067 | 15 个构建爆发日 | 任务效率 | `calendar.days(report_day_type = 'buildBurst') >= 15` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_level_30_elite.webp" width="40" height="40" /> | A068 | 工坊 30 级 | 工坊养成 | `workshop.level >= 30` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_all_parts_20_elite.webp" width="40" height="40" /> | A069 | 六模块零件 20 级 | 工坊养成 | `6 个模块的 parts 等级全部 >= 20` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_all_process_20_elite.webp" width="40" height="40" /> | A070 | 六模块工艺 20 级 | 工坊养成 | `6 个模块的 process 等级全部 >= 20` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_any_track_50_elite.webp" width="40" height="40" /> | A071 | 单轨 50 级 | 工坊养成 | `任意模块任一升级轨等级 >= 50` |  |
-| <img src="src/assets/achievements/cwp_badge_data_parts_100000_elite.webp" width="40" height="40" /> | A072 | 100000 零件入库 | 数据里程碑 | `lifetime.parts_earned >= 100000` |  |
-| <img src="src/assets/achievements/cwp_badge_data_insight_10000_elite.webp" width="40" height="40" /> | A073 | 10000 灵感入库 | 数据里程碑 | `lifetime.insight_earned >= 10000` |  |
-| <img src="src/assets/achievements/cwp_badge_health_controlled_pressure_elite.webp" width="40" height="40" /> | A074 | 高压但可控 | 硬件健康 | `lifetime.high_load_seconds >= 360000 且 lifetime.thermal_warning_seconds <= 72000` |  |
-| <img src="src/assets/achievements/cwp_badge_health_30_cool_days_elite.webp" width="40" height="40" /> | A075 | 30 个凉爽活跃日 | 硬件健康 | `calendar.days(active_seconds >= 3600 AND thermal_warning_seconds = 0) >= 30` |  |
-| <img src="src/assets/achievements/cwp_badge_explore_report_views_100_elite.webp" width="40" height="40" /> | A076 | 日报阅读 100 次 | 功能探索 | `page.view.count(pageKey='worklog') >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_social_exports_20_elite.webp" width="40" height="40" /> | A077 | 二十张协作卡 | 社交协作 | `share.report_card.export.count + share.achievement_card.export.count + share.profile_snapshot.export.count >= 20` |  |
-| <img src="src/assets/achievements/cwp_badge_social_imports_5_elite.webp" width="40" height="40" /> | A078 | 五次外部快照导入 | 社交协作 | `share.profile_snapshot.import.count >= 5` |  |
-| <img src="src/assets/achievements/cwp_badge_hidden_night_watch_elite.webp" width="40" height="40" /> | A079 | 夜间守望 | 隐藏彩蛋 | `calendar.days(active_00_05_seconds >= 1800) >= 12` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_hidden_triple_click_elite.webp" width="40" height="40" /> | A080 | 快速三连 | 隐藏彩蛋 | `pet.click_burst.count(clicks >= 3, windowMs <= 2000) >= 10` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_worklog_rarity_s_elite.webp" width="40" height="40" /> | A123 | 第一张 S 级工况卡 | 任务效率 | `worklog.rarity.max_rank >= 4` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_rarity_a_plus_7_elite.webp" width="40" height="40" /> | A125 | 七张 A 级以上工况卡 | 任务效率 | `calendar.days(rarity_rank >= 3) >= 7` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_title_pressure_lv3_elite.webp" width="40" height="40" /> | A128 | 高压修复师精进 | 任务效率 | `worklog.title_level.pressure >= 3` |  |
+| <img src="src/assets/achievements/cwp_badge_daily_7d_companion_elite.webp" width="40" height="40" /> | A061 | 7 天累计陪伴 | 日常使用 | 累计在线 7 天 |  |
+| <img src="src/assets/achievements/cwp_badge_streak_60_active_days_elite.webp" width="40" height="40" /> | A062 | 60 个活跃日 | 长期打卡 | 累计 60 个活跃日（每日在线≥1.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_streak_30_consecutive_elite.webp" width="40" height="40" /> | A063 | 连续 30 天开工 | 长期打卡 | 连续 30 天在线（每日≥1.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_daily_60_reports_elite.webp" width="40" height="40" /> | A064 | 60 份工况报告 | 日常使用 | 生成 60 份工况日报 |  |
+| <img src="src/assets/achievements/cwp_badge_task_score_75_x30_elite.webp" width="40" height="40" /> | A065 | 三十次高质量工况 | 任务效率 | 30 天日报评分≥75 |  |
+| <img src="src/assets/achievements/cwp_badge_task_deep_focus_15_elite.webp" width="40" height="40" /> | A066 | 15 个深度专注日 | 任务效率 | 15 个「深度专注」工作日 |  |
+| <img src="src/assets/achievements/cwp_badge_task_build_burst_15_elite.webp" width="40" height="40" /> | A067 | 15 个构建爆发日 | 任务效率 | 15 个「构建爆发」工作日 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_level_30_elite.webp" width="40" height="40" /> | A068 | 工坊 30 级 | 工坊养成 | 工坊达到 30 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_all_parts_20_elite.webp" width="40" height="40" /> | A069 | 六模块零件 20 级 | 工坊养成 | 6 个模块零件轨全 20 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_all_process_20_elite.webp" width="40" height="40" /> | A070 | 六模块工艺 20 级 | 工坊养成 | 6 个模块工艺轨全 20 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_any_track_50_elite.webp" width="40" height="40" /> | A071 | 单轨 50 级 | 工坊养成 | 任意模块任一轨道 50 级 |  |
+| <img src="src/assets/achievements/cwp_badge_data_parts_100000_elite.webp" width="40" height="40" /> | A072 | 100000 零件入库 | 数据里程碑 | 累计获得 100,000 零件 |  |
+| <img src="src/assets/achievements/cwp_badge_data_insight_10000_elite.webp" width="40" height="40" /> | A073 | 10000 灵感入库 | 数据里程碑 | 累计获得 10,000 灵感 |  |
+| <img src="src/assets/achievements/cwp_badge_health_controlled_pressure_elite.webp" width="40" height="40" /> | A074 | 高压但可控 | 硬件健康 | 高负载累计 4 天；且高温警告不超过 20.0 小时 |  |
+| <img src="src/assets/achievements/cwp_badge_health_30_cool_days_elite.webp" width="40" height="40" /> | A075 | 30 个凉爽活跃日 | 硬件健康 | 30 天活跃且无高温（每日≥1.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_explore_report_views_100_elite.webp" width="40" height="40" /> | A076 | 日报阅读 100 次 | 功能探索 | 浏览「日报」100 次 |  |
+| <img src="src/assets/achievements/cwp_badge_social_exports_20_elite.webp" width="40" height="40" /> | A077 | 二十张协作卡 | 社交协作 | 各类分享导出总计 20 次 |  |
+| <img src="src/assets/achievements/cwp_badge_social_imports_5_elite.webp" width="40" height="40" /> | A078 | 五次外部快照导入 | 社交协作 | 导入外部快照 5 次 |  |
+| <img src="src/assets/achievements/cwp_badge_hidden_night_watch_elite.webp" width="40" height="40" /> | A079 | 夜间守望 | 隐藏彩蛋 | 12 天凌晨0-5点活跃（≥30 分钟） | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_hidden_triple_click_elite.webp" width="40" height="40" /> | A080 | 快速三连 | 隐藏彩蛋 | 10 次快速连击（3击/2000ms内） | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_worklog_rarity_s_elite.webp" width="40" height="40" /> | A123 | 第一张 S 级工况卡 | 任务效率 | 获得 S 级工况卡 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_rarity_a_plus_7_elite.webp" width="40" height="40" /> | A125 | 七张 A 级以上工况卡 | 任务效率 | 7 天日报稀有度≥3级 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_title_pressure_lv3_elite.webp" width="40" height="40" /> | A128 | 高压修复师精进 | 任务效率 | 高压修复师 3 阶 |  |
 
 </details>
 
@@ -243,30 +243,30 @@ CoreWorkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的�
 
 | 图标 | ID | 名称 | 分类 | 达成条件 | 🔒 |
 |:---:|:---:|---|---|---|:---:|
-| <img src="src/assets/achievements/cwp_badge_daily_30d_companion_epic.webp" width="40" height="40" /> | A081 | 30 天累计陪伴 | 日常使用 | `lifetime.total_online_seconds >= 2592000` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_180_active_days_epic.webp" width="40" height="40" /> | A082 | 180 个活跃日 | 长期打卡 | `calendar.days(active_seconds >= 3600) >= 180` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_90_consecutive_epic.webp" width="40" height="40" /> | A083 | 连续 90 天开工 | 长期打卡 | `calendar.consecutive_days(active_seconds >= 3600) >= 90` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_180_reports_epic.webp" width="40" height="40" /> | A084 | 180 份工况报告 | 日常使用 | `worklog.daily_generated.count >= 180` |  |
-| <img src="src/assets/achievements/cwp_badge_task_score_80_x100_epic.webp" width="40" height="40" /> | A085 | 百次优秀工况 | 任务效率 | `calendar.days(report_score >= 80) >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_task_deep_focus_50_epic.webp" width="40" height="40" /> | A086 | 50 个深度专注日 | 任务效率 | `calendar.days(report_day_type = 'deepFocus') >= 50` |  |
-| <img src="src/assets/achievements/cwp_badge_task_pressure_repair_25_epic.webp" width="40" height="40" /> | A087 | 25 个高压抢修日 | 任务效率 | `calendar.days(report_day_type = 'pressureRepair' AND high_load_seconds >= 7200) >= 25` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_level_60_epic.webp" width="40" height="40" /> | A088 | 工坊 60 级 | 工坊养成 | `workshop.level >= 60` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_all_parts_50_epic.webp" width="40" height="40" /> | A089 | 六模块零件 50 级 | 工坊养成 | `6 个模块的 parts 等级全部 >= 50` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_all_process_50_epic.webp" width="40" height="40" /> | A090 | 六模块工艺 50 级 | 工坊养成 | `6 个模块的 process 等级全部 >= 50` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_first_track_100_epic.webp" width="40" height="40" /> | A091 | 第一条满级轨道 | 工坊养成 | `任意模块任一升级轨等级 >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_data_parts_1m_epic.webp" width="40" height="40" /> | A092 | 百万零件库 | 数据里程碑 | `lifetime.parts_earned >= 1000000` |  |
-| <img src="src/assets/achievements/cwp_badge_data_insight_100k_epic.webp" width="40" height="40" /> | A093 | 十万灵感库 | 数据里程碑 | `lifetime.insight_earned >= 100000` |  |
-| <img src="src/assets/achievements/cwp_badge_data_io_5tib_epic.webp" width="40" height="40" /> | A094 | 5 TiB 数据河流 | 数据里程碑 | `lifetime.disk_bytes_total + lifetime.network_bytes_total >= 5497558138880` |  |
-| <img src="src/assets/achievements/cwp_badge_data_network_1tib_epic.webp" width="40" height="40" /> | A095 | 1 TiB 网络流转 | 数据里程碑 | `lifetime.network_bytes_total >= 1099511627776` |  |
-| <img src="src/assets/achievements/cwp_badge_task_input_1m_epic.webp" width="40" height="40" /> | A096 | 百万次输入 | 任务效率 | `lifetime.keyboard_press_count + lifetime.mouse_click_count >= 1000000` |  |
-| <img src="src/assets/achievements/cwp_badge_health_60_cool_pressure_days_epic.webp" width="40" height="40" /> | A097 | 60 个高负载凉爽日 | 硬件健康 | `calendar.days(high_load_seconds >= 1800 AND thermal_warning_seconds = 0) >= 60` |  |
-| <img src="src/assets/achievements/cwp_badge_data_achievements_80_epic.webp" width="40" height="40" /> | A098 | 解锁 80 项成就 | 数据里程碑 | `achievement.unlocked.count >= 80` |  |
-| <img src="src/assets/achievements/cwp_badge_data_all_categories_5_epic.webp" width="40" height="40" /> | A099 | 九类图鉴都有章 | 数据里程碑 | `9 个分类中每个分类已解锁成就数 >= 5` |  |
-| <img src="src/assets/achievements/cwp_badge_hidden_low_power_guard_epic.webp" width="40" height="40" /> | A100 | 低功耗守护者 | 隐藏彩蛋 | `calendar.days(low_power_mode_enabled_seconds >= 3600) >= 30 且 lifetime.low_power_mode_enabled_seconds >= 2592000` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_worklog_rarity_ss_epic.webp" width="40" height="40" /> | A124 | 第一张 SS 级工况卡 | 任务效率 | `worklog.rarity.max_rank >= 5` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_rarity_s_plus_30_epic.webp" width="40" height="40" /> | A126 | 三十张 S 级以上工况卡 | 任务效率 | `calendar.days(rarity_rank >= 4) >= 30` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_title_any_lv5_epic.webp" width="40" height="40" /> | A130 | 任意职级满阶 | 任务效率 | `worklog.title_level.max >= 5` |  |
-| <img src="src/assets/achievements/cwp_badge_worklog_title_all_lv3_epic.webp" width="40" height="40" /> | A131 | 七类职级三级 | 任务效率 | `7 个 title_family 每类等级全部 >= 3` |  |
+| <img src="src/assets/achievements/cwp_badge_daily_30d_companion_epic.webp" width="40" height="40" /> | A081 | 30 天累计陪伴 | 日常使用 | 累计在线 30 天 |  |
+| <img src="src/assets/achievements/cwp_badge_streak_180_active_days_epic.webp" width="40" height="40" /> | A082 | 180 个活跃日 | 长期打卡 | 累计 180 个活跃日（每日在线≥1.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_streak_90_consecutive_epic.webp" width="40" height="40" /> | A083 | 连续 90 天开工 | 长期打卡 | 连续 90 天在线（每日≥1.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_daily_180_reports_epic.webp" width="40" height="40" /> | A084 | 180 份工况报告 | 日常使用 | 生成 180 份工况日报 |  |
+| <img src="src/assets/achievements/cwp_badge_task_score_80_x100_epic.webp" width="40" height="40" /> | A085 | 百次优秀工况 | 任务效率 | 100 天日报评分≥80 |  |
+| <img src="src/assets/achievements/cwp_badge_task_deep_focus_50_epic.webp" width="40" height="40" /> | A086 | 50 个深度专注日 | 任务效率 | 50 个「深度专注」工作日 |  |
+| <img src="src/assets/achievements/cwp_badge_task_pressure_repair_25_epic.webp" width="40" height="40" /> | A087 | 25 个高压抢修日 | 任务效率 | 25 个高压抢修日（高负载≥2.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_level_60_epic.webp" width="40" height="40" /> | A088 | 工坊 60 级 | 工坊养成 | 工坊达到 60 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_all_parts_50_epic.webp" width="40" height="40" /> | A089 | 六模块零件 50 级 | 工坊养成 | 6 个模块零件轨全 50 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_all_process_50_epic.webp" width="40" height="40" /> | A090 | 六模块工艺 50 级 | 工坊养成 | 6 个模块工艺轨全 50 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_first_track_100_epic.webp" width="40" height="40" /> | A091 | 第一条满级轨道 | 工坊养成 | 任意模块任一轨道 100 级 |  |
+| <img src="src/assets/achievements/cwp_badge_data_parts_1m_epic.webp" width="40" height="40" /> | A092 | 百万零件库 | 数据里程碑 | 累计获得 1,000,000 零件 |  |
+| <img src="src/assets/achievements/cwp_badge_data_insight_100k_epic.webp" width="40" height="40" /> | A093 | 十万灵感库 | 数据里程碑 | 累计获得 100,000 灵感 |  |
+| <img src="src/assets/achievements/cwp_badge_data_io_5tib_epic.webp" width="40" height="40" /> | A094 | 5 TiB 数据河流 | 数据里程碑 | 累计数据流量（磁盘+网络）达 5 TiB |  |
+| <img src="src/assets/achievements/cwp_badge_data_network_1tib_epic.webp" width="40" height="40" /> | A095 | 1 TiB 网络流转 | 数据里程碑 | 累计网络流量 1 TiB |  |
+| <img src="src/assets/achievements/cwp_badge_task_input_1m_epic.webp" width="40" height="40" /> | A096 | 百万次输入 | 任务效率 | 累计输入（按键+点击）1,000,000 次 |  |
+| <img src="src/assets/achievements/cwp_badge_health_60_cool_pressure_days_epic.webp" width="40" height="40" /> | A097 | 60 个高负载凉爽日 | 硬件健康 | 60 天高负载且无高温（≥30 分钟） |  |
+| <img src="src/assets/achievements/cwp_badge_data_achievements_80_epic.webp" width="40" height="40" /> | A098 | 解锁 80 项成就 | 数据里程碑 | 解锁 80 项成就 |  |
+| <img src="src/assets/achievements/cwp_badge_data_all_categories_5_epic.webp" width="40" height="40" /> | A099 | 九类图鉴都有章 | 数据里程碑 | 9 个分类各有 5 个解锁成就 |  |
+| <img src="src/assets/achievements/cwp_badge_hidden_low_power_guard_epic.webp" width="40" height="40" /> | A100 | 低功耗守护者 | 隐藏彩蛋 | 30 天开启低功耗（每日≥1.0 小时）；且累计开启 30 天 | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_worklog_rarity_ss_epic.webp" width="40" height="40" /> | A124 | 第一张 SS 级工况卡 | 任务效率 | 获得 SS 级工况卡 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_rarity_s_plus_30_epic.webp" width="40" height="40" /> | A126 | 三十张 S 级以上工况卡 | 任务效率 | 30 天日报稀有度≥4级 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_title_any_lv5_epic.webp" width="40" height="40" /> | A130 | 任意职级满阶 | 任务效率 | 任意职系 5 阶 |  |
+| <img src="src/assets/achievements/cwp_badge_worklog_title_all_lv3_epic.webp" width="40" height="40" /> | A131 | 七类职级三级 | 任务效率 | 全部 7 职系达 3 阶 |  |
 
 </details>
 
@@ -275,29 +275,30 @@ CoreWorkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的�
 
 | 图标 | ID | 名称 | 分类 | 达成条件 | 🔒 |
 |:---:|:---:|---|---|---|:---:|
-| <img src="src/assets/achievements/cwp_badge_daily_365d_companion_legendary.webp" width="40" height="40" /> | A101 | 365 天累计陪伴 | 日常使用 | `lifetime.total_online_seconds >= 31536000` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_365_active_days_legendary.webp" width="40" height="40" /> | A102 | 365 个活跃日 | 长期打卡 | `calendar.days(active_seconds >= 3600) >= 365` |  |
-| <img src="src/assets/achievements/cwp_badge_streak_180_consecutive_legendary.webp" width="40" height="40" /> | A103 | 连续 180 天开工 | 长期打卡 | `calendar.consecutive_days(active_seconds >= 3600) >= 180` |  |
-| <img src="src/assets/achievements/cwp_badge_daily_365_reports_legendary.webp" width="40" height="40" /> | A104 | 365 份工况报告 | 日常使用 | `worklog.daily_generated.count >= 365` |  |
-| <img src="src/assets/achievements/cwp_badge_task_score_85_x180_legendary.webp" width="40" height="40" /> | A105 | 180 次卓越工况 | 任务效率 | `calendar.days(report_score >= 85) >= 180` |  |
-| <img src="src/assets/achievements/cwp_badge_task_all_day_types_30_legendary.webp" width="40" height="40" /> | A106 | 七类工作日全熟练 | 任务效率 | `7 个 report_day_type 每类天数全部 >= 30，不含 unknown` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_level_100_legendary.webp" width="40" height="40" /> | A107 | 工坊 100 级 | 工坊养成 | `workshop.level >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_all_tracks_100_legendary.webp" width="40" height="40" /> | A108 | 十二条模块轨道满级 | 工坊养成 | `6 个模块的 parts 与 process 共 12 条轨道全部 >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_data_parts_10m_legendary.webp" width="40" height="40" /> | A109 | 千万零件库 | 数据里程碑 | `lifetime.parts_earned >= 10000000` |  |
-| <img src="src/assets/achievements/cwp_badge_data_insight_1m_legendary.webp" width="40" height="40" /> | A110 | 百万灵感库 | 数据里程碑 | `lifetime.insight_earned >= 1000000` |  |
-| <img src="src/assets/achievements/cwp_badge_data_io_50tib_legendary.webp" width="40" height="40" /> | A111 | 50 TiB 数据星河 | 数据里程碑 | `lifetime.disk_bytes_total + lifetime.network_bytes_total >= 54975581388800` |  |
-| <img src="src/assets/achievements/cwp_badge_task_input_10m_legendary.webp" width="40" height="40" /> | A112 | 千万次输入 | 任务效率 | `lifetime.keyboard_press_count + lifetime.mouse_click_count >= 10000000` |  |
-| <img src="src/assets/achievements/cwp_badge_health_no_corruption_365_legendary.webp" width="40" height="40" /> | A113 | 全年无存档修复 | 硬件健康 | `calendar.days(active_seconds >= 3600) >= 365 且 storage.corruption_rebuilt.count = 0` |  |
-| <img src="src/assets/achievements/cwp_badge_data_visible_100_legendary.webp" width="40" height="40" /> | A114 | 百枚可见徽章 | 数据里程碑 | `non_hidden_achievement.unlocked.count >= 100` |  |
-| <img src="src/assets/achievements/cwp_badge_hidden_12_months_reports_legendary.webp" width="40" height="40" /> | A115 | 十二个月都有工况 | 隐藏彩蛋 | `calendar.months(report_generated_days >= 20) >= 12` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_hidden_all_animations_legendary.webp" width="40" height="40" /> | A116 | CoreCat 全动画见证 | 隐藏彩蛋 | `18 个 CoreCat 动画状态的 corecat.animation_seen.count(animationState) 全部 >= 10` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_hidden_midnight_maintenance_legendary.webp" width="40" height="40" /> | A117 | 午夜维护长征 | 隐藏彩蛋 | `calendar.days(active_00_05_seconds >= 1800 AND high_load_seconds >= 1800) >= 30` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_hidden_error_glitch_404_legendary.webp" width="40" height="40" /> | A118 | 404 修复师 | 隐藏彩蛋 | `corecat.animation_seen.count(animationState='errorGlitch') >= 404` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_hidden_all_difficulties_legendary.webp" width="40" height="40" /> | A119 | 六档难度全频段 | 隐藏彩蛋 | `6 个难度中每个难度已解锁成就数全部 >= 10` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_hidden_constellation_complete_legendary.webp" width="40" height="40" /> | A120 | 隐藏星图完成 | 隐藏彩蛋 | `hidden_achievement.unlocked.count(excludeSelf=true) >= 8` | 🔒 |
-| <img src="src/assets/achievements/cwp_badge_worklog_title_all_lv5_legendary.webp" width="40" height="40" /> | A132 | 七类职级满阶 | 任务效率 | `7 个 title_family 每类等级全部 >= 5` |  |
+| <img src="src/assets/achievements/cwp_badge_daily_365d_companion_legendary.webp" width="40" height="40" /> | A101 | 365 天累计陪伴 | 日常使用 | 累计在线 365 天 |  |
+| <img src="src/assets/achievements/cwp_badge_streak_365_active_days_legendary.webp" width="40" height="40" /> | A102 | 365 个活跃日 | 长期打卡 | 累计 365 个活跃日（每日在线≥1.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_streak_180_consecutive_legendary.webp" width="40" height="40" /> | A103 | 连续 180 天开工 | 长期打卡 | 连续 180 天在线（每日≥1.0 小时） |  |
+| <img src="src/assets/achievements/cwp_badge_daily_365_reports_legendary.webp" width="40" height="40" /> | A104 | 365 份工况报告 | 日常使用 | 生成 365 份工况日报 |  |
+| <img src="src/assets/achievements/cwp_badge_task_score_85_x180_legendary.webp" width="40" height="40" /> | A105 | 180 次卓越工况 | 任务效率 | 180 天日报评分≥85 |  |
+| <img src="src/assets/achievements/cwp_badge_task_all_day_types_30_legendary.webp" width="40" height="40" /> | A106 | 七类工作日全熟练 | 任务效率 | 7 种工作日各 30 天，不含 unknown |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_level_100_legendary.webp" width="40" height="40" /> | A107 | 工坊 100 级 | 工坊养成 | 工坊达到 100 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_all_tracks_100_legendary.webp" width="40" height="40" /> | A108 | 十二条模块轨道满级 | 工坊养成 | 12 条轨道全 100 级 |  |
+| <img src="src/assets/achievements/cwp_badge_data_parts_10m_legendary.webp" width="40" height="40" /> | A109 | 千万零件库 | 数据里程碑 | 累计获得 10,000,000 零件 |  |
+| <img src="src/assets/achievements/cwp_badge_data_insight_1m_legendary.webp" width="40" height="40" /> | A110 | 百万灵感库 | 数据里程碑 | 累计获得 1,000,000 灵感 |  |
+| <img src="src/assets/achievements/cwp_badge_data_io_50tib_legendary.webp" width="40" height="40" /> | A111 | 50 TiB 数据星河 | 数据里程碑 | 累计数据流量（磁盘+网络）达 50 TiB |  |
+| <img src="src/assets/achievements/cwp_badge_task_input_10m_legendary.webp" width="40" height="40" /> | A112 | 千万次输入 | 任务效率 | 累计输入（按键+点击）10,000,000 次 |  |
+| <img src="src/assets/achievements/cwp_badge_health_no_corruption_365_legendary.webp" width="40" height="40" /> | A113 | 全年无存档修复 | 硬件健康 | 活跃 365 天（每日≥1.0 小时）；且从未发生存档损坏 |  |
+| <img src="src/assets/achievements/cwp_badge_data_visible_100_legendary.webp" width="40" height="40" /> | A114 | 百枚可见徽章 | 数据里程碑 | non_hidden_解锁 100 项成就 |  |
+| <img src="src/assets/achievements/cwp_badge_hidden_12_months_reports_legendary.webp" width="40" height="40" /> | A115 | 十二个月都有工况 | 隐藏彩蛋 | 连续 12 个月每月≥20天有日报 | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_hidden_all_animations_legendary.webp" width="40" height="40" /> | A116 | CoreCat 全动画见证 | 隐藏彩蛋 | 见证全部 18 种动画各 10 次 | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_hidden_midnight_maintenance_legendary.webp" width="40" height="40" /> | A117 | 午夜维护长征 | 隐藏彩蛋 | 30 天凌晨高负载（0-5点≥30 分钟，高负载≥30 分钟） | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_hidden_error_glitch_404_legendary.webp" width="40" height="40" /> | A118 | 404 修复师 | 隐藏彩蛋 | 触发 ErrorGlitch 404 次 | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_hidden_all_difficulties_legendary.webp" width="40" height="40" /> | A119 | 六档难度全频段 | 隐藏彩蛋 | 6 个难度各有 10 个解锁成就 | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_hidden_constellation_complete_legendary.webp" width="40" height="40" /> | A120 | 隐藏星图完成 | 隐藏彩蛋 | 解锁其他 8 个隐藏成就 | 🔒 |
+| <img src="src/assets/achievements/cwp_badge_worklog_title_all_lv5_legendary.webp" width="40" height="40" /> | A132 | 七类职级满阶 | 任务效率 | 全部 7 职系达 5 阶 |  |
 
 </details>
+
 
 ---
 
@@ -439,35 +440,6 @@ pnpm tauri build
 - **NSIS 安装包**：`src-tauri/target/release/bundle/nsis/CoreWorkPal_x64-setup.exe`
 
 > 当前打包目标为 NSIS。若需生成 MSI 安装包，需额外下载 [WiX 工具集](https://wixtoolset.org/)（首次打包时 Tauri 会自动拉取，也可手动放置到 `%LOCALAPPDATA%\tauri\WixTools314\`）。
-
----
-
-## 📋 更新日志
-
-### v0.3.3
-
-**新功能**
-- 📝 笔记支持从本地 `.md` 文件导入（自动解析 H1 标题为笔记标题）
-- 📖 笔记查看新增全屏沉浸阅读模式（加大字号、宽行距、隐藏工具栏）
-- 🌙 全屏阅读支持白天（暖纸感）和夜间（深灰护眼）两种阅读配色
-- 🏆 成就图鉴新增"导入外部快照"功能，解锁协作分享类成就
-
-**修复**
-- 🐛 修复 GPU 显存显示错误（≥4GB 显卡被 uint32 截断，改用注册表 qwMemorySize 读取准确值）
-- 🐛 修复工坊升级经常失败需多次点击（前端旧快照覆盖监控泵实时数据 + 浮点精度临界误判）
-- 🐛 修复 25+ 个成就永远无法解锁（高负载时长 / 磁盘流量 / 网络流量 / CPU·GPU·内存超阈值时长 / 低功耗时长等 lifetime 计数器未采集）
-- 🐛 修复专注会话完成时奖励丢失且成就未记录的问题
-- 🐛 修复笔记编辑保存失败时静默关闭（现显示错误提示并保持弹窗打开）
-- 🐛 修复设置滑块拖动时频繁写盘 + 乐观更新回滚失效
-- 🐛 修复多个窗口的渲染崩溃无法恢复（ErrorBoundary 现支持重试 + 重新加载数据）
-
-**优化**
-- ⚡ 监控采样泵周期更精准（扣除单 tick 处理耗时）
-- ⚡ 专注会话期间强制前台采样间隔，提升分心检测精度
-- 🔒 子进程（nvidia-smi / PowerShell）加 8s 超时保护，防止挂起冻结监控
-- 🔒 更新检查 / 下载加网络超时（20s / 120s），防止无限等待
-- 🔒 数据文件写入失败时完整回滚内存状态，保证内存与磁盘一致
-- 🔒 启动时单个数据文件损坏不再崩溃，降级为默认值继续运行
 
 ---
 
