@@ -15,7 +15,7 @@
 //! `sysinfo_adapter.rs`. There is zero cost to a machine without LHM (a local
 //! TCP connection-refused resolves in sub-millisecond time).
 //!
-//! CoreWorkPal itself never requires elevation — it merely *reads* whatever an
+//! CoworkPal itself never requires elevation — it merely *reads* whatever an
 //! already-elevated LHM process publishes.
 
 use serde::Deserialize;

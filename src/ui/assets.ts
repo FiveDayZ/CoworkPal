@@ -31,7 +31,7 @@ export const iconAssets = {
 };
 
 export const themeIconAssets = {
-  coreworkpal: {
+  coworkpal: {
     app: appIconOrange,
     corecatAvatar: corecatAvatarOrange,
     tray: trayIconOrange,
@@ -55,8 +55,8 @@ export const themeIconAssets = {
 
 export function useThemedIcons() {
   const settings = useSettingsStore((state) => state.settings);
-  const theme = settings?.themeName || "coreworkpal";
-  return themeIconAssets[theme as keyof typeof themeIconAssets] || themeIconAssets.coreworkpal;
+  const theme = settings?.themeName || "coworkpal";
+  return themeIconAssets[theme as keyof typeof themeIconAssets] || themeIconAssets.coworkpal;
 }
 
 export const moduleAssets = {

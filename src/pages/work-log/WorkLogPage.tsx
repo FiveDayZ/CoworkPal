@@ -1269,7 +1269,7 @@ function buildReportCardExportText({
   );
 
   return [
-    "CoreWorkPal 每日工况报告卡",
+    "CoworkPal 每日工况报告卡",
     `日期：${formatDateLabel(selectedDate)}`,
     `导出时间：${new Date(exportedAt).toLocaleString("zh-CN")}`,
     `画像：${assessment?.dayTypeTitle ?? "数据积累中"}`,
@@ -1373,7 +1373,7 @@ async function exportVisualReportCard({
   context.fillRect(34, 34, canvas.width - 68, 128);
   context.fillStyle = "#ffd566";
   context.font = "700 26px sans-serif";
-  context.fillText("CoreWorkPal 每日工况卡", 54, 76);
+  context.fillText("CoworkPal 每日工况卡", 54, 76);
   context.font = "16px sans-serif";
   context.fillStyle = "#9eb4ca";
   context.fillText(`${formatDateLabel(selectedDate)} · ${dayTypeTitle}`, 54, 106);
@@ -1448,7 +1448,7 @@ async function exportVisualReportCard({
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `coreworkpal-report-card-${selectedDate}.png`;
+  anchor.download = `coworkpal-report-card-${selectedDate}.png`;
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);

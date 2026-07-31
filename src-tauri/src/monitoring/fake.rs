@@ -77,9 +77,9 @@ impl HardwareSensorAdapter for FakeHardwareSensorAdapter {
 fn fake_device_inventory() -> HardwareDeviceInventory {
     HardwareDeviceInventory {
         motherboard: vec![HardwareDeviceInfo {
-            name: "CoreWorkPal Dev Board".to_string(),
+            name: "CoworkPal Dev Board".to_string(),
             detail: Some("CW-2026".to_string()),
-            vendor: Some("CoreWorkPal".to_string()),
+            vendor: Some("CoworkPal".to_string()),
             capacity_bytes: None,
         }],
         memory_modules: vec![
@@ -99,29 +99,29 @@ fn fake_device_inventory() -> HardwareDeviceInventory {
         gpus: vec![HardwareDeviceInfo {
             name: "Fake GPU".to_string(),
             detail: Some("Driver 1.0".to_string()),
-            vendor: Some("CoreWorkPal".to_string()),
+            vendor: Some("CoworkPal".to_string()),
             capacity_bytes: Some(8 * 1024 * 1024 * 1024),
         }],
         displays: vec![HardwareDeviceInfo {
-            name: "CoreWorkPal Preview Display".to_string(),
+            name: "CoworkPal Preview Display".to_string(),
             detail: Some("1920x1080".to_string()),
             vendor: None,
             capacity_bytes: None,
         }],
         disks: vec![HardwareDeviceInfo {
-            name: "CoreWorkPal Virtual SSD".to_string(),
+            name: "CoworkPal Virtual SSD".to_string(),
             detail: Some("NVMe".to_string()),
             vendor: None,
             capacity_bytes: Some(512 * 1024 * 1024 * 1024),
         }],
         audio_devices: vec![HardwareDeviceInfo {
-            name: "CoreWorkPal Audio Device".to_string(),
+            name: "CoworkPal Audio Device".to_string(),
             detail: Some("OK".to_string()),
             vendor: None,
             capacity_bytes: None,
         }],
         network_adapters: vec![HardwareDeviceInfo {
-            name: "CoreWorkPal Network Adapter".to_string(),
+            name: "CoworkPal Network Adapter".to_string(),
             detail: Some("Ethernet".to_string()),
             vendor: None,
             capacity_bytes: None,

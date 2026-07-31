@@ -57,7 +57,7 @@ const browserSettings: AppSettings = {
   gpuTemperatureWarning: 82,
   memoryCrowdedThreshold: 82,
   errorGlitchCpuThreshold: 96,
-  themeName: "coreworkpal",
+  themeName: "coworkpal",
   visibleMonitorMetrics: ["Cpu", "Ram", "Gpu", "Network"],
   monitorBarMode: "Default",
   visibleTaskbarMetrics: ["Cpu", "Ram", "Gpu", "Network"],
@@ -1280,10 +1280,10 @@ export async function checkUpdate(pat?: string): Promise<UpdateCheckResult> {
       currentVersion: "0.1.0",
       latestVersion: "1.1.0",
       changelog: "### 更新日志\n- [优化] 提升了桌面猫咪动画运行效率\n- [修复] 解决任务栏嵌入在某些分辨率下的偏移问题",
-      downloadUrl: "https://mock.com/core-work-pal_1.1.0_x64-setup.exe",
+      downloadUrl: "https://mock.com/cowork-pal_1.1.0_x64-setup.exe",
       assetId: 12345,
       assetSize: 15420100,
-      assetName: "core-work-pal_1.1.0_x64-setup.exe",
+      assetName: "cowork-pal_1.1.0_x64-setup.exe",
     };
   }
 
@@ -1296,7 +1296,7 @@ export async function downloadUpdate(
   pat?: string,
 ): Promise<string> {
   if (!isTauriRuntime()) {
-    return "C:\\MockPath\\core-work-pal_1.1.0_x64-setup.exe";
+    return "C:\\MockPath\\cowork-pal_1.1.0_x64-setup.exe";
   }
 
   return invoke<string>("download_update", { assetId, assetName, pat });

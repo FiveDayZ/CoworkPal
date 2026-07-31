@@ -8,10 +8,10 @@
 
 - `src-tauri/tauri.conf.json`
   - Module: Tauri Windows NSIS installer configuration.
-  - Scope: Adds the installer header bitmap binding while keeping the installer and uninstaller icon configuration aligned with the CoreWorkPal application icon.
+  - Scope: Adds the installer header bitmap binding while keeping the installer and uninstaller icon configuration aligned with the CoworkPal application icon.
 - `src-tauri/icons/nsis-header.bmp`
   - Module: Windows NSIS installer visual asset.
-  - Scope: New 150px x 57px header bitmap generated from the existing CoreWorkPal/CoreCat program logo.
+  - Scope: New 150px x 57px header bitmap generated from the existing CoworkPal/CoreCat program logo.
 
 ## 3. New & Optimized Content
 
@@ -27,7 +27,7 @@
   - Repair scheme: Generated `src-tauri/icons/nsis-header.bmp` with the recommended 150px x 57px dimensions and configured it through `bundle.windows.nsis.headerImage`.
 - Reduced ambiguity around installer icon configuration.
   - Phenomenon: The setup executable and setup title area could still appear as the NSIS default icon when using an old installer build or when the icon was not included in the NSIS config.
-  - Recurrence condition: Opening a stale `CoreWorkPal_0.2.4_x64-setup.exe`, or building before the NSIS icon configuration is present.
+  - Recurrence condition: Opening a stale `CoworkPal_0.2.4_x64-setup.exe`, or building before the NSIS icon configuration is present.
   - Repair scheme: Confirmed the NSIS installer and uninstaller icon fields point to `icons/icon.ico`; a fresh successful NSIS build is required for the generated `.exe` to reflect this.
 
 ## 5. Pending Tasks & Optimization Items
@@ -42,4 +42,4 @@
   - `src-tauri/icons/nsis-header.bmp` verified as `BMP (150, 57) RGB`.
   - `src-tauri/tauri.conf.json` parsed successfully as JSON.
   - `node_modules\.bin\tauri.CMD build --bundles nsis --no-sign` completed frontend and Rust release build stages, then failed during NSIS bundler download with `io: Connection refused`.
-- The current change follows the existing Tauri/NSIS configuration path and reuses the established CoreWorkPal icon assets instead of introducing new business logic or extra dependencies.
+- The current change follows the existing Tauri/NSIS configuration path and reuses the established CoworkPal icon assets instead of introducing new business logic or extra dependencies.

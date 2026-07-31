@@ -14,7 +14,7 @@ fn main() {
         return;
     }
 
-    core_work_pal_lib::run()
+    cowork_pal_lib::run()
 }
 
 /// Detect the `--memory-clean-helper` argv flag and, if present, run the
@@ -34,7 +34,7 @@ fn try_run_memory_helper_mode() -> bool {
         })
     });
 
-    let released = core_work_pal_lib::memory_release::run_full_clean_inplace();
+    let released = cowork_pal_lib::memory_release::run_full_clean_inplace();
     let payload = format!("{{\"releasedBytes\":{}}}", released);
 
     if let Some(path) = result_file {
@@ -66,7 +66,7 @@ fn acquire_single_instance() -> bool {
     static INSTANCE_MUTEX: OnceLock<usize> = OnceLock::new();
 
     let Ok(handle) =
-        (unsafe { CreateMutexW(None, true, w!("Local\\CoreWorkPal.SingleInstance")) })
+        (unsafe { CreateMutexW(None, true, w!("Local\\CoworkPal.SingleInstance")) })
     else {
         return true;
     };

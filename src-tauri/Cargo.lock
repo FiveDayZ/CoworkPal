@@ -400,7 +400,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "core-work-pal"
+name = "cowork-pal"
 version = "0.3.3"
 dependencies = [
  "chrono",

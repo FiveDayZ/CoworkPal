@@ -204,7 +204,7 @@ export function SettingsPage() {
   }
 
   const confirmExit = async () => {
-    if (window.confirm("确认退出 CoreWorkPal 吗?")) {
+    if (window.confirm("确认退出 CoworkPal 吗?")) {
       await exitApp();
     }
   };
@@ -324,11 +324,11 @@ export function SettingsPage() {
                 <span className="cwp-settings-label">宠物皮肤</span>
                 <select
                   className="cwp-custom-select"
-                  value={settings?.themeName || "coreworkpal"}
+                  value={settings?.themeName || "coworkpal"}
                   onChange={(e) => safeUpdate({ themeName: e.target.value })}
                   style={{ height: "20px", padding: "0 4px" }}
                 >
-                  <option value="coreworkpal">默认皮肤</option>
+                  <option value="coworkpal">默认皮肤</option>
                   <option value="classic">暖心布丁橙</option>
                   <option value="cyber">梦幻苏打蓝</option>
                   <option value="steampunk">甜心蜜桃粉</option>

@@ -339,7 +339,7 @@ fn app_data_root() -> PathBuf {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("XDG_DATA_HOME").map(PathBuf::from))
         .unwrap_or_else(std::env::temp_dir)
-        .join("CoreWorkPal")
+        .join("CoworkPal")
 }
 
 fn unix_timestamp_ms() -> u128 {
@@ -354,7 +354,7 @@ mod tests {
     use super::*;
 
     fn unique_test_root(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("core-work-pal-{name}-{}", unix_timestamp_ms()))
+        std::env::temp_dir().join(format!("cowork-pal-{name}-{}", unix_timestamp_ms()))
     }
 
     #[test]

@@ -10,7 +10,7 @@ use crate::events::UPDATE_PROGRESS;
 
 // GitHub config
 const GITHUB_OWNER: &str = "FiveDayZ";
-const GITHUB_REPO: &str = "CoreWorkPal";
+const GITHUB_REPO: &str = "CoworkPal";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,7 +53,7 @@ pub async fn check_update(pat: Option<String>) -> Result<UpdateCheckResult, Stri
     let current_version = env!("CARGO_PKG_VERSION").to_string();
 
     let client = reqwest::Client::builder()
-        .user_agent("CoreWorkPal-Updater")
+        .user_agent("CoworkPal-Updater")
         .timeout(std::time::Duration::from_secs(20))
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
@@ -140,7 +140,7 @@ pub async fn download_update(
     pat: Option<String>,
 ) -> Result<String, String> {
     let client = reqwest::Client::builder()
-        .user_agent("CoreWorkPal-Updater")
+        .user_agent("CoworkPal-Updater")
         .timeout(std::time::Duration::from_secs(120))
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
@@ -154,7 +154,7 @@ pub async fn download_update(
     );
 
     // Temp directory resolution
-    let temp_dir = std::env::temp_dir().join("CoreWorkPal-Updates");
+    let temp_dir = std::env::temp_dir().join("CoworkPal-Updates");
     fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create update directory: {}", e))?;
     

@@ -8,7 +8,7 @@
 //!   set. Runs in-process in `windows_api`.
 //! - **Full tier** (elevation required, manual only): the full memreduct-style
 //!   sweep — system working set, all standby/modified lists, every process's
-//!   working set. Runs inside `coreworkpal-memory-helper.exe`, which the main
+//!   working set. Runs inside `coworkpal-memory-helper.exe`, which the main
 //!   process spawns via `ShellExecuteW("runas")`. A UAC prompt appears; if the
 //!   user declines, the spawn returns a cancellation and we degrade to the
 //!   light tier.
@@ -210,7 +210,7 @@ fn run_full_via_self_restart_blocking() -> Result<u64, HelperError> {
     // Prepare the result file path the relaunched process will write to.
     let temp_dir = std::env::temp_dir();
     let result_path = temp_dir.join(format!(
-        "coreworkpal-memory-release-{}.json",
+        "coworkpal-memory-release-{}.json",
         std::process::id()
     ));
     let result_path_str = result_path.to_str().ok_or(HelperError::NoResult)?.to_string();

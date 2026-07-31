@@ -1,8 +1,8 @@
-# CoreWorkPal ⚙️🐱
+# CoworkPal ⚙️🐱
 
 > **把你的 CPU/GPU/RAM 占用率，变成一只猫的冒险故事。**
 
-**CoreWorkPal** 是一款面向开发者与重度 PC 用户的轻量级桌面伴侣，基于 **Tauri 2 + React 19 + TypeScript + Rust** 构建。它实时监控你电脑的硬件状态（CPU、GPU、内存、温度、网络、磁盘），并将这些枯燥的数字转化为一只叫 **CoreCat** 的像素猫咪的动态行为、工坊养成进度、健康趋势洞察、可收藏的笔记备忘，以及可收集的成就徽章——让每一天的工作都变得更有趣、更有序。
+**CoworkPal** 是一款面向开发者与重度 PC 用户的轻量级桌面伴侣，基于 **Tauri 2 + React 19 + TypeScript + Rust** 构建。它实时监控你电脑的硬件状态（CPU、GPU、内存、温度、网络、磁盘），并将这些枯燥的数字转化为一只叫 **CoreCat** 的像素猫咪的动态行为、工坊养成进度、健康趋势洞察、可收藏的笔记备忘，以及可收集的成就徽章——让每一天的工作都变得更有趣、更有序。
 
 ---
 
@@ -102,7 +102,7 @@ CoreCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由
 
 ### 🏆 成就系统 · 133 个可收集徽章
 
-CoreWorkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每一个里程碑：
+CoworkPal 内置完整的成就体系，记录你与 CoreCat 共同走过的每一个里程碑：
 
 - **133 个成就**，覆盖 7 大类别：使用习惯、系统监控、工坊升级、工况日志、隐藏彩蛋等
 - **6 个难度等级**：入门 → 进阶 → 熟练 → 精英 → 史诗 → 传说，难度越高徽章越稀有
@@ -436,8 +436,8 @@ pnpm tauri build
 ```
 
 构建产物：
-- **免安装绿色版**：`src-tauri/target/release/core-work-pal.exe`
-- **NSIS 安装包**：`src-tauri/target/release/bundle/nsis/CoreWorkPal_x64-setup.exe`
+- **免安装绿色版**：`src-tauri/target/release/cowork-pal.exe`
+- **NSIS 安装包**：`src-tauri/target/release/bundle/nsis/CoworkPal_x64-setup.exe`
 
 > 当前打包目标为 NSIS。若需生成 MSI 安装包，需额外下载 [WiX 工具集](https://wixtoolset.org/)（首次打包时 Tauri 会自动拉取，也可手动放置到 `%LOCALAPPDATA%\tauri\WixTools314\`）。
 
@@ -447,10 +447,10 @@ pnpm tauri build
 
 - **纯本地运行**：所有数据（硬件指标、工坊进度、日报、笔记、成就）仅存储于本机，不向任何服务器上传用户数据、进程列表或网络信息
 - **开源透明**：完整源代码托管于 GitHub，可自由审计与编译
-  → `https://github.com/FiveDayZ/CoreWorkPal`
+  → `https://github.com/FiveDayZ/CoworkPal`
 - **零隐蔽占用**：不含任何后台网络回传、挖矿或敏感资源占用行为
 - **笔记内容安全**：Markdown 渲染内置 HTML 转义，链接仅放行 http(s)/mailto/锚点，杜绝 XSS
 
 ---
 
-*CoreWorkPal v0.3.3 · MIT License · Made with ❤️ and a lot of pixel art*
+*CoworkPal v0.3.3 · MIT License · Made with ❤️ and a lot of pixel art*

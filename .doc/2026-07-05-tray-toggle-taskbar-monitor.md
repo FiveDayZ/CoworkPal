@@ -20,7 +20,7 @@
 ## 4. Fixed Bugs
 
 - Problem: The tray right-click menu only exposed `显示/隐藏监控条`, but did not provide a quick entry for the taskbar monitor.
-  - Recurrence condition: User right-clicks the CoreWorkPal tray icon and wants to show or hide the taskbar monitor without opening Settings.
+  - Recurrence condition: User right-clicks the CoworkPal tray icon and wants to show or hide the taskbar monitor without opening Settings.
   - Repair scheme: Add a dedicated tray menu command that toggles `show_monitor_data_in_taskbar` and synchronizes the taskbar monitor window immediately.
 
 ## 5. Pending Tasks & Optimization Items

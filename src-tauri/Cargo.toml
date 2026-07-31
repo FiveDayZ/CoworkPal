@@ -1,16 +1,16 @@
 [package]
-name = "core-work-pal"
+name = "cowork-pal"
 version = "0.3.3"
-description = "CoreWorkPal desktop scaffold"
-authors = ["CoreWorkPal"]
+description = "CoworkPal desktop scaffold"
+authors = ["CoworkPal"]
 edition = "2021"
 
 [lib]
-name = "core_work_pal_lib"
+name = "cowork_pal_lib"
 crate-type = ["rlib"]
 
 [[bin]]
-name = "core-work-pal"
+name = "cowork-pal"
 path = "src/main.rs"
 
 [build-dependencies]

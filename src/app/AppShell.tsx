@@ -15,9 +15,9 @@ export function AppShell() {
     }
 
     const htmlEl = document.documentElement;
-    htmlEl.classList.remove("theme-coreworkpal", "theme-classic", "theme-cyber", "theme-steampunk");
-    // "coreworkpal" is the default skin — no theme class needed, uses :root variables
-    if (settings.themeName !== "coreworkpal") {
+    htmlEl.classList.remove("theme-coworkpal", "theme-classic", "theme-cyber", "theme-steampunk");
+    // "coworkpal" is the default skin — no theme class needed, uses :root variables
+    if (settings.themeName !== "coworkpal") {
       htmlEl.classList.add(`theme-${settings.themeName}`);
     }
   }, [settings?.themeName]);

@@ -24,7 +24,7 @@ pub trait HardwareSensorAdapter: Send + Sync {
 }
 
 pub fn create_default_adapter() -> Box<dyn HardwareSensorAdapter> {
-    match std::env::var("COREWORKPAL_HARDWARE_ADAPTER") {
+    match std::env::var("COWORKPAL_HARDWARE_ADAPTER") {
         Ok(value) if value.eq_ignore_ascii_case("fake") => {
             Box::new(FakeHardwareSensorAdapter::new())
         }

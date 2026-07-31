@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default permissions for CoreWorkPal Phase 0-3 windows",
+  "description": "Default permissions for CoworkPal Phase 0-3 windows",
   "windows": ["main", "pet", "monitor-bar", "taskbar-monitor", "pet-panel"],
   "permissions": [
     "core:default",

@@ -25,7 +25,7 @@
 2. `bundle.resources` / `externalBin` 打包独立二进制会在 build.rs 阶段（编译产物尚未生成时）触发路径校验，导致 `resource path ... doesn't exist` 编译失败。
 3. 自重启方案彻底消除打包配置：`current_exe()` 在 dev（`target/<profile>/`）和安装后都永远可靠，零额外二进制。
 
-**IPC 协议**（文件而非 stdout）：`ShellExecuteW` 不给父进程可用的 stdout pipe，所以 worker 把结果 `{"releasedBytes": N}` 写入主进程传入的临时文件（`%TEMP%/coreworkpal-memory-release-<pid>.json`）。原进程 `WaitForSingleObject`（30 秒超时）后读文件、删除。
+**IPC 协议**（文件而非 stdout）：`ShellExecuteW` 不给父进程可用的 stdout pipe，所以 worker 把结果 `{"releasedBytes": N}` 写入主进程传入的临时文件（`%TEMP%/coworkpal-memory-release-<pid>.json`）。原进程 `WaitForSingleObject`（30 秒超时）后读文件、删除。
 
 ### 监测对象决策
 

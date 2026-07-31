@@ -137,7 +137,7 @@ pub fn empty_current_process_working_set() -> bool {
 // ============================================================================
 // Full-tier cleanup (used by the elevated helper).
 // ============================================================================
-// These run only inside `coreworkpal-memory-helper.exe`, never in the main
+// These run only inside `coworkpal-memory-helper.exe`, never in the main
 // process, so a panic here aborts the helper (which writes an error result to
 // the result file) without affecting CoreCat itself.
 

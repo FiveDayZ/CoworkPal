@@ -111,7 +111,7 @@ export function MonitorBarWindow() {
 
     const currentWindow = getCurrentWindow();
 
-    currentWindow.setTitle("CoreWorkPal Monitor").catch((err) => {
+    currentWindow.setTitle("CoworkPal Monitor").catch((err) => {
       console.error("Failed to update monitor-bar taskbar title:", err);
     });
     currentWindow.setSkipTaskbar(true).catch((err) => {
@@ -123,7 +123,7 @@ export function MonitorBarWindow() {
     <div className="cwp-transparent-root">
       <div
         ref={containerRef}
-        aria-label="CoreWorkPal monitor bar"
+        aria-label="CoworkPal monitor bar"
         className={`cwp-monitor-bar cwp-glass-panel ${monitorModeClass(
           monitorBarMode,
         )}`}

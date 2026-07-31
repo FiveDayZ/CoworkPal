@@ -13,7 +13,7 @@ use crate::{
     window_manager,
 };
 
-const TRAY_ID: &str = "coreworkpal";
+const TRAY_ID: &str = "coworkpal";
 const MENU_OPEN_MAIN: &str = "open-main";
 const MENU_TOGGLE_CAT: &str = "toggle-cat";
 const MENU_TOGGLE_MONITOR: &str = "toggle-monitor";
@@ -101,7 +101,7 @@ pub fn setup_tray(app: &App) -> tauri::Result<()> {
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .tooltip("CoreWorkPal")
+        .tooltip("CoworkPal")
         .show_menu_on_left_click(false)
         .on_menu_event(handle_menu_event)
         .on_tray_icon_event(|tray, event| {

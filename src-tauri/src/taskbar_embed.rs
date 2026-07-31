@@ -377,14 +377,14 @@ mod imp {
             style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(native_taskbar_proc),
             hInstance: hinstance,
-            lpszClassName: w!("CoreWorkPalNativeTaskbarMonitor"),
+            lpszClassName: w!("CoworkPalNativeTaskbarMonitor"),
             ..Default::default()
         };
         let _ = RegisterClassW(&window_class);
 
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_LAYERED,
-            w!("CoreWorkPalNativeTaskbarMonitor"),
+            w!("CoworkPalNativeTaskbarMonitor"),
             w!(""),
             WS_POPUP | WS_VISIBLE,
             0,

@@ -1,10 +1,10 @@
 # Windows Signing
 
-CoreWorkPal release builds can sign Windows `.exe` and `.msi` bundles during the GitHub Actions release workflow.
+CoworkPal release builds can sign Windows `.exe` and `.msi` bundles during the GitHub Actions release workflow.
 
 ## Optional GitHub Secrets
 
-Add these repository secrets in `FiveDayZ/CoreWorkPal` when a trusted code signing certificate is available:
+Add these repository secrets in `FiveDayZ/CoworkPal` when a trusted code signing certificate is available:
 
 - `WINDOWS_CERTIFICATE`: Base64 encoded `.pfx` code signing certificate.
 - `WINDOWS_CERTIFICATE_PASSWORD`: Export password for the `.pfx` certificate.

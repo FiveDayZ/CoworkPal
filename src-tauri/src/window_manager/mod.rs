@@ -150,7 +150,7 @@ impl LazyWindowSpec {
         match label {
             "main" => Some(Self {
                 label: "main",
-                title: "CoreWorkPal",
+                title: "CoworkPal",
                 url: "/main",
                 width: 640.0,
                 height: 420.0,
@@ -174,7 +174,7 @@ impl LazyWindowSpec {
             }),
             "monitor-bar" => Some(Self {
                 label: "monitor-bar",
-                title: "CoreWorkPal Monitor",
+                title: "CoworkPal Monitor",
                 url: "/monitor-bar",
                 width: 480.0,
                 height: 42.0,
@@ -186,7 +186,7 @@ impl LazyWindowSpec {
             }),
             "pet-panel" => Some(Self {
                 label: "pet-panel",
-                title: "CoreWorkPal Pet Panel",
+                title: "CoworkPal Pet Panel",
                 url: "/pet-panel",
                 width: 300.0,
                 height: 520.0,
@@ -198,7 +198,7 @@ impl LazyWindowSpec {
             }),
             "taskbar-monitor" => Some(Self {
                 label: "taskbar-monitor",
-                title: "CoreWorkPal Taskbar Monitor",
+                title: "CoworkPal Taskbar Monitor",
                 url: "/taskbar-monitor",
                 width: 520.0,
                 height: 36.0,

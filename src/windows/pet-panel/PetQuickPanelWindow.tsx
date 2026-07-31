@@ -165,7 +165,7 @@ export function PetQuickPanelWindow() {
   }
 
   async function confirmExit() {
-    if (window.confirm("确认退出 CoreWorkPal 吗?")) {
+    if (window.confirm("确认退出 CoworkPal 吗?")) {
       await exitApp();
     }
   }

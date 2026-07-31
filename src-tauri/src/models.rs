@@ -340,7 +340,7 @@ pub struct AppSettings {
     /// Probe a running LibreHardwareMonitor (REST first, WMI fallback) for a
     /// higher-precision CPU temperature than the ACPI thermal-zone sources can
     /// provide. No effect unless LHM is installed and running elevated; falls
-    /// back silently otherwise. CoreWorkPal itself never requests elevation.
+    /// back silently otherwise. CoworkPal itself never requests elevation.
     pub libre_hardware_monitor_enabled: bool,
 }
 
@@ -397,7 +397,7 @@ impl Default for AppSettings {
             gpu_temperature_warning: 82.0,
             memory_crowded_threshold: 82.0,
             error_glitch_cpu_threshold: 96.0,
-            theme_name: "coreworkpal".to_string(),
+            theme_name: "coworkpal".to_string(),
             visible_monitor_metrics: vec![
                 MonitorMetric::Cpu,
                 MonitorMetric::Ram,
@@ -3861,8 +3861,8 @@ fn normalize_process_name(name: &str) -> Option<String> {
 
 fn should_ignore_process_name(name: &str) -> bool {
     let normalized = name.to_ascii_lowercase();
-    normalized.contains("coreworkpal")
-        || normalized.contains("core-work-pal")
+    normalized.contains("coworkpal")
+        || normalized.contains("cowork-pal")
         || normalized == "system idle process"
         || normalized == "idle"
 }

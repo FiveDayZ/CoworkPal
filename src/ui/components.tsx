@@ -277,7 +277,7 @@ export function TitleBar({
   actions,
   center,
   stats,
-  title = "CoreWorkPal",
+  title = "CoworkPal",
   onDragStart,
 }: {
   actions: React.ReactNode;

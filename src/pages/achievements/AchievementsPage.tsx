@@ -189,7 +189,7 @@ export function AchievementsPage() {
     const unlockedCount = summary?.unlockedCount ?? 0;
     const totalPoints = summary?.totalPoints ?? 0;
     const text = [
-      "CoreWorkPal 成就图鉴快照",
+      "CoworkPal 成就图鉴快照",
       `导出时间：${formatDateTime(now)}`,
       `成就点数：${totalPoints}`,
       `已解锁：${unlockedCount}/${totalAchievementCount}`,
@@ -215,11 +215,11 @@ export function AchievementsPage() {
   }
 
   // Import an external profile snapshot from the clipboard. Validates that the
-  // clipboard text looks like a CoreWorkPal snapshot (starts with the marker)
+  // clipboard text looks like a CoworkPal snapshot (starts with the marker)
   // before recording the import event — this powers achievement A078.
   async function handleImportProfileSnapshot() {
     const text = await readTextFromClipboard();
-    if (!text || !text.includes("CoreWorkPal")) {
+    if (!text || !text.includes("CoworkPal")) {
       showExportHint("剪贴板中没有有效的快照内容");
       return;
     }
@@ -237,7 +237,7 @@ export function AchievementsPage() {
   async function handleExportAchievementCard(card: AchievementCard) {
     const now = Date.now();
     const text = [
-      "CoreWorkPal 成就徽章卡",
+      "CoworkPal 成就徽章卡",
       `成就：${card.title}`,
       `编号：${card.achievementId}`,
       `徽章资源：${card.badgeKey}`,
@@ -1045,7 +1045,7 @@ const metricWordLabels: Record<string, string> = {
 };
 
 const metricLabels: Record<string, string> = {
-  "app.launch.count": "启动 CoreWorkPal 次数",
+  "app.launch.count": "启动 CoworkPal 次数",
   "lifetime.total_online_seconds": "累计陪伴时长",
   "worklog.daily_generated.count": "生成工况报告次数",
   "worklog.rarity.max_rank": "工况卡最高等级",

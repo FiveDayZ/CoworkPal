@@ -255,7 +255,7 @@ fn sync_launch_at_startup(enabled: bool) -> Result<(), String> {
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-    const VALUE_NAME: &str = "CoreWorkPal";
+    const VALUE_NAME: &str = "CoworkPal";
 
     let mut command = std::process::Command::new("reg.exe");
     command.creation_flags(CREATE_NO_WINDOW);

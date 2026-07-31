@@ -1,8 +1,8 @@
-# CoreWorkPal 成就与数字徽章系统开发文档
+# CoworkPal 成就与数字徽章系统开发文档
 
 ## 0. 文档边界
 
-本文档用于后续严格落地 CoreWorkPal 专属成就与数字徽章系统。系统必须满足以下原则：
+本文档用于后续严格落地 CoworkPal 专属成就与数字徽章系统。系统必须满足以下原则：
 
 - 成就由本地后端事件埋点和规则引擎自动解锁，不允许普通运营或前端人工发放。
 - 管理员补发仅作为数据损坏、迁移失败、规则缺陷修复后的兜底能力，必须写入审计表。
@@ -25,16 +25,16 @@
 
 ### 1.1 系统定位
 
-成就系统服务于 CoreWorkPal 的桌面伴侣、硬件监控、每日工况报告、工坊养成和 CoreCat 互动体验。它不是运营活动系统，也不是排行榜系统。首版目标是：
+成就系统服务于 CoworkPal 的桌面伴侣、硬件监控、每日工况报告、工坊养成和 CoreCat 互动体验。它不是运营活动系统，也不是排行榜系统。首版目标是：
 
-- 让用户长期使用 CoreWorkPal 时形成明确的成长反馈。
+- 让用户长期使用 CoworkPal 时形成明确的成长反馈。
 - 将已有硬件采样、每日工况、工坊产出、窗口设置、CoreCat 交互转化为可收集图鉴。
 - 为前端提供总点数、按难度筛选、按分类筛选、隐藏成就解锁弹窗和个人主页陈列能力。
 - 为后续统计留出事件表、日聚合表和规则版本字段。
 
 ### 1.2 推荐实现形态
 
-CoreWorkPal 当前是 Tauri 2 + React 19 + TypeScript + Rust，并已有 `StorageService` 本地 JSON 存储。成就系统推荐新增本地 SQLite 数据库，原因是成就事件和计数器天然需要按时间、用户、事件名、规则版本查询。首版可使用 Rust `rusqlite` 或 `tauri-plugin-sql`，数据库文件建议放在现有 app data root 下：
+CoworkPal 当前是 Tauri 2 + React 19 + TypeScript + Rust，并已有 `StorageService` 本地 JSON 存储。成就系统推荐新增本地 SQLite 数据库，原因是成就事件和计数器天然需要按时间、用户、事件名、规则版本查询。首版可使用 Rust `rusqlite` 或 `tauri-plugin-sql`，数据库文件建议放在现有 app data root 下：
 
 ```text
 {app_data_root}/achievements.sqlite
@@ -973,7 +973,7 @@ pub struct AchievementUnlockResult {
 - 不得用前端本地状态覆盖后端解锁记录。
 - 不得把隐藏成就条件公开给未解锁用户。
 
-## 10. 与现有 CoreWorkPal 模块的接入点
+## 10. 与现有 CoworkPal 模块的接入点
 
 | 现有模块 | 接入方式 | 关联成就 |
 | --- | --- | --- |

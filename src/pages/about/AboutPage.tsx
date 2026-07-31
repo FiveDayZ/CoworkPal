@@ -8,7 +8,7 @@ export function AboutPage() {
   return (
     <div className="cwp-page">
       <div className="page-title-row">
-        <h2 className="page-title">关于CoreWorkPal</h2>
+        <h2 className="page-title">关于CoworkPal</h2>
       </div>
 
       <div className="cwp-about-content">
@@ -16,7 +16,7 @@ export function AboutPage() {
         <div className="cwp-about-hero">
           <div className="cwp-about-hero-base" />
           <div>
-            <h1 className="cwp-about-hero-title">CoreWorkPal 桌面伙伴</h1>
+            <h1 className="cwp-about-hero-title">CoworkPal 桌面伙伴</h1>
             <p className="cwp-about-hero-subtitle">
               让工作更有序，让创意更自由。这是一款纯本地运行的轻量级桌面伙伴，把枯燥的硬件数据变成一只像素猫咪 CoreCat 的活体表演。实时监控 CPU / GPU / 内存 / 温度等指标，自动生成每日工况日报与健康趋势体检，还能随手记录笔记与备忘；CoreCat 会根据你的负载和进程讲出专属小故事，并在工坊养成与成就收集中陪你走过每一个工作日——是贴心的工作伙伴，也是不打扰的观察者。
             </p>
@@ -75,11 +75,11 @@ export function AboutPage() {
               userSelect: "all",
               wordBreak: "break-all"
             }}>
-              https://github.com/FiveDayZ/CoreWorkPal.git
+              https://github.com/FiveDayZ/CoworkPal.git
             </code>
             <button
               onClick={() => {
-                void navigator.clipboard.writeText("https://github.com/FiveDayZ/CoreWorkPal.git");
+                void navigator.clipboard.writeText("https://github.com/FiveDayZ/CoworkPal.git");
                 alert("Git 仓库地址已复制到剪贴板！");
               }}
               style={{
@@ -108,7 +108,7 @@ export function AboutPage() {
             安全与隐私 (Safety &amp; Privacy)
           </span>
           <p className="cwp-about-card-p" style={{ fontSize: "11px", marginBottom: "4px" }}>
-            CoreWorkPal 是一款纯本地运行的桌面伴侣，您的信任是它存在的根基。以下是它对您的承诺：
+            CoworkPal 是一款纯本地运行的桌面伴侣，您的信任是它存在的根基。以下是它对您的承诺：
           </p>
           <ul className="cwp-about-safety-list">
             <li>

@@ -151,7 +151,7 @@ impl SysinfoAdapter {
         let now = Instant::now();
 
         // Re-read the settings flag periodically so toggling the switch in the
-        // UI takes effect without restarting CoreWorkPal.
+        // UI takes effect without restarting CoworkPal.
         if self
             .lhm_settings_checked_at
             .is_some_and(|checked| now.duration_since(checked) >= LHM_SETTINGS_RECHECK_INTERVAL)
@@ -369,8 +369,8 @@ fn process_snapshot_score(process: &ProcessUsageSnapshot) -> f32 {
 
 fn should_skip_process_name(name: &str) -> bool {
     let normalized = name.to_ascii_lowercase();
-    normalized.contains("coreworkpal")
-        || normalized.contains("core-work-pal")
+    normalized.contains("coworkpal")
+        || normalized.contains("cowork-pal")
         || normalized == "system idle process"
         || normalized == "idle"
 }
@@ -629,12 +629,12 @@ fn read_libre_hardware_monitor_enabled() -> bool {
         .unwrap_or(true)
 }
 
-/// Resolves the per-user app data directory (`%APPDATA%\CoreWorkPal` on
-/// Windows, `$XDG_DATA_HOME/CoreWorkPal` elsewhere), mirroring
+/// Resolves the per-user app data directory (`%APPDATA%\CoworkPal` on
+/// Windows, `$XDG_DATA_HOME/CoworkPal` elsewhere), mirroring
 /// `storage::app_data_root` without the cross-module dependency.
 fn app_data_root() -> Option<std::path::PathBuf> {
     std::env::var_os("APPDATA")
         .or_else(|| std::env::var_os("XDG_DATA_HOME"))
         .map(std::path::PathBuf::from)
-        .map(|base| base.join("CoreWorkPal"))
+        .map(|base| base.join("CoworkPal"))
 }
