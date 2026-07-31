@@ -453,4 +453,4 @@ pnpm tauri build
 
 ---
 
-*CoworkPal v0.3.3 · MIT License · Made with ❤️ and a lot of pixel art*
+*CoworkPal v0.3.4 · MIT License · Made with ❤️ and a lot of pixel art*
