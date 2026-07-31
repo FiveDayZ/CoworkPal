@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const srcDir = 'C:\\Users\\WU\\.gemini\\antigravity-ide\\brain\\f6596e85-1648-48a3-a4f0-b0796bb79f35';
-const destDir = 'c:\\My\\Workplace\\Coding\\CoreWorkPal\\src\\assets\\pets\\avatars';
+const destDir = 'c:\\My\\Workplace\\Coding\\CoworkPal\\src\\assets\\pets\\avatars';
 
 // Mapping from generated filename prefixes to target names
 const mapping = {

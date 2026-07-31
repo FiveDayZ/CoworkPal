@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const dir = 'c:\\My\\Workplace\\Coding\\CoreWorkPal\\src\\assets\\pets\\avatars';
+const dir = 'c:\\My\\Workplace\\Coding\\CoworkPal\\src\\assets\\pets\\avatars';
 const files = fs.readdirSync(dir);
 
 files.forEach(file => {

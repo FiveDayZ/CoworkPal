@@ -50,7 +50,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'CoreWorkPal ${{ github.ref_name }}'
-          releaseBody: 'CoreWorkPal 自动发布版本。请在下方资产包中下载对应的安装程序进行升级。'
+          releaseName: 'CoworkPal ${{ github.ref_name }}'
+          releaseBody: 'CoworkPal 自动发布版本。请在下方资产包中下载对应的安装程序进行升级。'
           releaseDraft: false
           prerelease: false

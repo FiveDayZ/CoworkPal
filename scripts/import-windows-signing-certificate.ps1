@@ -18,7 +18,7 @@ if ([string]::IsNullOrWhiteSpace($tempRoot)) {
     $tempRoot = [System.IO.Path]::GetTempPath()
 }
 
-$certificateDir = Join-Path $tempRoot "coreworkpal-windows-signing"
+$certificateDir = Join-Path $tempRoot "coworkpal-windows-signing"
 New-Item -ItemType Directory -Path $certificateDir -Force | Out-Null
 
 $encodedPath = Join-Path $certificateDir "certificate.base64"

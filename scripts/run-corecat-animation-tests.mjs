@@ -662,7 +662,7 @@ const settings = {
   gpuTemperatureWarning: 82,
   memoryCrowdedThreshold: 82,
   errorGlitchCpuThreshold: 96,
-  themeName: "coreworkpal",
+  themeName: "coworkpal",
   visibleMonitorMetrics: ["Cpu", "Ram", "Network", "Disk"],
   monitorBarMode: "Default",
 };

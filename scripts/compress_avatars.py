@@ -1,7 +1,7 @@
 import os
 from PIL import Image
 
-avatars_dir = r"c:\My\Workplace\Coding\CoreWorkPal\src\assets\pets\avatars"
+avatars_dir = r"c:\My\Workplace\Coding\CoworkPal\src\assets\pets\avatars"
 files = os.listdir(avatars_dir)
 
 print("Starting avatar resizing and compression process...")

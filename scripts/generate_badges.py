@@ -3,8 +3,8 @@ import re
 import math
 from PIL import Image, ImageDraw
 
-SPEC_PATH = r"c:\My\Workplace\Coding\CoreWorkPal\.docs\achievement_badge_system_development_spec.md"
-OUTPUT_DIR = r"c:\My\Workplace\Coding\CoreWorkPal\src\assets\achievements"
+SPEC_PATH = r"c:\My\Workplace\Coding\CoworkPal\.docs\achievement_badge_system_development_spec.md"
+OUTPUT_DIR = r"c:\My\Workplace\Coding\CoworkPal\src\assets\achievements"
 
 # Create output dir if not exist
 os.makedirs(OUTPUT_DIR, exist_ok=True)
