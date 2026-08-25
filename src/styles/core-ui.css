@@ -3367,7 +3367,7 @@ body:has(.cwp-taskbar-monitor-root) #root {
   line-height: 1;
 }
 
-/* Numbered steps block (used by the LibreHardwareMonitor card). Slightly
+/* Numbered steps block used by settings cards. Slightly
    larger font than .cwp-settings-desc so the prerequisite guide is legible. */
 .cwp-settings-steps {
   margin: 2px 0 0 0;
@@ -3385,7 +3385,7 @@ body:has(.cwp-taskbar-monitor-root) #root {
 }
 
 /* Inline note paragraph sharing the steps' type scale so the whole
-   LibreHardwareMonitor card reads at one consistent size. */
+   settings cards read at one consistent size. */
 .cwp-settings-note {
   color: var(--color-text-secondary);
   font-size: 10px;
@@ -3510,6 +3510,146 @@ body:has(.cwp-taskbar-monitor-root) #root {
 
 .cwp-custom-select:focus {
   border-color: var(--color-brand-orange);
+}
+
+.cwp-sync-field {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 9px;
+}
+
+.cwp-sync-field input {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 2px;
+  outline: none;
+  background: rgba(11, 17, 26, 0.6);
+  color: var(--color-text-primary);
+  font: inherit;
+}
+
+.cwp-sync-field input:focus {
+  border-color: var(--color-tech-cyan);
+}
+
+.cwp-sync-field input:disabled {
+  opacity: 0.7;
+}
+
+.cwp-sync-field .cwp-custom-select {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+}
+
+.cwp-sync-field .cwp-custom-select:disabled,
+.cwp-switch-label input:disabled + .cwp-switch-slider {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.cwp-sync-schedule {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--color-border-soft);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.cwp-sync-interval {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.cwp-sync-interval .cwp-custom-select {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+}
+
+.cwp-sync-contents {
+  display: grid;
+  gap: 5px;
+}
+
+.cwp-sync-contents-title {
+  color: var(--color-text-primary);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.cwp-sync-contents-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 8px;
+}
+
+.cwp-sync-content-item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  color: var(--color-text-secondary);
+  font-size: 8px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.cwp-sync-content-item > span {
+  width: 4px;
+  height: 4px;
+  flex: 0 0 auto;
+  background: var(--color-tech-cyan);
+}
+
+.cwp-sync-request-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-secondary);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.cwp-sync-request-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-brand-orange);
+  box-shadow: 0 0 0 2px rgba(244, 137, 54, 0.14);
+}
+
+.cwp-sync-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.cwp-sync-actions .cwp-metric-select {
+  min-width: 0;
+  justify-content: center;
+  white-space: normal;
+}
+
+.cwp-sync-message {
+  overflow-wrap: anywhere;
+  color: var(--color-tech-cyan);
+  font-size: 9px;
+  line-height: 1.4;
 }
 
 .cwp-worklog-page {
@@ -8133,6 +8273,3 @@ input[type="range"]::-moz-range-thumb,
   border-top: 1px solid var(--color-border-soft);
   padding-top: 8px;
 }
-
-
-

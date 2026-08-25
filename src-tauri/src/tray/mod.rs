@@ -1,6 +1,6 @@
 use tauri::{
     image::Image,
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     App, AppHandle, Emitter, Manager,
 };
@@ -15,6 +15,7 @@ use crate::{
 
 const TRAY_ID: &str = "coworkpal";
 const MENU_OPEN_MAIN: &str = "open-main";
+const MENU_TOGGLE_MINIMAL_MODE: &str = "toggle-minimal-mode";
 const MENU_TOGGLE_CAT: &str = "toggle-cat";
 const MENU_TOGGLE_MONITOR: &str = "toggle-monitor";
 const MENU_TOGGLE_TASKBAR_MONITOR: &str = "toggle-taskbar-monitor";
@@ -29,27 +30,40 @@ const MENU_QUIT: &str = "quit";
 /// single `on_menu_event` handler registered on the tray icon dispatches clicks
 /// from either source (Tauri's tray menu handler receives *all* menu events,
 /// including those from popup menus, per its documentation).
-pub fn build_shared_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+pub async fn build_shared_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let minimal_mode_enabled = if let Some(state) = app.try_state::<AppState>() {
+        state.settings.read().await.minimal_mode_enabled
+    } else {
+        false
+    };
     let open_main = MenuItem::with_id(app, MENU_OPEN_MAIN, "打开主界面", true, None::<&str>)?;
+    let toggle_minimal_mode = CheckMenuItem::with_id(
+        app,
+        MENU_TOGGLE_MINIMAL_MODE,
+        "极简模式",
+        true,
+        minimal_mode_enabled,
+        None::<&str>,
+    )?;
     let toggle_cat = MenuItem::with_id(
         app,
         MENU_TOGGLE_CAT,
         "显示/隐藏 CoCat",
-        true,
+        !minimal_mode_enabled,
         None::<&str>,
     )?;
     let toggle_monitor = MenuItem::with_id(
         app,
         MENU_TOGGLE_MONITOR,
         "显示/隐藏监控条",
-        true,
+        !minimal_mode_enabled,
         None::<&str>,
     )?;
     let toggle_taskbar_monitor = MenuItem::with_id(
         app,
         MENU_TOGGLE_TASKBAR_MONITOR,
         "显示/隐藏任务栏",
-        true,
+        !minimal_mode_enabled,
         None::<&str>,
     )?;
     let toggle_production = MenuItem::with_id(
@@ -76,6 +90,7 @@ pub fn build_shared_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         app,
         &[
             &open_main,
+            &toggle_minimal_mode,
             &separator_a,
             &toggle_cat,
             &toggle_monitor,
@@ -91,7 +106,7 @@ pub fn build_shared_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 pub fn setup_tray(app: &App) -> tauri::Result<()> {
-    let menu = build_shared_menu(app.handle())?;
+    let menu = tauri::async_runtime::block_on(build_shared_menu(app.handle()))?;
 
     let state = app.state::<AppState>();
     let theme_name = tauri::async_runtime::block_on(async {
@@ -134,7 +149,28 @@ pub fn setup_tray(app: &App) -> tauri::Result<()> {
 }
 
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
-    match event.id().as_ref() {
+    handle_menu_action(app, event.id().as_ref());
+}
+
+pub(crate) fn handle_shared_menu_position(app: &AppHandle, position: usize) {
+    let action = match position {
+        0 => MENU_OPEN_MAIN,
+        1 => MENU_TOGGLE_MINIMAL_MODE,
+        3 => MENU_TOGGLE_CAT,
+        4 => MENU_TOGGLE_MONITOR,
+        5 => MENU_TOGGLE_TASKBAR_MONITOR,
+        6 => MENU_TOGGLE_PRODUCTION,
+        7 => MENU_RELEASE_MEMORY,
+        9 => MENU_OPEN_SETTINGS,
+        10 => MENU_OPEN_ABOUT,
+        11 => MENU_QUIT,
+        _ => return,
+    };
+    handle_menu_action(app, action);
+}
+
+fn handle_menu_action(app: &AppHandle, action: &str) {
+    match action {
         MENU_OPEN_MAIN => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -156,6 +192,14 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = show_main_route(&app, "about").await {
                     tracing::warn!("failed to open about from tray: {error}");
+                }
+            });
+        }
+        MENU_TOGGLE_MINIMAL_MODE => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = toggle_minimal_mode(app).await {
+                    tracing::warn!("failed to toggle minimal mode from tray: {error}");
                 }
             });
         }
@@ -205,6 +249,23 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         }
         _ => {}
     }
+}
+
+async fn toggle_minimal_mode(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    {
+        let mut settings = state.settings.write().await;
+        let previous = settings.clone();
+        settings.toggle_minimal_mode();
+        if let Err(error) = state.storage.save_settings(&settings) {
+            *settings = previous;
+            return Err(format!("failed to save minimal mode: {error}"));
+        }
+    }
+
+    crate::IS_EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
+    std::env::set_var("COWORKPAL_RESTART_PENDING", "1");
+    app.restart()
 }
 
 async fn show_main_route(app: &AppHandle, route: &str) -> Result<(), String> {

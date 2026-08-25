@@ -58,25 +58,35 @@ fn acquire_single_instance() -> bool {
     use windows::{
         core::w,
         Win32::{
-            Foundation::{GetLastError, ERROR_ALREADY_EXISTS},
+            Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS},
             System::Threading::CreateMutexW,
         },
     };
 
     static INSTANCE_MUTEX: OnceLock<usize> = OnceLock::new();
+    let restart_pending = std::env::var_os("COWORKPAL_RESTART_PENDING").is_some();
 
-    let Ok(handle) =
-        (unsafe { CreateMutexW(None, true, w!("Local\\CoworkPal.SingleInstance")) })
-    else {
-        return true;
-    };
+    for _ in 0..50 {
+        let Ok(handle) =
+            (unsafe { CreateMutexW(None, true, w!("Local\\CoworkPal.SingleInstance")) })
+        else {
+            return true;
+        };
 
-    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-        return false;
+        if unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
+            let _ = INSTANCE_MUTEX.set(handle.0 as usize);
+            std::env::remove_var("COWORKPAL_RESTART_PENDING");
+            return true;
+        }
+
+        let _ = unsafe { CloseHandle(handle) };
+        if !restart_pending {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
-    let _ = INSTANCE_MUTEX.set(handle.0 as usize);
-    true
+    false
 }
 
 #[cfg(not(windows))]

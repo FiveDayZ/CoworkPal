@@ -6,6 +6,18 @@
 
 ---
 
+## 🚀 v1.0.0 正式版
+
+- **内置硬件温度监控**：CPU / GPU 传感器助手随应用打包，不再依赖 LibreHardwareMonitor
+- **更轻的常驻体验**：新增极简模式、内存占用优化，并可从托盘菜单快速切换
+- **可靠保留进度**：修复设备身份变化导致重启后工坊等级和历史进度重置的问题
+- **清晰一致的任务栏监控**：采用 TrafficMonitor 风格的 DPI 感知原生文字渲染
+- **完整数据备份**：支持自托管同步服务、自动备份、历史恢复和管理看板
+
+前往 [CoworkPal v1.0.0 Release](https://github.com/FiveDayZ/CoworkPal/releases/tag/v1.0.0) 下载安装包。
+
+---
+
 ## 🌟 它能做什么？
 
 ### 🐈 CoCat 桌面宠物 · 硬件驱动的活体表演
@@ -52,7 +64,7 @@ CoCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由�
   - 手动释放触发 UAC 提权后执行全量清理（清空 Standby / Modified 列表、系统文件缓存工作集、所有进程工作集），拒绝提权则自动降级为轻量清理
   - 自动释放监测系统内存占用，超过设定阈值（默认 8 GB，可调）时静默执行轻量清理，60 秒冷却防抖，不打扰用户
   - 释放完成后 CoCat 播放专属动画并在气泡中反馈释放结果
-- **高精度温度源**：可选启用 [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) 接入，获取比系统热区更精确的 CPU 核心温度；未启用时回退到系统热区估算，CPU 面板会标注当前来源（高精度 / 估算）
+- **内置高精度温度源**：可选启用随 CoworkPal 打包的硬件传感器助手，按 CPU / GPU 硬件类型读取 Core Average、CPU Package 与 GPU Core 等真实传感器；无需另装监控软件，首次开启需确认 Windows 管理员权限，无可靠 CPU 传感器时显示 N/A
 
 ---
 
@@ -100,11 +112,11 @@ CoCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由�
 
 ---
 
-### 🏆 成就系统 · 133 个可收集徽章
+### 🏆 成就系统 · 132 个可收集徽章
 
 CoworkPal 内置完整的成就体系，记录你与 CoCat 共同走过的每一个里程碑：
 
-- **133 个成就**，覆盖 7 大类别：使用习惯、系统监控、工坊升级、工况日志、隐藏彩蛋等
+- **132 个成就**，覆盖 7 大类别：使用习惯、系统监控、工坊升级、工况日志、隐藏彩蛋等
 - **6 个难度等级**：入门 → 进阶 → 熟练 → 精英 → 史诗 → 传说，难度越高徽章越稀有
 - **像素徽章图鉴**：每个成就对应一枚独立设计的复古像素风格徽章（.webp 格式），含稀有度框架与主题色系
 - **隐藏成就**：部分成就条件刻意不提示，需要自行探索触发
@@ -366,7 +378,7 @@ graph TD
 
 - **毫秒级硬件采样**：低开销多线程循环采集 CPU、GPU、内存、温度、磁盘、网络数据
 - **多窗口协同管理**：主控制台、桌面宠物（透明鼠标穿透）、监控挂件、托盘菜单
-- **本地优先存储**：所有持久化数据（设置、工坊、日报、专注、成就、笔记）以 JSON 文件存于本机，原子写入 + 损坏自动备份
+- **本地优先存储**：所有持久化数据（设置、工坊、日报、专注、成就、笔记）以 JSON 文件存于本机，原子写入 + 损坏自动备份；可选连接自托管同步服务手动上传、定时自动上传完整快照或恢复
 - **生产环境无黑框**：`windows_subsystem` 配置自动隐藏后台命令行窗口
 
 ### 前端 · React / TypeScript / Zustand
@@ -388,7 +400,7 @@ graph TD
 │   └── run-cocat-animation-tests.mjs  # 状态机回归测试脚本
 ├── src-tauri/                # Tauri 2 后端 (Rust)
 │   ├── src/
-│   │   ├── monitoring/       # 硬件监测（CPU/GPU/内存/网络/磁盘/温度 + LibreHardwareMonitor）
+│   │   ├── monitoring/       # 硬件监测（CPU/GPU/内存/网络/磁盘/内置温度助手）
 │   │   ├── commands/         # Tauri 命令层（工坊、成就、日志、笔记、体检等）
 │   │   ├── suggestions/      # 本地智能建议引擎
 │   │   ├── memory_release/   # 内存释放（UAC 提权 + 自动降级）
@@ -399,7 +411,7 @@ graph TD
 │   └── tauri.conf.json
 └── src/                      # 前端 (React 19 + TypeScript)
     ├── assets/
-    │   ├── achievements/     # 133 枚像素风格成就徽章 (.webp)
+    │   ├── achievements/     # 132 枚像素风格成就徽章 (.webp)
     │   ├── pets/             # CoCat 动画帧与头像
     │   └── screenshots/      # README 展示截图
     ├── pages/                # 多页面组件（控制台/工坊/日报/体检/笔记/成就/设置/关于）
@@ -413,19 +425,20 @@ graph TD
 
 ## 🚀 快速启动
 
-> 需要本地安装 **Node.js ≥ 18**、**Rust/Cargo**、**pnpm**
+> 需要本地安装 **Node.js ≥ 18**、**Rust/Cargo**、**pnpm** 和 **.NET 8 SDK**
 
 ```bash
 # 1. 安装前端依赖
 pnpm install
 
-# 2. 启动开发模式（含热更新）
+# 2. 启动开发模式（自动构建内置温度助手，含热更新）
 pnpm tauri dev
 
 # 3. 类型检查
 pnpm typecheck
 
-# 4. Rust 单元测试
+# 4. Rust 单元测试（首次执行前先构建温度助手）
+pnpm build:hardware-monitor
 cd src-tauri && cargo test
 
 # 5. 压缩宠物帧动画资源
@@ -437,7 +450,7 @@ pnpm tauri build
 
 构建产物：
 - **免安装绿色版**：`src-tauri/target/release/cowork-pal.exe`
-- **NSIS 安装包**：`src-tauri/target/release/bundle/nsis/CoworkPal_x64-setup.exe`
+- **NSIS 安装包**：`src-tauri/target/release/bundle/nsis/CoworkPal_<version>_x64-setup.exe`
 
 > 当前打包目标为 NSIS。若需生成 MSI 安装包，需额外下载 [WiX 工具集](https://wixtoolset.org/)（首次打包时 Tauri 会自动拉取，也可手动放置到 `%LOCALAPPDATA%\tauri\WixTools314\`）。
 
@@ -445,7 +458,11 @@ pnpm tauri build
 
 ## 🛡️ 安全与隐私
 
-- **纯本地运行**：所有数据（硬件指标、工坊进度、日报、笔记、成就）仅存储于本机，不向任何服务器上传用户数据、进程列表或网络信息
+- **默认纯本地运行**：未配置同步服务时，所有数据只存储于本机。用户主动配置并点击上传后，同步设置、静态硬件配置、工坊、窗口布局、工况日志、专注记录、成就和笔记；实时硬件指标、进程列表及同步令牌不会上传
+
+### 自托管数据同步
+
+可部署 [`sync-server`](sync-server/) Docker 服务，并在设置页手动上传、启用定时自动上传或恢复完整用户数据。自动备份默认间隔为 30 分钟，仅在客户端运行且已保存服务器地址和访问令牌时执行。服务使用独立用户令牌鉴权、原子更新最新快照，并默认保留最近 30 个历史版本。远程部署必须通过 HTTPS 反向代理访问。
 - **开源透明**：完整源代码托管于 GitHub，可自由审计与编译
   → `https://github.com/FiveDayZ/CoworkPal`
 - **零隐蔽占用**：不含任何后台网络回传、挖矿或敏感资源占用行为
@@ -453,4 +470,4 @@ pnpm tauri build
 
 ---
 
-*CoworkPal v0.3.4 · MIT License · Made with ❤️ and a lot of pixel art*
+*CoworkPal v1.0.0 · MIT License · Made with ❤️ and a lot of pixel art*

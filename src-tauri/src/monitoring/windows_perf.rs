@@ -8,8 +8,7 @@ use windows::{
             PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData,
             PdhGetFormattedCounterArrayW, PdhGetFormattedCounterValue, PdhOpenQueryW,
             PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_VALID_DATA, PDH_FMT_COUNTERVALUE,
-            PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
-            PDH_MORE_DATA,
+            PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PDH_MORE_DATA,
         },
     },
 };
@@ -18,7 +17,6 @@ const ERROR_SUCCESS: u32 = 0;
 
 #[derive(Debug, Clone, Default)]
 pub struct WindowsPerformanceSample {
-    pub cpu_temperature_celsius: Option<f32>,
     pub disk_read_bytes_per_second: Option<f32>,
     pub disk_write_bytes_per_second: Option<f32>,
     pub gpu_usage_percent: Option<f32>,
@@ -37,7 +35,6 @@ pub struct WindowsPerformanceCounters {
     disk_write: Option<PDH_HCOUNTER>,
     gpu_engine_usage: Option<PDH_HCOUNTER>,
     gpu_dedicated_memory: Option<PDH_HCOUNTER>,
-    thermal_zone_temperature: Option<PDH_HCOUNTER>,
 }
 
 unsafe impl Send for WindowsPerformanceCounters {}
@@ -57,17 +54,13 @@ impl WindowsPerformanceCounters {
             disk_write: None,
             gpu_engine_usage: None,
             gpu_dedicated_memory: None,
-            thermal_zone_temperature: None,
         };
 
         counters.disk_read = counters.add_counter(r"\PhysicalDisk(_Total)\Disk Read Bytes/sec");
         counters.disk_write = counters.add_counter(r"\PhysicalDisk(_Total)\Disk Write Bytes/sec");
-        counters.gpu_engine_usage =
-            counters.add_counter(r"\GPU Engine(*)\Utilization Percentage");
+        counters.gpu_engine_usage = counters.add_counter(r"\GPU Engine(*)\Utilization Percentage");
         counters.gpu_dedicated_memory =
             counters.add_counter(r"\GPU Adapter Memory(*)\Dedicated Usage");
-        counters.thermal_zone_temperature =
-            counters.add_counter(r"\Thermal Zone Information(*)\Temperature");
 
         unsafe {
             let _ = PdhCollectQueryData(counters.query);
@@ -92,10 +85,6 @@ impl WindowsPerformanceCounters {
             .map(|value| value.clamp(0.0, 100.0));
 
         WindowsPerformanceSample {
-            cpu_temperature_celsius: self
-                .thermal_zone_temperature
-                .and_then(|counter| self.formatted_array_max(counter, None))
-                .and_then(normalize_thermal_zone_temperature),
             disk_read_bytes_per_second: self.disk_read.and_then(|counter| {
                 self.formatted_counter_value(counter)
                     .map(|value| value.max(0.0) as f32)
@@ -115,9 +104,8 @@ impl WindowsPerformanceCounters {
     fn add_counter(&self, path: &str) -> Option<PDH_HCOUNTER> {
         let wide = to_wide(path);
         let mut counter = PDH_HCOUNTER::default();
-        let status = unsafe {
-            PdhAddEnglishCounterW(self.query, PCWSTR(wide.as_ptr()), 0, &mut counter)
-        };
+        let status =
+            unsafe { PdhAddEnglishCounterW(self.query, PCWSTR(wide.as_ptr()), 0, &mut counter) };
 
         if status == ERROR_SUCCESS && !counter.is_invalid() {
             Some(counter)
@@ -128,9 +116,8 @@ impl WindowsPerformanceCounters {
 
     fn formatted_counter_value(&self, counter: PDH_HCOUNTER) -> Option<f64> {
         let mut value = PDH_FMT_COUNTERVALUE::default();
-        let status = unsafe {
-            PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, None, &mut value)
-        };
+        let status =
+            unsafe { PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, None, &mut value) };
 
         if status != ERROR_SUCCESS || !is_valid_counter_status(value.CStatus) {
             return None;
@@ -139,24 +126,10 @@ impl WindowsPerformanceCounters {
         Some(unsafe { value.Anonymous.doubleValue })
     }
 
-    fn formatted_array_sum(
-        &self,
-        counter: PDH_HCOUNTER,
-        name_filter: Option<&str>,
-    ) -> Option<f64> {
+    fn formatted_array_sum(&self, counter: PDH_HCOUNTER, name_filter: Option<&str>) -> Option<f64> {
         let values = self.formatted_counter_array(counter, name_filter)?;
         let sum = values.into_iter().sum::<f64>();
         Some(sum)
-    }
-
-    fn formatted_array_max(
-        &self,
-        counter: PDH_HCOUNTER,
-        name_filter: Option<&str>,
-    ) -> Option<f64> {
-        self.formatted_counter_array(counter, name_filter)?
-            .into_iter()
-            .reduce(f64::max)
     }
 
     fn formatted_counter_array(
@@ -180,9 +153,8 @@ impl WindowsPerformanceCounters {
             return None;
         }
 
-        let item_capacity =
-            (buffer_size as usize + size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>() - 1)
-                / size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>();
+        let item_capacity = (buffer_size as usize + size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>() - 1)
+            / size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>();
         let mut buffer = vec![PDH_FMT_COUNTERVALUE_ITEM_W::default(); item_capacity.max(1)];
         let status = unsafe {
             PdhGetFormattedCounterArrayW(
@@ -269,25 +241,15 @@ fn is_valid_counter_status(status: u32) -> bool {
     status == PDH_CSTATUS_VALID_DATA || status == PDH_CSTATUS_NEW_DATA
 }
 
-fn normalize_thermal_zone_temperature(value: f64) -> Option<f32> {
-    let celsius = if value > 200.0 {
-        value - 273.15
-    } else {
-        value
-    };
-
-    celsius
-        .is_finite()
-        .then_some(celsius as f32)
-        .filter(|value| (-30.0..=125.0).contains(value))
-}
-
 fn to_wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 fn wide_array_to_string(value: &[u16]) -> String {
-    let len = value.iter().position(|item| *item == 0).unwrap_or(value.len());
+    let len = value
+        .iter()
+        .position(|item| *item == 0)
+        .unwrap_or(value.len());
     String::from_utf16_lossy(&value[..len]).trim().to_string()
 }
 

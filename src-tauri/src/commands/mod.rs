@@ -250,7 +250,7 @@ pub async fn update_app_settings(
 }
 
 #[cfg(windows)]
-fn sync_launch_at_startup(enabled: bool) -> Result<(), String> {
+pub(crate) fn sync_launch_at_startup(enabled: bool) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -294,7 +294,7 @@ fn sync_launch_at_startup(enabled: bool) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn sync_launch_at_startup(_enabled: bool) -> Result<(), String> {
+pub(crate) fn sync_launch_at_startup(_enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
@@ -1835,6 +1835,7 @@ pub async fn show_taskbar_context_menu(app: AppHandle) -> Result<(), String> {
     // Build the menu and resolve the window on the async runtime, then run the
     // blocking native popup off-thread so it doesn't stall the async runtime.
     let menu = crate::tray::build_shared_menu(&app)
+        .await
         .map_err(|error| format!("failed to build taskbar context menu: {error}"))?;
     let window = app
         .get_webview_window("taskbar-monitor")

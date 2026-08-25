@@ -29,8 +29,8 @@ pub struct HardwareSnapshot {
     pub cpu_physical_core_count: Option<u32>,
     pub cpu_logical_core_count: Option<u32>,
     /// Which probe produced `cpu_temperature_celsius`, for UI reliability
-    /// hints: "librehardwaremonitor" (core MSR, high precision) vs
-    /// "sysinfo"/"thermalzone" (ACPI estimate). `None` when no probe succeeded.
+    /// hints: "integrated" (bundled privileged sensor helper) vs "sysinfo"
+    /// (OS-exposed CPU component). `None` when no reliable probe succeeded.
     pub cpu_temperature_source: Option<String>,
     pub device_inventory: HardwareDeviceInventory,
     pub processes: Vec<ProcessUsageSnapshot>,
@@ -337,11 +337,40 @@ pub struct AppSettings {
     /// Last successful release, surfaced in the settings card. `None` until
     /// the first release occurs.
     pub memory_last_release: Option<LastMemoryRelease>,
-    /// Probe a running LibreHardwareMonitor (REST first, WMI fallback) for a
-    /// higher-precision CPU temperature than the ACPI thermal-zone sources can
-    /// provide. No effect unless LHM is installed and running elevated; falls
-    /// back silently otherwise. CoworkPal itself never requests elevation.
-    pub libre_hardware_monitor_enabled: bool,
+    /// Enable CoworkPal's bundled CPU/GPU sensor helper. The helper requests
+    /// elevation because reliable CPU package sensors require driver access.
+    pub integrated_hardware_monitor_enabled: bool,
+    pub minimal_mode_enabled: bool,
+    pub minimal_mode_restore: Option<MinimalModeRestoreSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MinimalModeRestoreSettings {
+    pub is_cat_visible: bool,
+    pub is_monitor_bar_visible: bool,
+    pub show_monitor_data_in_taskbar: bool,
+    pub enable_low_power_mode: bool,
+    pub integrated_hardware_monitor_enabled: bool,
+}
+
+impl Default for MinimalModeRestoreSettings {
+    fn default() -> Self {
+        let defaults = AppSettings::default();
+        Self::from(&defaults)
+    }
+}
+
+impl From<&AppSettings> for MinimalModeRestoreSettings {
+    fn from(settings: &AppSettings) -> Self {
+        Self {
+            is_cat_visible: settings.is_cat_visible,
+            is_monitor_bar_visible: settings.is_monitor_bar_visible,
+            show_monitor_data_in_taskbar: settings.show_monitor_data_in_taskbar,
+            enable_low_power_mode: settings.enable_low_power_mode,
+            integrated_hardware_monitor_enabled: settings.integrated_hardware_monitor_enabled,
+        }
+    }
 }
 
 /// Persisted record of the most recent memory release, shown in the settings
@@ -367,7 +396,7 @@ impl Default for LastMemoryRelease {
     }
 }
 
-pub const APP_SETTINGS_SCHEMA_VERSION: u32 = 3;
+pub const APP_SETTINGS_SCHEMA_VERSION: u32 = 5;
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -417,7 +446,9 @@ impl Default for AppSettings {
             memory_auto_release_enabled: false,
             memory_auto_release_threshold_gib: 8.0,
             memory_last_release: None,
-            libre_hardware_monitor_enabled: true,
+            integrated_hardware_monitor_enabled: false,
+            minimal_mode_enabled: false,
+            minimal_mode_restore: None,
         }
     }
 }
@@ -459,10 +490,44 @@ pub struct AppSettingsPatch {
     pub memory_auto_release_enabled: Option<bool>,
     pub memory_auto_release_threshold_gib: Option<f64>,
     pub memory_last_release: Option<LastMemoryRelease>,
-    pub libre_hardware_monitor_enabled: Option<bool>,
+    pub integrated_hardware_monitor_enabled: Option<bool>,
 }
 
 impl AppSettings {
+    pub fn toggle_minimal_mode(&mut self) {
+        if self.minimal_mode_enabled {
+            let restore = self.minimal_mode_restore.take().unwrap_or_default();
+            self.is_cat_visible = restore.is_cat_visible;
+            self.is_monitor_bar_visible = restore.is_monitor_bar_visible;
+            self.show_monitor_data_in_taskbar = restore.show_monitor_data_in_taskbar;
+            self.enable_low_power_mode = restore.enable_low_power_mode;
+            self.integrated_hardware_monitor_enabled = restore.integrated_hardware_monitor_enabled;
+            self.minimal_mode_enabled = false;
+            return;
+        }
+
+        self.minimal_mode_restore = Some(MinimalModeRestoreSettings::from(&*self));
+        self.minimal_mode_enabled = true;
+        self.is_cat_visible = false;
+        self.is_monitor_bar_visible = false;
+        self.show_monitor_data_in_taskbar = true;
+        self.enable_low_power_mode = true;
+        self.integrated_hardware_monitor_enabled = false;
+    }
+
+    pub fn enforce_minimal_mode_constraints(&mut self) -> bool {
+        if !self.minimal_mode_enabled {
+            return false;
+        }
+
+        let changed =
+            self.is_cat_visible || self.is_monitor_bar_visible || !self.enable_low_power_mode;
+        self.is_cat_visible = false;
+        self.is_monitor_bar_visible = false;
+        self.enable_low_power_mode = true;
+        changed
+    }
+
     pub fn apply_patch(&mut self, patch: AppSettingsPatch) {
         if let Some(value) = patch.launch_at_startup {
             self.launch_at_startup = value;
@@ -566,12 +631,17 @@ impl AppSettings {
         if let Some(value) = patch.memory_last_release {
             self.memory_last_release = Some(value);
         }
-        if let Some(value) = patch.libre_hardware_monitor_enabled {
-            self.libre_hardware_monitor_enabled = value;
+        if let Some(value) = patch.integrated_hardware_monitor_enabled {
+            self.integrated_hardware_monitor_enabled = value;
+            if self.minimal_mode_enabled {
+                if let Some(restore) = self.minimal_mode_restore.as_mut() {
+                    restore.integrated_hardware_monitor_enabled = value;
+                }
+            }
         }
+        self.enforce_minimal_mode_constraints();
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -951,10 +1021,7 @@ impl WorkLogEntry {
         }
 
         let delta_seconds = if self.updated_at > 0 {
-            timestamp
-                .saturating_sub(self.updated_at)
-                .clamp(0, 60_000) as u64
-                / 1000
+            timestamp.saturating_sub(self.updated_at).clamp(0, 60_000) as u64 / 1000
         } else {
             0
         };
@@ -965,7 +1032,8 @@ impl WorkLogEntry {
         let thermal = thermal_pressure(snapshot);
         let io = io_activity(snapshot);
         let disk_read_delta = rate_total_bytes(snapshot.disk_read_bytes_per_second, delta_seconds);
-        let disk_write_delta = rate_total_bytes(snapshot.disk_write_bytes_per_second, delta_seconds);
+        let disk_write_delta =
+            rate_total_bytes(snapshot.disk_write_bytes_per_second, delta_seconds);
         let network_download_delta =
             rate_total_bytes(snapshot.network_download_bytes_per_second, delta_seconds);
         let network_upload_delta =
@@ -983,19 +1051,16 @@ impl WorkLogEntry {
             self.cpu_over_50_seconds = self.cpu_over_50_seconds.saturating_add(delta_seconds);
         }
         if memory > 70.0 {
-            self.memory_over_70_seconds =
-                self.memory_over_70_seconds.saturating_add(delta_seconds);
+            self.memory_over_70_seconds = self.memory_over_70_seconds.saturating_add(delta_seconds);
         }
         if gpu > 70.0 {
             self.gpu_over_70_seconds = self.gpu_over_70_seconds.saturating_add(delta_seconds);
         }
         if snapshot.cpu_temperature_celsius.unwrap_or(0.0) > 80.0 {
-            self.cpu_over_80c_seconds =
-                self.cpu_over_80c_seconds.saturating_add(delta_seconds);
+            self.cpu_over_80c_seconds = self.cpu_over_80c_seconds.saturating_add(delta_seconds);
         }
         if snapshot.gpu_temperature_celsius.unwrap_or(0.0) > 80.0 {
-            self.gpu_over_80c_seconds =
-                self.gpu_over_80c_seconds.saturating_add(delta_seconds);
+            self.gpu_over_80c_seconds = self.gpu_over_80c_seconds.saturating_add(delta_seconds);
         }
 
         self.disk_read_bytes_total = self.disk_read_bytes_total.saturating_add(disk_read_delta);
@@ -1090,8 +1155,9 @@ impl WorkLogEntry {
                 .memory_bytes_points
                 .saturating_add(aggregate.memory_bytes_total.saturating_mul(delta_seconds));
             usage.memory_bytes_peak = usage.memory_bytes_peak.max(aggregate.memory_bytes_total);
-            usage.disk_read_bytes_total =
-                usage.disk_read_bytes_total.saturating_add(aggregate.disk_read_bytes_total);
+            usage.disk_read_bytes_total = usage
+                .disk_read_bytes_total
+                .saturating_add(aggregate.disk_read_bytes_total);
             usage.disk_write_bytes_total = usage
                 .disk_write_bytes_total
                 .saturating_add(aggregate.disk_write_bytes_total);
@@ -1110,14 +1176,10 @@ impl WorkLogEntry {
         timestamp: i64,
     ) {
         self.mouse_click_count = self.mouse_click_count.saturating_add(mouse_clicks);
-        self.keyboard_press_count = self
-            .keyboard_press_count
-            .saturating_add(keyboard_presses);
+        self.keyboard_press_count = self.keyboard_press_count.saturating_add(keyboard_presses);
         let slice = self.ensure_time_slice(timestamp);
         slice.mouse_click_count = slice.mouse_click_count.saturating_add(mouse_clicks);
-        slice.keyboard_press_count = slice
-            .keyboard_press_count
-            .saturating_add(keyboard_presses);
+        slice.keyboard_press_count = slice.keyboard_press_count.saturating_add(keyboard_presses);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1167,8 +1229,7 @@ impl WorkLogEntry {
                 end_timestamp: start_timestamp + WORK_LOG_TIME_SLICE_MS,
                 ..Default::default()
             });
-            self.time_slices
-                .sort_by_key(|slice| slice.start_timestamp);
+            self.time_slices.sort_by_key(|slice| slice.start_timestamp);
             if self.time_slices.len() > MAX_WORK_LOG_TIME_SLICES {
                 let overflow = self.time_slices.len() - MAX_WORK_LOG_TIME_SLICES;
                 self.time_slices.drain(0..overflow);
@@ -1640,10 +1701,8 @@ impl WorkLogReport {
         let memory_over_70_ratio =
             duration_ratio(entry.memory_over_70_seconds, entry.active_seconds);
         let gpu_over_70_ratio = duration_ratio(entry.gpu_over_70_seconds, entry.active_seconds);
-        let cpu_over_80c_ratio =
-            duration_ratio(entry.cpu_over_80c_seconds, entry.active_seconds);
-        let gpu_over_80c_ratio =
-            duration_ratio(entry.gpu_over_80c_seconds, entry.active_seconds);
+        let cpu_over_80c_ratio = duration_ratio(entry.cpu_over_80c_seconds, entry.active_seconds);
+        let gpu_over_80c_ratio = duration_ratio(entry.gpu_over_80c_seconds, entry.active_seconds);
         let disk_total = entry
             .disk_read_bytes_total
             .saturating_add(entry.disk_write_bytes_total);
@@ -1652,9 +1711,8 @@ impl WorkLogReport {
             .saturating_add(entry.network_upload_bytes_total);
 
         let duration_score = ((hours / 6.0) * 30.0).clamp(0.0, 30.0);
-        let sustained_load_index = cpu_over_50_ratio * 32.0
-            + memory_over_70_ratio * 28.0
-            + gpu_over_70_ratio * 24.0;
+        let sustained_load_index =
+            cpu_over_50_ratio * 32.0 + memory_over_70_ratio * 28.0 + gpu_over_70_ratio * 24.0;
         let load_score = ((cpu_avg * 0.27
             + memory_avg * 0.22
             + gpu_avg * 0.20
@@ -1678,13 +1736,10 @@ impl WorkLogReport {
         let input_score = volume_score(entry.mouse_click_count, 1_500.0) * 3.0
             + volume_score(entry.keyboard_press_count, 5_000.0) * 3.0;
         let continuity_score = (((hours / 8.0) * 4.0) + input_score).clamp(0.0, 10.0);
-        let total_score = (duration_score
-            + load_score
-            + complexity_score
-            + stability_score
-            + continuity_score)
-            .round()
-            .clamp(0.0, 100.0) as u32;
+        let total_score =
+            (duration_score + load_score + complexity_score + stability_score + continuity_score)
+                .round()
+                .clamp(0.0, 100.0) as u32;
 
         Self {
             date: entry.date.clone(),
@@ -1726,8 +1781,7 @@ impl WorkLogReport {
                     score: complexity_score.round() as u32,
                     max_score: 20,
                     value: format!("高负载 {:.0}% / IO {:.0}%", high_load_ratio * 100.0, io_avg),
-                    explanation: "结合高负载比例、磁盘读写总量、网络上传与访问流量。"
-                        .to_string(),
+                    explanation: "结合高负载比例、磁盘读写总量、网络上传与访问流量。".to_string(),
                     facts: vec![
                         metric_fact("磁盘读", format_bytes(entry.disk_read_bytes_total)),
                         metric_fact("磁盘写", format_bytes(entry.disk_write_bytes_total)),
@@ -1779,8 +1833,14 @@ impl DailyWorkAssessment {
         let mvp_segments = build_mvp_segments(&timeline);
         let rarity = build_work_card_rarity(report.total_score, &features, history, &entry.date);
         let title = build_work_day_title(day_type, history);
-        let cocat_commentary =
-            build_cocat_commentary(day_type, &features, &baseline, report.total_score, &rarity, &title);
+        let cocat_commentary = build_cocat_commentary(
+            day_type,
+            &features,
+            &baseline,
+            report.total_score,
+            &rarity,
+            &title,
+        );
         let (highlights, risks, suggestions) =
             build_assessment_insights(&features, &baseline, day_type);
         let process_insights = build_process_insights(&entry);
@@ -1856,7 +1916,10 @@ impl DailyWorkAssessmentTrend {
             .max_by_key(|summary| summary.score)
             .expect("non-empty summaries have a best day");
         let newest_score = summaries.first().map(|summary| summary.score).unwrap_or(0);
-        let oldest_score = summaries.last().map(|summary| summary.score).unwrap_or(newest_score);
+        let oldest_score = summaries
+            .last()
+            .map(|summary| summary.score)
+            .unwrap_or(newest_score);
         let score_delta = newest_score as i32 - oldest_score as i32;
         let timeline_days = summaries
             .iter()
@@ -1903,10 +1966,7 @@ impl HealthTrendReport {
     /// `WorkLogReport::from_entry` (O(1) single-day arithmetic). Days without
     /// data are kept as gap markers (`has_data = false`) so the chart can render
     /// the full calendar span.
-    pub fn from_book(
-        entries: &BTreeMap<String, WorkLogEntry>,
-        range: TrendRange,
-    ) -> Self {
+    pub fn from_book(entries: &BTreeMap<String, WorkLogEntry>, range: TrendRange) -> Self {
         let day_count = range.day_count();
         let dates = recent_calendar_date_keys(day_count);
 
@@ -1951,8 +2011,7 @@ impl HealthTrendReport {
             score_series.push(point);
         }
 
-        let data_points: Vec<&TrendDayPoint> =
-            score_series.iter().filter(|p| p.has_data).collect();
+        let data_points: Vec<&TrendDayPoint> = score_series.iter().filter(|p| p.has_data).collect();
         let window_days = data_points.len() as u32;
 
         let averages = compute_trend_averages(entries, &data_points);
@@ -2037,9 +2096,11 @@ fn compute_trend_averages(
     if points.is_empty() {
         return TrendAverages::default();
     }
-    let score = points.iter().map(|p| p.total_score as f64).sum::<f64>()
-        / points.len() as f64;
-    let active_hours = points.iter().map(|p| p.active_seconds as f64 / 3600.0).sum::<f64>()
+    let score = points.iter().map(|p| p.total_score as f64).sum::<f64>() / points.len() as f64;
+    let active_hours = points
+        .iter()
+        .map(|p| p.active_seconds as f64 / 3600.0)
+        .sum::<f64>()
         / points.len() as f64;
     let cpu_avg = avg_metric(entries, points, avg_cpu_from_entry);
     let memory_avg = avg_metric(entries, points, avg_memory_from_entry);
@@ -2134,11 +2195,7 @@ fn compute_weekday_breakdown(points: &[&TrendDayPoint]) -> Vec<TrendWeekdayStat>
 
 fn compute_streaks(series: &[TrendDayPoint]) -> TrendStreaks {
     // Walk newest -> oldest counting the trailing run of data-days.
-    let current = series
-        .iter()
-        .rev()
-        .take_while(|p| p.has_data)
-        .count() as u32;
+    let current = series.iter().rev().take_while(|p| p.has_data).count() as u32;
 
     // Longest run of consecutive data-days across the whole series.
     let mut longest: u32 = 0;
@@ -2230,7 +2287,9 @@ fn compute_health_grade(avg: &TrendAverages, streaks: &TrendStreaks) -> (u32, St
     let consistency = ((streaks.current.min(7) as f64 / 7.0) * 20.0
         + (streaks.longest.min(14) as f64 / 14.0) * 10.0)
         .clamp(0.0, 30.0);
-    let health_score = (activity + stability + consistency).round().clamp(0.0, 100.0) as u32;
+    let health_score = (activity + stability + consistency)
+        .round()
+        .clamp(0.0, 100.0) as u32;
     let health_grade = if health_score >= 85 {
         "S"
     } else if health_score >= 70 {
@@ -2421,7 +2480,10 @@ fn build_baseline_comparison(
     }
 
     let average = |value: fn(WorkLogFeatures) -> f64| {
-        history_features.iter().map(|item| value(*item)).sum::<f64>()
+        history_features
+            .iter()
+            .map(|item| value(*item))
+            .sum::<f64>()
             / history_features.len() as f64
     };
     let active_avg = average(|item| item.active_seconds as f64);
@@ -2453,7 +2515,14 @@ fn build_baseline_comparison(
                 input_per_hour: input_avg,
             }),
         ),
-        summary: baseline_summary(sample_days, active_delta, load_delta, io_delta, thermal_delta, input_delta),
+        summary: baseline_summary(
+            sample_days,
+            active_delta,
+            load_delta,
+            io_delta,
+            thermal_delta,
+            input_delta,
+        ),
     }
 }
 
@@ -2549,8 +2618,7 @@ fn build_workprint(day_type: WorkDayType, features: &WorkLogFeatures) -> Workpri
     let input_rhythm = (features.input_per_hour() / 5200.0).clamp(0.0, 1.0);
     let io_intensity = (features.io_avg / 100.0).clamp(0.0, 1.0);
     let thermal_pressure = (features.thermal_avg / 100.0).clamp(0.0, 1.0);
-    let continuity = ((features.active_hours() / 6.0) * 0.55 + input_rhythm * 0.45)
-        .clamp(0.0, 1.0);
+    let continuity = ((features.active_hours() / 6.0) * 0.55 + input_rhythm * 0.45).clamp(0.0, 1.0);
 
     let label = match day_type {
         WorkDayType::DeepFocus => "长时稳定型",
@@ -2659,8 +2727,8 @@ fn build_work_card_rarity(
     date: &str,
 ) -> WorkCardRarity {
     let active_streak_days = active_streak_days(date, features, history);
-    let load_index =
-        (features.average_load() * 0.65 + features.high_load_ratio * 100.0 * 0.35).clamp(0.0, 100.0);
+    let load_index = (features.average_load() * 0.65 + features.high_load_ratio * 100.0 * 0.35)
+        .clamp(0.0, 100.0);
     let stability_index = (100.0
         - features.thermal_avg * 0.55
         - features.thermal_warning_ratio() * 160.0
@@ -2700,8 +2768,8 @@ fn active_streak_days(date: &str, features: &WorkLogFeatures, history: &[WorkLog
         return 0;
     }
 
-    let Ok(mut expected_date) = NaiveDate::parse_from_str(date, "%Y-%m-%d")
-        .map(|date| date - Duration::days(1))
+    let Ok(mut expected_date) =
+        NaiveDate::parse_from_str(date, "%Y-%m-%d").map(|date| date - Duration::days(1))
     else {
         return 1;
     };
@@ -2735,11 +2803,10 @@ fn features_has_signal(features: &WorkLogFeatures) -> bool {
 }
 
 fn build_work_day_title(day_type: WorkDayType, history: &[WorkLogEntry]) -> WorkDayTitle {
-    let progress = 1
-        + history
-            .iter()
-            .filter(|entry| resolve_work_day_type(&WorkLogFeatures::from_entry(entry)) == day_type)
-            .count() as u32;
+    let progress = 1 + history
+        .iter()
+        .filter(|entry| resolve_work_day_type(&WorkLogFeatures::from_entry(entry)) == day_type)
+        .count() as u32;
     let thresholds = [1_u32, 3, 7, 14, 30];
     let level = thresholds
         .iter()
@@ -2844,16 +2911,16 @@ fn build_cocat_commentary(
     rarity: &WorkCardRarity,
     title: &WorkDayTitle,
 ) -> CoCatCommentary {
-    let tone = if features.thermal_warning_ratio() >= 0.03 || day_type == WorkDayType::PressureRepair
-    {
-        CoCatCommentTone::Warning
-    } else if score >= 82 || rarity.tier == "SS" || rarity.tier == "S" {
-        CoCatCommentTone::Celebration
-    } else if day_type == WorkDayType::Unknown || features.active_seconds < 900 {
-        CoCatCommentTone::Tease
-    } else {
-        CoCatCommentTone::Encouragement
-    };
+    let tone =
+        if features.thermal_warning_ratio() >= 0.03 || day_type == WorkDayType::PressureRepair {
+            CoCatCommentTone::Warning
+        } else if score >= 82 || rarity.tier == "SS" || rarity.tier == "S" {
+            CoCatCommentTone::Celebration
+        } else if day_type == WorkDayType::Unknown || features.active_seconds < 900 {
+            CoCatCommentTone::Tease
+        } else {
+            CoCatCommentTone::Encouragement
+        };
 
     let diagnostic = work_condition_diagnostic(features, baseline);
     let (comment_title, body) = match tone {
@@ -2901,10 +2968,7 @@ fn build_cocat_commentary(
     }
 }
 
-fn work_condition_diagnostic(
-    features: &WorkLogFeatures,
-    baseline: &BaselineComparison,
-) -> String {
+fn work_condition_diagnostic(features: &WorkLogFeatures, baseline: &BaselineComparison) -> String {
     if features.sample_count == 0 || features.active_seconds < 60 {
         return "再多陪伴一会儿，明天的卡面会更像样。".to_string();
     }
@@ -2938,8 +3002,7 @@ fn work_condition_diagnostic(
             );
         }
 
-        return "工况解释：磁盘和网络流动偏活跃，更像同步、下载、构建或归档任务。"
-            .to_string();
+        return "工况解释：磁盘和网络流动偏活跃，更像同步、下载、构建或归档任务。".to_string();
     }
 
     if baseline.sample_days > 0 && baseline.load_delta_ratio >= 0.28 {
@@ -3031,8 +3094,8 @@ fn resolve_timeline_segment_kind(features: &WorkTimeSliceFeatures) -> WorkTimeli
 
     let load = features.average_load();
     let io_total = features.io_total();
-    let pressure_repair =
-        (features.thermal_avg >= 55.0 && load >= 45.0) || (features.memory_avg >= 82.0 && load >= 45.0);
+    let pressure_repair = (features.thermal_avg >= 55.0 && load >= 45.0)
+        || (features.memory_avg >= 82.0 && load >= 45.0);
 
     if pressure_repair {
         WorkTimelineSegmentKind::PressureRepair
@@ -3263,12 +3326,8 @@ fn build_process_insights(entry: &WorkLogEntry) -> Vec<ProcessUsageInsight> {
             } else {
                 InsightSeverity::Neutral
             };
-            let rank_label = process_rank_label(
-                usage,
-                observed_seconds,
-                sample_count,
-                active_sample_count,
-            );
+            let rank_label =
+                process_rank_label(usage, observed_seconds, sample_count, active_sample_count);
             let summary = format!(
                 "{}：驻留 {}，活跃 {}，CPU 压力约 {:.0}%，内存峰值 {}。",
                 rank_label,
@@ -3430,10 +3489,7 @@ fn dominant_work_day_type(summaries: &[DailyWorkAssessmentSummary]) -> WorkDayTy
     best_type
 }
 
-fn work_day_type_count(
-    summaries: &[DailyWorkAssessmentSummary],
-    day_type: WorkDayType,
-) -> u32 {
+fn work_day_type_count(summaries: &[DailyWorkAssessmentSummary], day_type: WorkDayType) -> u32 {
     summaries
         .iter()
         .filter(|summary| summary.day_type == day_type)
@@ -3634,17 +3690,16 @@ fn baseline_summary(
         ("热压力", thermal_delta),
         ("输入节奏", input_delta),
     ];
-    let Some((label, delta)) = comparisons
-        .iter()
-        .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap_or(std::cmp::Ordering::Equal))
-    else {
+    let Some((label, delta)) = comparisons.iter().max_by(|a, b| {
+        a.1.abs()
+            .partial_cmp(&b.1.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }) else {
         return "CoCat 已经开始建立你的个人工作基线。".to_string();
     };
 
     if delta.abs() < 0.12 {
-        return format!(
-            "与近 {sample_days} 个有记录的工作日相比，今天整体节奏接近你的常规状态。"
-        );
+        return format!("与近 {sample_days} 个有记录的工作日相比，今天整体节奏接近你的常规状态。");
     }
 
     format!(
@@ -3806,10 +3861,7 @@ fn build_rhythm_summary(hours: &[RhythmBucket], peak_hours: &[u8]) -> String {
     if peak_hours.is_empty() || hours.iter().all(|h| h.active_seconds == 0) {
         return "还没有足够的数据来识别你的节律，多用几天就能看到规律啦。".to_string();
     }
-    let labels: Vec<String> = peak_hours
-        .iter()
-        .map(|h| format!("{:02}:00", h))
-        .collect();
+    let labels: Vec<String> = peak_hours.iter().map(|h| format!("{:02}:00", h)).collect();
     format!(
         "你的高效时段集中在 {}。在这些时段安排重要任务，CoCat 会陪你一起发力。",
         labels.join("、")
@@ -3850,11 +3902,7 @@ fn normalize_process_name(name: &str) -> Option<String> {
         return None;
     }
 
-    let file_name = trimmed
-        .rsplit(['\\', '/'])
-        .next()
-        .unwrap_or(trimmed)
-        .trim();
+    let file_name = trimmed.rsplit(['\\', '/']).next().unwrap_or(trimmed).trim();
 
     (!file_name.is_empty()).then(|| file_name.to_string())
 }
@@ -4014,18 +4062,114 @@ mod assessment_tests {
     use chrono::TimeZone;
 
     #[test]
+    fn minimal_mode_round_trip_restores_previous_settings() {
+        let mut settings = AppSettings {
+            is_cat_visible: true,
+            is_monitor_bar_visible: true,
+            show_monitor_data_in_taskbar: false,
+            enable_low_power_mode: false,
+            integrated_hardware_monitor_enabled: true,
+            ..Default::default()
+        };
+
+        settings.toggle_minimal_mode();
+
+        assert!(settings.minimal_mode_enabled);
+        assert!(!settings.is_cat_visible);
+        assert!(!settings.is_monitor_bar_visible);
+        assert!(settings.show_monitor_data_in_taskbar);
+        assert!(settings.enable_low_power_mode);
+        assert!(!settings.integrated_hardware_monitor_enabled);
+
+        let serialized = serde_json::to_string(&settings).unwrap();
+        let mut restored = serde_json::from_str::<AppSettings>(&serialized).unwrap();
+        restored.toggle_minimal_mode();
+
+        assert!(!restored.minimal_mode_enabled);
+        assert!(restored.minimal_mode_restore.is_none());
+        assert!(restored.is_cat_visible);
+        assert!(restored.is_monitor_bar_visible);
+        assert!(!restored.show_monitor_data_in_taskbar);
+        assert!(!restored.enable_low_power_mode);
+        assert!(restored.integrated_hardware_monitor_enabled);
+    }
+
+    #[test]
+    fn minimal_mode_missing_restore_uses_defaults() {
+        let mut settings = AppSettings {
+            minimal_mode_enabled: true,
+            minimal_mode_restore: None,
+            is_cat_visible: false,
+            show_monitor_data_in_taskbar: true,
+            enable_low_power_mode: true,
+            ..Default::default()
+        };
+
+        settings.toggle_minimal_mode();
+
+        let defaults = AppSettings::default();
+        assert!(!settings.minimal_mode_enabled);
+        assert_eq!(settings.is_cat_visible, defaults.is_cat_visible);
+        assert_eq!(
+            settings.is_monitor_bar_visible,
+            defaults.is_monitor_bar_visible
+        );
+        assert_eq!(
+            settings.show_monitor_data_in_taskbar,
+            defaults.show_monitor_data_in_taskbar
+        );
+        assert_eq!(
+            settings.enable_low_power_mode,
+            defaults.enable_low_power_mode
+        );
+        assert_eq!(
+            settings.integrated_hardware_monitor_enabled,
+            defaults.integrated_hardware_monitor_enabled
+        );
+    }
+
+    #[test]
+    fn minimal_mode_allows_explicit_hardware_monitor_opt_in() {
+        let mut settings = AppSettings {
+            is_cat_visible: true,
+            is_monitor_bar_visible: true,
+            enable_low_power_mode: false,
+            integrated_hardware_monitor_enabled: false,
+            ..Default::default()
+        };
+        settings.toggle_minimal_mode();
+
+        settings.apply_patch(AppSettingsPatch {
+            is_cat_visible: Some(true),
+            is_monitor_bar_visible: Some(true),
+            enable_low_power_mode: Some(false),
+            integrated_hardware_monitor_enabled: Some(true),
+            ..Default::default()
+        });
+
+        assert!(!settings.is_cat_visible);
+        assert!(!settings.is_monitor_bar_visible);
+        assert!(settings.enable_low_power_mode);
+        assert!(settings.integrated_hardware_monitor_enabled);
+        assert!(!settings.enforce_minimal_mode_constraints());
+
+        settings.toggle_minimal_mode();
+        assert!(settings.integrated_hardware_monitor_enabled);
+    }
+
+    #[test]
     fn rhythm_profile_aggregates_active_seconds_by_local_hour() {
         // Two slices on the same day at 10:00 and 10:15 local → both land in hour 10.
         let base = Local
             .timestamp_millis_opt(0)
             .single()
             .unwrap()
-            .date()
+            .date_naive()
             .and_hms_opt(10, 0, 0)
             .unwrap();
         let day = base.format("%Y-%m-%d").to_string();
         let t1 = Local
-            .from_local_datetime(&base.naive_local())
+            .from_local_datetime(&base)
             .single()
             .unwrap()
             .timestamp_millis();
@@ -4060,7 +4204,10 @@ mod assessment_tests {
         let book = WorkLogBook::default();
         let profile = build_rhythm_profile(&book, &[]);
         assert!(profile.hour_buckets.iter().all(|h| h.active_seconds == 0));
-        assert!(profile.peak_hours.is_empty() || profile.hour_buckets.iter().all(|h| h.active_seconds == 0));
+        assert!(
+            profile.peak_hours.is_empty()
+                || profile.hour_buckets.iter().all(|h| h.active_seconds == 0)
+        );
     }
 
     fn test_rarity(tier: &str) -> WorkCardRarity {
@@ -4318,7 +4465,10 @@ mod assessment_tests {
         let assessment = DailyWorkAssessment::from_entry(entry, &[]);
 
         assert_eq!(assessment.timeline.len(), 1);
-        assert_eq!(assessment.timeline[0].kind, WorkTimelineSegmentKind::BuildPeak);
+        assert_eq!(
+            assessment.timeline[0].kind,
+            WorkTimelineSegmentKind::BuildPeak
+        );
     }
 
     #[test]
@@ -4417,7 +4567,12 @@ mod assessment_tests {
     /// Build an entry that would score on `record_snapshot` signal: enough
     /// samples + active seconds + some load points so `WorkLogReport::from_entry`
     /// produces a non-zero score.
-    fn scored_entry(date: String, active_seconds: u64, cpu_points: f64, samples: u64) -> WorkLogEntry {
+    fn scored_entry(
+        date: String,
+        active_seconds: u64,
+        cpu_points: f64,
+        samples: u64,
+    ) -> WorkLogEntry {
         WorkLogEntry {
             date,
             active_seconds,
@@ -4453,10 +4608,7 @@ mod assessment_tests {
     fn health_trend_single_day_populates_series_and_streak() {
         let mut entries = BTreeMap::new();
         let today = today_date_key();
-        entries.insert(
-            today.clone(),
-            scored_entry(today, 4 * 3600, 400.0, 100),
-        );
+        entries.insert(today.clone(), scored_entry(today, 4 * 3600, 400.0, 100));
 
         let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
 
@@ -4493,13 +4645,19 @@ mod assessment_tests {
     fn health_trend_streak_breaks_on_gap() {
         let mut entries = BTreeMap::new();
         // Data today and 2 days ago, but NOT yesterday → current streak = 1.
-        entries.insert(today_date_key(), scored_entry(today_date_key(), 3600, 500.0, 50));
+        entries.insert(
+            today_date_key(),
+            scored_entry(today_date_key(), 3600, 500.0, 50),
+        );
         let two = days_ago_key(2);
         entries.insert(two.clone(), scored_entry(two, 3600, 500.0, 50));
 
         let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
 
-        assert_eq!(report.streaks.current, 1, "current streak ends at the gap before today");
+        assert_eq!(
+            report.streaks.current, 1,
+            "current streak ends at the gap before today"
+        );
         assert_eq!(report.streaks.longest, 1, "no two consecutive days");
         assert_eq!(report.streaks.total_active_days, 2);
     }
@@ -4530,11 +4688,17 @@ mod assessment_tests {
     #[test]
     fn health_trend_grade_is_one_of_sabc() {
         let mut entries = BTreeMap::new();
-        entries.insert(today_date_key(), scored_entry(today_date_key(), 6 * 3600, 500.0, 100));
+        entries.insert(
+            today_date_key(),
+            scored_entry(today_date_key(), 6 * 3600, 500.0, 100),
+        );
 
         let report = HealthTrendReport::from_book(&entries, TrendRange::Days7);
 
-        assert!(matches!(report.health_grade.as_str(), "S" | "A" | "B" | "C"));
+        assert!(matches!(
+            report.health_grade.as_str(),
+            "S" | "A" | "B" | "C"
+        ));
         assert!(report.health_score <= 100);
     }
 

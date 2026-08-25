@@ -1,5 +1,9 @@
 node_modules/
 dist/
+hardware-monitor-helper/bin/
+hardware-monitor-helper/obj/
+src-tauri/binaries/*.exe
+src-tauri/binaries/*.pdb
 src-tauri/target/
 src-tauri/target-sandbox/
 Cargo-target-sandbox/
@@ -12,6 +16,7 @@ tauri-dev*.log
 *-check*.png
 final-*.png
 .tmp/
+sync-server/.env
 .codegraph/
 docs/
 stderr.txt

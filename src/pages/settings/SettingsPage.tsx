@@ -5,15 +5,21 @@ import {
   showMonitorBar,
   showPetWindow,
   exitApp,
+  downloadUserData,
+  checkAccessTokenRequest,
   getMemoryStatus,
+  getSyncConfig,
+  requestAccessToken,
   triggerMemoryRelease,
+  updateSyncConfig,
+  uploadUserData,
   type MemoryStatus,
 } from "../../services/tauriCommands";
-import { copyTextToClipboard } from "../../services/clipboard";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
 import type { AppSettingsPatch, MonitorBarMode, MonitorMetric } from "../../types/settings";
+import type { SyncConfig } from "../../types/cloudSync";
 import { defaultModuleLevels } from "../../types/workshop";
 import { useThemedIcons } from "../../ui/assets";
 import { PixelIcon } from "../../ui/PixelIcon";
@@ -30,6 +36,18 @@ const monitorModeOptions: Array<{ key: MonitorBarMode; label: string }> = [
   { key: "Micro", label: "Micro" },
   { key: "Default", label: "Default" },
   { key: "Expanded", label: "Expanded" },
+];
+
+const cloudBackupContentLabels = [
+  "应用设置",
+  "设备配置",
+  "工坊进度",
+  "日报",
+  "体检",
+  "成就",
+  "专注记录",
+  "笔记",
+  "窗口布局",
 ];
 
 /** Compact `MM-DD HH:mm` format for the "last release" line so the whole value
@@ -71,6 +89,20 @@ export function SettingsPage() {
   // True while a manual release is in flight (UAC prompt + helper run). Keeps
   // the button from being double-clicked and gives affordance feedback.
   const [releasing, setReleasing] = useState(false);
+  const [syncConfig, setSyncConfig] = useState<SyncConfig>({
+    serverUrl: "",
+    accessToken: "",
+    userName: "",
+    tokenRequestId: "",
+    tokenRequestSecret: "",
+    autoBackupEnabled: false,
+    autoBackupIntervalMinutes: 30,
+  });
+  const [syncBusy, setSyncBusy] = useState<
+    "save" | "request" | "check" | "upload" | "download" | null
+  >(null);
+  const [syncMessage, setSyncMessage] = useState("");
+  const tokenCheckInFlightRef = useRef(false);
 
   // Slider/continuous inputs are coalesced here: every drag fires many onChange
   // events, and we must not invoke updateAppSettings (a disk write + IPC round
@@ -119,6 +151,120 @@ export function SettingsPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void getSyncConfig()
+      .then((config) => {
+        if (active) setSyncConfig(config);
+      })
+      .catch((error) => {
+        if (active) setSyncMessage(`读取同步配置失败：${String(error)}`);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function saveCloudConfig() {
+    const saved = await updateSyncConfig(syncConfig);
+    setSyncConfig(saved);
+    return saved;
+  }
+
+  async function handleTokenRequest() {
+    if (syncBusy) return;
+    setSyncBusy("request");
+    setSyncMessage("");
+    try {
+      const result = await requestAccessToken(syncConfig);
+      setSyncConfig(await getSyncConfig());
+      setSyncMessage(
+        `已提交 ${result.userName} 的令牌申请，管理员发放后会自动保存令牌并上传首次备份`,
+      );
+    } catch (error) {
+      setSyncMessage(`申请失败：${String(error)}`);
+    } finally {
+      setSyncBusy(null);
+    }
+  }
+
+  async function checkTokenRequest(manual: boolean) {
+    if (tokenCheckInFlightRef.current) return;
+    tokenCheckInFlightRef.current = true;
+    if (manual) setSyncBusy("check");
+    try {
+      const result = await checkAccessTokenRequest();
+      setSyncConfig(await getSyncConfig());
+      if (result.status === "approved") {
+        if (result.initialSync) {
+          const time = new Date(result.initialSync.storedAt).toLocaleString();
+          setSyncMessage(`令牌已自动保存，并已上传首次完整备份 · ${time}`);
+        } else {
+          setSyncMessage(
+            `令牌已自动保存，但首次备份失败：${result.initialSyncError ?? "未知错误"}`,
+          );
+        }
+      } else if (result.status === "rejected") {
+        setSyncMessage("管理员未通过本次令牌申请，请确认用户名后重新申请");
+      } else if (manual) {
+        setSyncMessage("申请仍在等待管理员处理");
+      }
+    } catch (error) {
+      if (manual) {
+        setSyncMessage(`检查申请失败：${String(error)}`);
+      } else {
+        const latest = await getSyncConfig().catch(() => null);
+        if (latest) {
+          setSyncConfig(latest);
+          if (latest.accessToken) {
+            setSyncMessage("令牌已自动保存，首次完整备份已由客户端处理");
+          }
+        }
+      }
+    } finally {
+      tokenCheckInFlightRef.current = false;
+      if (manual) setSyncBusy(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!syncConfig.tokenRequestId || syncConfig.accessToken) return;
+    void checkTokenRequest(false);
+    const timer = setInterval(() => void checkTokenRequest(false), 10_000);
+    return () => clearInterval(timer);
+  }, [syncConfig.tokenRequestId, syncConfig.accessToken]);
+
+  async function handleCloudAction(action: "save" | "upload" | "download") {
+    if (syncBusy) return;
+    if (
+      action === "download" &&
+      !window.confirm("从云端恢复会覆盖本机的设置、工坊、笔记及其他用户数据。确认继续吗？")
+    ) {
+      return;
+    }
+
+    setSyncBusy(action);
+    setSyncMessage("");
+    try {
+      await saveCloudConfig();
+      if (action === "save") {
+        setSyncMessage("同步配置已保存");
+        return;
+      }
+      const result = action === "upload" ? await uploadUserData() : await downloadUserData();
+      const time = new Date(result.storedAt).toLocaleString();
+      setSyncMessage(
+        action === "upload"
+          ? `已上传完整备份 · ${time}`
+          : `已从云端恢复 · ${time} · 请重启应用以完整应用窗口与启动配置`,
+      );
+    } catch (error) {
+      setSyncMessage(`操作失败：${String(error)}`);
+    } finally {
+      setSyncBusy(null);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -761,20 +907,21 @@ export function SettingsPage() {
               </div>
             </div>
 
-            {/* Card: Hardware Monitoring — LibreHardwareMonitor data source */}
+            {/* Card: bundled hardware sensor helper */}
             <div className="cwp-settings-card">
               <div className="cwp-settings-card-title">
                 <PixelIcon name="monitor" size={14} style={{ marginRight: "6px" }} /> 硬件监控
               </div>
               <div className="cwp-settings-row-inline">
-                <span className="cwp-settings-label">高精度温度（LibreHardwareMonitor）</span>
+                <span className="cwp-settings-label">内置硬件温度监控</span>
                 <label className="cwp-switch-label">
                   <input
                     type="checkbox"
-                    checked={settings?.libreHardwareMonitorEnabled ?? true}
+                    aria-label="内置硬件温度监控"
+                    checked={settings?.integratedHardwareMonitorEnabled ?? false}
                     onChange={(e) =>
                       safeUpdate({
-                        libreHardwareMonitorEnabled: e.target.checked,
+                        integratedHardwareMonitorEnabled: e.target.checked,
                       })
                     }
                   />
@@ -782,32 +929,160 @@ export function SettingsPage() {
                 </label>
               </div>
               <div className="cwp-settings-note">
-                读取更精确的 CPU 核心温度，未开启时回退到系统估算。
+                直接读取 CPU / GPU 硬件传感器。首次开启会请求管理员权限；无需安装或运行第三方监控程序。
               </div>
-              <ol className="cwp-settings-steps">
-                <li>
-                  下载
-                  <button
-                    type="button"
-                    className="cwp-settings-link"
-                    onClick={() => {
-                      void copyTextToClipboard(
-                        "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases",
-                      ).then(() => {
-                        window.alert(
-                          "下载地址已复制到剪贴板，请在浏览器粘贴打开：\nhttps://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases",
-                        );
-                      });
-                    }}
-                    title="点击复制下载地址"
+            </div>
+
+            <div className="cwp-settings-card">
+              <div className="cwp-settings-card-title">
+                <PixelIcon name="devices" size={14} style={{ marginRight: "6px" }} /> 云端数据备份
+              </div>
+              <label className="cwp-sync-field">
+                <span>服务器地址</span>
+                <input
+                  aria-label="同步服务器地址"
+                  autoComplete="url"
+                  onChange={(event) =>
+                    setSyncConfig((current) => ({ ...current, serverUrl: event.target.value }))
+                  }
+                  placeholder="https://sync.example.com"
+                  type="url"
+                  value={syncConfig.serverUrl}
+                />
+              </label>
+              <label className="cwp-sync-field">
+                <span>用户名</span>
+                <input
+                  aria-label="同步用户名"
+                  autoComplete="username"
+                  disabled={Boolean(syncConfig.tokenRequestId)}
+                  maxLength={40}
+                  onChange={(event) =>
+                    setSyncConfig((current) => ({ ...current, userName: event.target.value }))
+                  }
+                  placeholder="用于管理员识别，例如 CoCatFan"
+                  type="text"
+                  value={syncConfig.userName}
+                />
+              </label>
+              <label className="cwp-sync-field">
+                <span>访问令牌</span>
+                <input
+                  aria-label="同步访问令牌"
+                  autoComplete="off"
+                  onChange={(event) =>
+                    setSyncConfig((current) => ({ ...current, accessToken: event.target.value }))
+                  }
+                  placeholder="服务器分配的访问令牌"
+                  type="password"
+                  value={syncConfig.accessToken}
+                />
+              </label>
+              <div className="cwp-sync-schedule">
+                <div className="cwp-settings-row-inline">
+                  <span className="cwp-settings-label">自动备份上传</span>
+                  <label className="cwp-switch-label">
+                    <input
+                      aria-label="自动备份上传"
+                      checked={syncConfig.autoBackupEnabled}
+                      disabled={!syncConfig.accessToken}
+                      onChange={(event) =>
+                        setSyncConfig((current) => ({
+                          ...current,
+                          autoBackupEnabled: event.target.checked,
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <span className="cwp-switch-slider" />
+                  </label>
+                </div>
+                <label className="cwp-sync-interval">
+                  <span>上传间隔</span>
+                  <select
+                    aria-label="自动备份上传间隔"
+                    className="cwp-custom-select"
+                    disabled={!syncConfig.autoBackupEnabled || !syncConfig.accessToken}
+                    onChange={(event) =>
+                      setSyncConfig((current) => ({
+                        ...current,
+                        autoBackupIntervalMinutes: Number(event.target.value),
+                      }))
+                    }
+                    value={syncConfig.autoBackupIntervalMinutes}
                   >
-                    LibreHardwareMonitor
+                    <option value={15}>15 分钟</option>
+                    <option value={30}>30 分钟</option>
+                    <option value={60}>1 小时</option>
+                    <option value={120}>2 小时</option>
+                    <option value={360}>6 小时</option>
+                  </select>
+                </label>
+              </div>
+              <div className="cwp-sync-contents">
+                <span className="cwp-sync-contents-title">备份内容</span>
+                <div className="cwp-sync-contents-grid">
+                  {cloudBackupContentLabels.map((label) => (
+                    <span key={label} className="cwp-sync-content-item">
+                      <span aria-hidden="true" />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {syncConfig.tokenRequestId && !syncConfig.accessToken ? (
+                <div className="cwp-sync-request-status" role="status">
+                  <span className="cwp-sync-request-dot" aria-hidden="true" />
+                  等待管理员发放令牌，客户端每 10 秒自动检查
+                </div>
+              ) : null}
+              <div className="cwp-sync-actions">
+                <button
+                  className="cwp-metric-select"
+                  disabled={syncBusy !== null}
+                  onClick={() => void handleCloudAction("save")}
+                  type="button"
+                >
+                  保存配置
+                </button>
+                {!syncConfig.accessToken ? (
+                  <button
+                    className="cwp-metric-select is-active"
+                    disabled={syncBusy !== null}
+                    onClick={() =>
+                      void (syncConfig.tokenRequestId
+                        ? checkTokenRequest(true)
+                        : handleTokenRequest())
+                    }
+                    type="button"
+                  >
+                    {syncBusy === "request"
+                      ? "申请中…"
+                      : syncBusy === "check"
+                        ? "检查中…"
+                        : syncConfig.tokenRequestId
+                          ? "检查申请状态"
+                          : "申请令牌"}
                   </button>
-                  （独立第三方程序，需自行运行）
-                </li>
-                <li><strong>以管理员身份运行</strong> LHM</li>
-                <li>在 LHM 的 Options 勾选 <strong>REST Web Server</strong></li>
-              </ol>
+                ) : null}
+                <button
+                  className="cwp-metric-select is-active"
+                  disabled={syncBusy !== null || !syncConfig.accessToken}
+                  onClick={() => void handleCloudAction("upload")}
+                  type="button"
+                >
+                  {syncBusy === "upload" ? "上传中…" : "上传完整备份"}
+                </button>
+                <button
+                  className="cwp-metric-select"
+                  disabled={syncBusy !== null || !syncConfig.accessToken}
+                  onClick={() => void handleCloudAction("download")}
+                  type="button"
+                >
+                  {syncBusy === "download" ? "恢复中…" : "从云端恢复"}
+                </button>
+              </div>
+              {syncMessage ? <div className="cwp-sync-message">{syncMessage}</div> : null}
             </div>
           </div>
         </div>

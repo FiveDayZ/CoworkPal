@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>CoworkPal 云端总览</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+  </head>
+  <body>
+    <div class="login-layer" id="login-layer">
+      <main class="login-panel" aria-labelledby="login-title">
+        <img class="login-avatar" src="/cocat-avatar.png" alt="CoCat" width="112" height="112" />
+        <p class="product-mark">COWORKPAL / CLOUD</p>
+        <h1 id="login-title">云端总览</h1>
+        <p class="login-copy">使用管理员令牌查看所有用户的备份状态。</p>
+        <form id="login-form">
+          <label for="admin-token">管理员令牌</label>
+          <div class="token-field">
+            <input
+              id="admin-token"
+              name="token"
+              type="password"
+              autocomplete="current-password"
+              minlength="32"
+              required
+              autofocus
+            />
+            <button class="icon-button" id="toggle-token" type="button" title="显示令牌" aria-label="显示令牌">
+              <span aria-hidden="true">&#9673;</span>
+            </button>
+          </div>
+          <p class="form-error" id="login-error" role="alert"></p>
+          <button class="primary-button" type="submit">进入总览</button>
+        </form>
+      </main>
+    </div>
+
+    <div class="app-shell" id="app-shell" hidden>
+      <header class="topbar">
+        <div class="brand">
+          <img src="/cocat-avatar.png" alt="" width="42" height="42" />
+          <div>
+            <p>COWORKPAL / CLOUD</p>
+            <h1>用户备份总览</h1>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <p class="freshness" id="freshness">尚未刷新</p>
+          <button class="icon-button" id="refresh-button" type="button" title="刷新数据" aria-label="刷新数据">
+            <span aria-hidden="true">&#8635;</span>
+          </button>
+          <button class="icon-button" id="logout-button" type="button" title="退出登录" aria-label="退出登录">
+            <span aria-hidden="true">&#10140;</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="dashboard">
+        <section class="kpis" aria-label="备份指标">
+          <div class="kpi"><span>配置用户</span><strong id="kpi-users">0</strong></div>
+          <div class="kpi"><span>已有备份</span><strong id="kpi-backed-up">0</strong></div>
+          <div class="kpi"><span>累计在线</span><strong id="kpi-online">0 小时</strong></div>
+          <div class="kpi"><span>云端笔记</span><strong id="kpi-notes">0</strong></div>
+          <div class="kpi"><span>日报 / 体检</span><strong id="kpi-worklogs">0 / 0</strong></div>
+          <div class="kpi"><span>已解锁成就</span><strong id="kpi-achievements">0</strong></div>
+        </section>
+
+        <section class="requests-section" aria-labelledby="requests-heading">
+          <div class="section-bar">
+            <div>
+              <h2 id="requests-heading">令牌申请</h2>
+              <p id="request-count">0 个待处理</p>
+            </div>
+          </div>
+          <div class="request-list" id="request-list" aria-live="polite"></div>
+          <div class="request-empty" id="request-empty">暂无待处理的令牌申请。</div>
+        </section>
+
+        <section class="users-section" aria-labelledby="users-heading">
+          <div class="section-bar">
+            <div>
+              <h2 id="users-heading">全部用户</h2>
+              <p id="result-count">0 位用户</p>
+            </div>
+            <label class="search-field">
+              <span class="visually-hidden">搜索用户或设备</span>
+              <span aria-hidden="true">&#9906;</span>
+              <input id="search-input" type="search" placeholder="搜索用户或设备" autocomplete="off" />
+            </label>
+          </div>
+
+          <div class="state-panel" id="loading-state" role="status">
+            <span class="spinner" aria-hidden="true"></span>
+            正在读取云端备份
+          </div>
+          <div class="state-panel state-error" id="error-state" hidden>
+            <strong>数据读取失败</strong>
+            <span id="error-message">请稍后重试。</span>
+            <button class="secondary-button" id="retry-button" type="button">重新加载</button>
+          </div>
+          <div class="state-panel" id="empty-state" hidden>没有符合条件的用户。</div>
+          <div class="user-list" id="user-list" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/dashboard.js" defer></script>
+  </body>
+</html>

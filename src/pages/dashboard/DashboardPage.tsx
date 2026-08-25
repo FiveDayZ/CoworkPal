@@ -123,8 +123,7 @@ export function DashboardPage() {
     75,
     ["安全", "预警", "高温"],
   );
-  // Precision badge: "高精度" when sourced from LibreHardwareMonitor core
-  // MSR readings, "估算" for ACPI thermal-zone estimates. Empty when unknown.
+  // Empty when no reliable hardware-scoped CPU sensor is available.
   const tempSourceText = temperatureSourceLabel(
     snapshot?.cpuTemperatureSource ?? null,
   );

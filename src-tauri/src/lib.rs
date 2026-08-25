@@ -1,5 +1,6 @@
 mod app_state;
 pub mod achievements;
+mod cloud_sync;
 mod commands;
 pub mod events;
 mod input_activity;
@@ -74,6 +75,8 @@ pub fn run() {
             start_hardware_snapshot_pump(app.handle().clone());
             start_input_activity_pump(app.handle().clone());
             start_memory_auto_release_pump(app.handle().clone());
+            cloud_sync::start_token_request_polling(app.handle().clone());
+            cloud_sync::start_auto_backup_polling(app.handle().clone());
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 window_manager::apply_saved_window_positions(&app_handle).await;
@@ -132,6 +135,12 @@ pub fn run() {
             commands::get_today_suggestions,
             commands::get_memory_status,
             commands::trigger_memory_release,
+            cloud_sync::get_sync_config,
+            cloud_sync::update_sync_config,
+            cloud_sync::request_access_token,
+            cloud_sync::check_access_token_request,
+            cloud_sync::upload_user_data,
+            cloud_sync::download_user_data,
             commands::show_taskbar_context_menu,
             commands::updater::check_update,
             commands::updater::download_update,

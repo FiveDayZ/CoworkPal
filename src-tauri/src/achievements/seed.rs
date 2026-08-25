@@ -19,19 +19,34 @@ impl fmt::Display for AchievementSeedError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DefinitionBeforeDifficulty { line } => {
-                write!(formatter, "achievement definition before difficulty at line {line}")
+                write!(
+                    formatter,
+                    "achievement definition before difficulty at line {line}"
+                )
             }
             Self::InvalidRow { line, content } => {
-                write!(formatter, "invalid achievement row at line {line}: {content}")
+                write!(
+                    formatter,
+                    "invalid achievement row at line {line}: {content}"
+                )
             }
             Self::UnknownCategory { line, label } => {
-                write!(formatter, "unknown achievement category '{label}' at line {line}")
+                write!(
+                    formatter,
+                    "unknown achievement category '{label}' at line {line}"
+                )
             }
             Self::InvalidPoints { line, value } => {
-                write!(formatter, "invalid achievement points '{value}' at line {line}")
+                write!(
+                    formatter,
+                    "invalid achievement points '{value}' at line {line}"
+                )
             }
             Self::InvalidHiddenFlag { line, value } => {
-                write!(formatter, "invalid achievement hidden flag '{value}' at line {line}")
+                write!(
+                    formatter,
+                    "invalid achievement hidden flag '{value}' at line {line}"
+                )
             }
             Self::MissingBadgeKey { line } => {
                 write!(formatter, "missing achievement badge key at line {line}")

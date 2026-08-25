@@ -154,8 +154,12 @@ pub enum AchievementOperator {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AchievementCondition {
-    All { conditions: Vec<AchievementCondition> },
-    Any { conditions: Vec<AchievementCondition> },
+    All {
+        conditions: Vec<AchievementCondition>,
+    },
+    Any {
+        conditions: Vec<AchievementCondition>,
+    },
     Counter {
         counter: String,
         op: AchievementOperator,
@@ -235,4 +239,3 @@ impl AchievementDefinition {
         }
     }
 }
-

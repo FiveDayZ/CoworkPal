@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
@@ -9,11 +10,14 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     achievements::AchievementBook,
+    cloud_sync::{SyncConfig, UserDataSnapshot},
     models::{
         AppSettings, FocusSessionBook, LayoutState, NoteBook, WorkLogBook, WorkshopState,
         APP_SETTINGS_SCHEMA_VERSION,
     },
 };
+
+const LAST_GOOD_BACKUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300);
 
 #[derive(Debug)]
 pub struct StorageService {
@@ -27,32 +31,13 @@ pub struct StorageService {
 
 impl StorageService {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let root = app_data_root();
+        let root = app_data_root()?;
         Self::new_with_root(root)
     }
 
     pub fn new_with_root(root: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         fs::create_dir_all(root.join("logs"))?;
         fs::create_dir_all(root.join("backups"))?;
-        // Clean up stale temp files left by a previous process that crashed
-        // between fs::write and fs::rename in write_json. These are named
-        // `<file>.<pid>.tmp`; any whose PID isn't this process's is stale.
-        // Best-effort: failures are logged but don't block startup.
-        let current_pid = std::process::id();
-        if let Ok(entries) = fs::read_dir(&root) {
-            for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.ends_with(".tmp") {
-                        // Only remove temp files not belonging to this process.
-                        // (Our own temp files include our PID; a same-PID reuse
-                        // across restarts is effectively impossible in practice.)
-                        if !name.contains(&current_pid.to_string()) {
-                            let _ = fs::remove_file(entry.path());
-                        }
-                    }
-                }
-            }
-        }
         Ok(Self {
             root,
             corruption_rebuilds: Arc::new(Mutex::new(Vec::new())),
@@ -62,7 +47,14 @@ impl StorageService {
 
     pub fn load_or_create_settings(&self) -> Result<AppSettings, String> {
         let mut settings = self.load_or_create::<AppSettings>("settings.json")?;
-        if migrate_settings(&mut settings, self.cached_smbios_uuid()) {
+        let smbios_uuid = settings
+            .cat_id
+            .is_empty()
+            .then(|| self.cached_smbios_uuid())
+            .flatten();
+        let changed = migrate_settings(&mut settings, smbios_uuid);
+        let minimal_mode_corrected = settings.enforce_minimal_mode_constraints();
+        if changed || minimal_mode_corrected {
             self.save_settings(&settings)?;
         }
         Ok(settings)
@@ -70,9 +62,7 @@ impl StorageService {
 
     /// Returns the cached SMBIOS UUID, querying powershell only on the first call.
     fn cached_smbios_uuid(&self) -> Option<String> {
-        self.smbios_uuid
-            .get_or_init(|| query_smbios_uuid())
-            .clone()
+        self.smbios_uuid.get_or_init(query_smbios_uuid).clone()
     }
 
     pub fn save_settings(&self, settings: &AppSettings) -> Result<(), String> {
@@ -85,6 +75,64 @@ impl StorageService {
 
     pub fn save_workshop(&self, workshop: &WorkshopState) -> Result<(), String> {
         self.write_json("save.json", workshop)
+    }
+
+    pub fn load_sync_config(&self) -> Result<SyncConfig, String> {
+        self.load_or_create("sync.json")
+    }
+
+    pub fn save_sync_config(&self, config: &SyncConfig) -> Result<(), String> {
+        self.write_json("sync.json", config)
+    }
+
+    pub fn apply_pending_user_data_restore(&self) -> Result<(), String> {
+        let path = self.root.join("restore.pending.json");
+        if !path.exists() {
+            return Ok(());
+        }
+        let content = fs::read_to_string(&path)
+            .map_err(|error| format!("failed to read pending cloud restore: {error}"))?;
+        let snapshot = serde_json::from_str::<UserDataSnapshot>(&content)
+            .map_err(|error| format!("failed to parse pending cloud restore: {error}"))?;
+        self.apply_user_data_snapshot(&snapshot)?;
+        fs::remove_file(path)
+            .map_err(|error| format!("failed to finish pending cloud restore: {error}"))
+    }
+
+    pub fn restore_user_data_snapshot(
+        &self,
+        target: &UserDataSnapshot,
+        previous: &UserDataSnapshot,
+    ) -> Result<(), String> {
+        self.write_json("restore.pending.json", target)?;
+        if let Err(restore_error) = self.apply_user_data_snapshot(target) {
+            self.write_json("restore.pending.json", previous)?;
+            match self.apply_user_data_snapshot(previous) {
+                Ok(()) => {
+                    let _ = fs::remove_file(self.root.join("restore.pending.json"));
+                    return Err(format!(
+                        "failed to restore cloud data; local data was rolled back: {restore_error}"
+                    ));
+                }
+                Err(rollback_error) => {
+                    return Err(format!(
+                        "failed to restore cloud data ({restore_error}) and local rollback failed ({rollback_error}); restart CoworkPal to retry the recovery journal"
+                    ));
+                }
+            }
+        }
+        fs::remove_file(self.root.join("restore.pending.json"))
+            .map_err(|error| format!("failed to finish cloud restore: {error}"))
+    }
+
+    fn apply_user_data_snapshot(&self, snapshot: &UserDataSnapshot) -> Result<(), String> {
+        self.save_settings(&snapshot.settings)?;
+        self.save_workshop(&snapshot.workshop)?;
+        self.save_layout(&snapshot.layout)?;
+        self.save_work_logs(&snapshot.work_logs)?;
+        self.save_focus_sessions(&snapshot.focus_sessions)?;
+        self.save_achievements(&snapshot.achievements)?;
+        self.save_notes(&snapshot.notes)
     }
 
     pub fn load_or_create_layout(&self) -> Result<LayoutState, String> {
@@ -141,6 +189,12 @@ impl StorageService {
         let path = self.root.join(file_name);
 
         if !path.exists() {
+            if let Some(value) = self.recover::<T>(file_name)? {
+                self.write_json(file_name, &value)?;
+                self.cleanup_temp_files(file_name);
+                self.record_corruption_rebuild(file_name);
+                return Ok(value);
+            }
             let value = T::default();
             self.write_json(file_name, &value)?;
             return Ok(value);
@@ -151,30 +205,26 @@ impl StorageService {
 
         match serde_json::from_str::<T>(&content) {
             Ok(value) => {
-                // Normal load: return the parsed value WITHOUT rewriting the
-                // file. The previous code rewrote every data file on every
-                // launch (read + atomic rewrite), which added startup latency
-                // and disk wear — especially for the ever-growing work_logs.json
-                // — and on a full disk could even turn a healthy file into a
-                // failed write that aborted launch. Callers that genuinely need
-                // a writeback (settings migration) do so explicitly via save_*.
+                self.ensure_last_good_backup(file_name, content.as_bytes())?;
+                self.cleanup_temp_files(file_name);
                 Ok(value)
             }
             Err(error) => {
-                // Back up the corrupted file for diagnosis, but don't let a
-                // backup failure (e.g. backups dir not writable) block rebuild —
-                // previously this returned Err and left the data permanently
-                // unloadable on every launch. Warn and proceed to rebuild.
                 if let Err(backup_error) = self.backup_corrupted_file(&path, file_name) {
-                    tracing::warn!(
-                        "could not back up corrupted {file_name}: {backup_error}; rebuilding anyway"
-                    );
+                    tracing::warn!("could not preserve corrupted {file_name}: {backup_error}");
                 }
-                let value = T::default();
-                self.write_json(file_name, &value)?;
-                self.record_corruption_rebuild(file_name);
-                tracing::warn!("rebuilt corrupted {file_name}: {error}");
-                Ok(value)
+                match self.recover::<T>(file_name)? {
+                    Some(value) => {
+                        self.write_json(file_name, &value)?;
+                        self.cleanup_temp_files(file_name);
+                        self.record_corruption_rebuild(file_name);
+                        tracing::warn!("recovered corrupted {file_name}: {error}");
+                        Ok(value)
+                    }
+                    None => Err(format!(
+                        "failed to parse {file_name}: {error}; no valid recovery copy was found"
+                    )),
+                }
             }
         }
     }
@@ -194,16 +244,111 @@ impl StorageService {
         let content = serde_json::to_string_pretty(value)
             .map_err(|error| format!("failed to serialize {file_name}: {error}"))?;
 
-        fs::write(&temp_path, content)
+        write_synced(&temp_path, content.as_bytes())
             .map_err(|error| format!("failed to write temp {file_name}: {error}"))?;
+
+        // Refresh the recovery copy at most every five minutes. This bounds
+        // possible recovery loss without doubling writes for large work logs.
+        self.refresh_last_good_backup(file_name, content.as_bytes())?;
 
         // Atomic replace: a single rename over the existing file. On Windows
         // this uses MoveFileExW with MOVEFILE_REPLACE_EXISTING, so there is no
         // window where the target is absent. The previous remove-then-rename
         // sequence left the file missing between the two calls; a crash there
         // would lose the data file entirely.
-        fs::rename(&temp_path, &path)
-            .map_err(|error| format!("failed to commit {file_name}: {error}"))
+        replace_file(&temp_path, &path)
+            .map_err(|error| format!("failed to commit {file_name}: {error}"))?;
+        Ok(())
+    }
+
+    fn ensure_last_good_backup(&self, file_name: &str, content: &[u8]) -> Result<(), String> {
+        if self.last_good_path(file_name).exists() {
+            return Ok(());
+        }
+        self.write_last_good_backup(file_name, content)
+    }
+
+    fn refresh_last_good_backup(&self, file_name: &str, content: &[u8]) -> Result<(), String> {
+        let backup_path = self.last_good_path(file_name);
+        let is_fresh = fs::metadata(&backup_path)
+            .and_then(|metadata| metadata.modified())
+            .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+            .is_ok_and(|age| age < LAST_GOOD_BACKUP_INTERVAL);
+        if is_fresh {
+            return Ok(());
+        }
+        self.write_last_good_backup(file_name, content)
+    }
+
+    fn write_last_good_backup(&self, file_name: &str, content: &[u8]) -> Result<(), String> {
+        let backup_path = self.last_good_path(file_name);
+        let temp_path = self
+            .root
+            .join("backups")
+            .join(format!("{file_name}.{}.backup.tmp", std::process::id()));
+        write_synced(&temp_path, content)
+            .map_err(|error| format!("failed to write backup for {file_name}: {error}"))?;
+        replace_file(&temp_path, &backup_path)
+            .map_err(|error| format!("failed to commit backup for {file_name}: {error}"))
+    }
+
+    fn last_good_path(&self, file_name: &str) -> PathBuf {
+        self.root
+            .join("backups")
+            .join(format!("{file_name}.last-good.bak"))
+    }
+
+    fn recover<T>(&self, file_name: &str) -> Result<Option<T>, String>
+    where
+        T: DeserializeOwned,
+    {
+        let mut candidates = self.temp_files(file_name);
+        candidates.push(self.last_good_path(file_name));
+        let existing: Vec<_> = candidates
+            .into_iter()
+            .filter(|path| path.exists())
+            .collect();
+
+        for candidate in &existing {
+            let Ok(content) = fs::read_to_string(candidate) else {
+                continue;
+            };
+            if let Ok(value) = serde_json::from_str::<T>(&content) {
+                return Ok(Some(value));
+            }
+        }
+
+        if existing.is_empty() {
+            Ok(None)
+        } else {
+            Err(format!(
+                "all recovery copies for {file_name} are unreadable or invalid"
+            ))
+        }
+    }
+
+    fn temp_files(&self, file_name: &str) -> Vec<PathBuf> {
+        let prefix = format!("{file_name}.");
+        let mut paths: Vec<_> = fs::read_dir(&self.root)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".tmp"))
+            })
+            .collect();
+        paths.sort_by_key(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok());
+        paths.reverse();
+        paths
+    }
+
+    fn cleanup_temp_files(&self, file_name: &str) {
+        for path in self.temp_files(file_name) {
+            let _ = fs::remove_file(path);
+        }
     }
 
     fn backup_corrupted_file(&self, path: &Path, file_name: &str) -> Result<(), String> {
@@ -219,6 +364,16 @@ impl StorageService {
             rebuilds.push(file_name.to_string());
         }
     }
+}
+
+fn write_synced(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    let mut file = fs::File::create(path)?;
+    file.write_all(content)?;
+    file.sync_all()
+}
+
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
 }
 
 fn query_smbios_uuid() -> Option<String> {
@@ -309,37 +464,44 @@ fn migrate_settings(settings: &mut AppSettings, smbios_uuid: Option<String>) -> 
             settings.is_monitor_bar_visible = false;
             settings.show_monitor_data_in_taskbar = false;
         }
-        // v3 added `libre_hardware_monitor_enabled`. Its value is supplied by
-        // serde's `#[serde(default)]` (true) during deserialization of older
-        // files, so no explicit assignment is needed here.
+        // v4 replaces the external LibreHardwareMonitor connection with the
+        // bundled privileged helper. The new opt-in defaults to false so an
+        // upgrade never causes an unexpected UAC prompt.
+        if settings.schema_version < 4 {
+            settings.integrated_hardware_monitor_enabled = false;
+        }
+        // v5 lets a user explicitly opt into hardware sensors while minimal
+        // mode is active. Clear only the stale contradictory value once when
+        // upgrading from versions that could enable the helper accidentally.
+        if settings.schema_version < 5 && settings.minimal_mode_enabled {
+            settings.integrated_hardware_monitor_enabled = false;
+        }
         settings.schema_version = APP_SETTINGS_SCHEMA_VERSION;
         changed = true;
     }
 
-    let target_cat_id = if let Some(uuid) = smbios_uuid {
-        convert_uuid_to_cat_id(&uuid)
-    } else {
-        if settings.cat_id.is_empty() {
-            generate_random_cat_id()
-        } else {
-            settings.cat_id.clone()
-        }
-    };
-
-    if settings.cat_id != target_cat_id {
-        settings.cat_id = target_cat_id;
+    if settings.cat_id.is_empty() {
+        settings.cat_id = smbios_uuid
+            .as_deref()
+            .map(convert_uuid_to_cat_id)
+            .unwrap_or_else(generate_random_cat_id);
         changed = true;
     }
 
     changed
 }
 
-fn app_data_root() -> PathBuf {
+fn app_data_root() -> std::io::Result<PathBuf> {
     std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("XDG_DATA_HOME").map(PathBuf::from))
-        .unwrap_or_else(std::env::temp_dir)
-        .join("CoworkPal")
+        .map(|root| root.join("CoworkPal"))
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "APPDATA/XDG_DATA_HOME is unavailable; refusing to create a temporary save",
+            )
+        })
 }
 
 fn unix_timestamp_ms() -> u128 {
@@ -389,21 +551,172 @@ mod tests {
     }
 
     #[test]
-    fn backs_up_corrupted_json_and_rebuilds_default() {
+    fn recovers_corrupted_json_from_last_good_backup() {
         let root = unique_test_root("corrupt");
         let storage = StorageService::new_with_root(root.clone()).unwrap();
-        fs::write(root.join("settings.json"), "{not-json").unwrap();
+        let workshop = WorkshopState {
+            workshop_level: 18,
+            ..WorkshopState::default()
+        };
+        storage.save_workshop(&workshop).unwrap();
+        fs::write(root.join("save.json"), "{not-json").unwrap();
 
-        let settings = storage.load_or_create_settings().unwrap();
+        let recovered = storage.load_or_create_workshop().unwrap();
 
-        assert_eq!(settings.schema_version, APP_SETTINGS_SCHEMA_VERSION);
+        assert_eq!(recovered.workshop_level, 18);
         let backup_count = fs::read_dir(root.join("backups")).unwrap().count();
-        assert_eq!(backup_count, 1);
+        assert_eq!(backup_count, 2);
         assert_eq!(
             storage.take_corruption_rebuilds(),
-            vec!["settings.json".to_string()]
+            vec!["save.json".to_string()]
         );
         assert!(storage.take_corruption_rebuilds().is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn corrupted_json_without_recovery_is_not_replaced_with_default() {
+        let root = unique_test_root("corrupt-no-recovery");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        fs::write(root.join("save.json"), "{not-json").unwrap();
+
+        let error = storage.load_or_create_workshop().unwrap_err();
+
+        assert!(error.contains("no valid recovery copy"));
+        assert_eq!(
+            fs::read_to_string(root.join("save.json")).unwrap(),
+            "{not-json"
+        );
+        assert!(storage.take_corruption_rebuilds().is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recovers_missing_primary_from_complete_temp_file() {
+        let root = unique_test_root("temp-recovery");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        let workshop = WorkshopState {
+            workshop_level: 23,
+            ..WorkshopState::default()
+        };
+        fs::write(
+            root.join("save.json.999999.tmp"),
+            serde_json::to_string_pretty(&workshop).unwrap(),
+        )
+        .unwrap();
+
+        let recovered = storage.load_or_create_workshop().unwrap();
+
+        assert_eq!(recovered.workshop_level, 23);
+        assert!(root.join("save.json").exists());
+        assert!(!root.join("save.json.999999.tmp").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn repeated_save_replaces_primary_and_keeps_recent_backup() {
+        let root = unique_test_root("replace");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        let mut workshop = storage.load_or_create_workshop().unwrap();
+        workshop.workshop_level = 31;
+
+        storage.save_workshop(&workshop).unwrap();
+
+        assert_eq!(
+            storage.load_or_create_workshop().unwrap().workshop_level,
+            31
+        );
+        let backup: WorkshopState =
+            serde_json::from_str(&fs::read_to_string(storage.last_good_path("save.json")).unwrap())
+                .unwrap();
+        assert_eq!(backup.workshop_level, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn restart_preserves_cat_id_workshop_level_and_work_history() {
+        let root = unique_test_root("restart");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        let settings = storage.load_or_create_settings().unwrap();
+        let workshop = WorkshopState {
+            workshop_level: 42,
+            ..WorkshopState::default()
+        };
+        storage.save_workshop(&workshop).unwrap();
+        let mut work_logs = WorkLogBook::default();
+        work_logs.entries.insert(
+            "2026-08-25".to_string(),
+            crate::models::WorkLogEntry {
+                date: "2026-08-25".to_string(),
+                active_seconds: 3_600,
+                ..crate::models::WorkLogEntry::default()
+            },
+        );
+        storage.save_work_logs(&work_logs).unwrap();
+        drop(storage);
+
+        let restarted = StorageService::new_with_root(root.clone()).unwrap();
+        let settings_after = restarted.load_or_create_settings().unwrap();
+        let workshop_after = restarted.load_or_create_workshop().unwrap();
+        let logs_after = restarted.load_or_create_work_logs().unwrap();
+
+        assert_eq!(settings_after.cat_id, settings.cat_id);
+        assert_eq!(workshop_after.workshop_level, 42);
+        assert_eq!(logs_after.entries["2026-08-25"].active_seconds, 3_600);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migration_repairs_legacy_minimal_mode_hardware_monitor_setting() {
+        let root = unique_test_root("minimal-repair");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        let settings = AppSettings {
+            schema_version: 4,
+            minimal_mode_enabled: true,
+            is_cat_visible: true,
+            is_monitor_bar_visible: true,
+            enable_low_power_mode: false,
+            integrated_hardware_monitor_enabled: true,
+            ..AppSettings::default()
+        };
+        storage.save_settings(&settings).unwrap();
+
+        let repaired = storage.load_or_create_settings().unwrap();
+
+        assert!(!repaired.is_cat_visible);
+        assert!(!repaired.is_monitor_bar_visible);
+        assert!(repaired.enable_low_power_mode);
+        assert!(!repaired.integrated_hardware_monitor_enabled);
+        let persisted: AppSettings =
+            serde_json::from_str(&fs::read_to_string(root.join("settings.json")).unwrap()).unwrap();
+        assert!(!persisted.integrated_hardware_monitor_enabled);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn current_minimal_mode_preserves_explicit_hardware_monitor_opt_in() {
+        let root = unique_test_root("minimal-monitor-opt-in");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        let settings = AppSettings {
+            minimal_mode_enabled: true,
+            is_cat_visible: false,
+            is_monitor_bar_visible: false,
+            enable_low_power_mode: true,
+            integrated_hardware_monitor_enabled: true,
+            ..AppSettings::default()
+        };
+        storage.save_settings(&settings).unwrap();
+
+        let loaded = storage.load_or_create_settings().unwrap();
+
+        assert!(loaded.minimal_mode_enabled);
+        assert!(loaded.integrated_hardware_monitor_enabled);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -428,6 +741,24 @@ mod tests {
     }
 
     #[test]
+    fn migration_does_not_carry_external_monitor_opt_in_to_privileged_helper() {
+        let root = unique_test_root("integrated-monitor-migrate");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        fs::write(
+            root.join("settings.json"),
+            r#"{"schemaVersion":3,"libreHardwareMonitorEnabled":true}"#,
+        )
+        .unwrap();
+
+        let migrated = storage.load_or_create_settings().unwrap();
+
+        assert_eq!(migrated.schema_version, APP_SETTINGS_SCHEMA_VERSION);
+        assert!(!migrated.integrated_hardware_monitor_enabled);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn test_uuid_cat_id_conversion() {
         let uuid1 = "232BAA30-C234-5440-95F2-E3028F9818EC";
         let uuid2 = "232BAA30-C234-5440-95F2-E3028F9818EC "; // with trailing space
@@ -445,5 +776,64 @@ mod tests {
 
         // Test distinctness (different input, different output)
         assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn existing_cat_id_does_not_change_with_smbios_uuid() {
+        let mut settings = AppSettings {
+            schema_version: APP_SETTINGS_SCHEMA_VERSION,
+            cat_id: "Existing01".to_string(),
+            ..AppSettings::default()
+        };
+
+        let changed = migrate_settings(
+            &mut settings,
+            Some("232BAA30-C234-5440-95F2-E3028F9818EC".to_string()),
+        );
+
+        assert!(!changed);
+        assert_eq!(settings.cat_id, "Existing01");
+    }
+
+    #[test]
+    fn cloud_restore_persists_all_user_data_and_clears_journal() {
+        let root = unique_test_root("cloud-restore");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        let previous = UserDataSnapshot {
+            schema_version: 1,
+            exported_at: 1,
+            app_version: "test".to_string(),
+            device_profile: Default::default(),
+            settings: AppSettings::default(),
+            workshop: WorkshopState::default(),
+            layout: LayoutState::default(),
+            work_logs: WorkLogBook::default(),
+            focus_sessions: FocusSessionBook::default(),
+            achievements: AchievementBook::default(),
+            notes: NoteBook::default(),
+        };
+        let mut target = previous.clone();
+        target.workshop.workshop_level = 27;
+        target.notes.notes.push(crate::models::Note {
+            id: "note-cloud".to_string(),
+            title: "云端笔记".to_string(),
+            ..crate::models::Note::default()
+        });
+
+        storage
+            .restore_user_data_snapshot(&target, &previous)
+            .unwrap();
+
+        assert_eq!(
+            storage.load_or_create_workshop().unwrap().workshop_level,
+            27
+        );
+        assert_eq!(
+            storage.load_or_create_notes().unwrap().notes[0].id,
+            "note-cloud"
+        );
+        assert!(!root.join("restore.pending.json").exists());
+
+        let _ = fs::remove_dir_all(root);
     }
 }

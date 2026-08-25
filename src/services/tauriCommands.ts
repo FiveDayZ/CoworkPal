@@ -23,6 +23,7 @@ import {
 } from "../types/health";
 import type { NoteBook, NoteColor, NoteKind } from "../types/notes";
 import type { TodaySuggestions } from "../types/suggestions";
+import type { CloudSyncResult, SyncConfig, TokenRequestResult } from "../types/cloudSync";
 import { defaultModuleLevels, type WorkshopState } from "../types/workshop";
 
 export type CoCatInteractionAction = "pet" | "sortParts";
@@ -32,7 +33,7 @@ function isTauriRuntime() {
 }
 
 const browserSettings: AppSettings = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   launchAtStartup: false,
   isCatVisible: true,
   isMonitorBarVisible: false,
@@ -67,7 +68,7 @@ const browserSettings: AppSettings = {
   memoryAutoReleaseEnabled: false,
   memoryAutoReleaseThresholdGib: 8,
   memoryLastRelease: null,
-  libreHardwareMonitorEnabled: true,
+  integratedHardwareMonitorEnabled: false,
 };
 
 const browserWorkshop: WorkshopState = {
@@ -1269,6 +1270,56 @@ export async function updateWorkshopState(
   workshop: WorkshopState,
 ): Promise<WorkshopState> {
   return invoke<WorkshopState>("update_workshop_state", { workshop });
+}
+
+export async function getSyncConfig(): Promise<SyncConfig> {
+  if (!isTauriRuntime()) {
+    return {
+      serverUrl: "",
+      accessToken: "",
+      userName: "",
+      tokenRequestId: "",
+      tokenRequestSecret: "",
+      autoBackupEnabled: false,
+      autoBackupIntervalMinutes: 30,
+    };
+  }
+  return invoke<SyncConfig>("get_sync_config");
+}
+
+export async function requestAccessToken(config: SyncConfig): Promise<TokenRequestResult> {
+  if (!isTauriRuntime()) {
+    throw new Error("令牌申请仅在桌面应用中可用");
+  }
+  return invoke<TokenRequestResult>("request_access_token", { config });
+}
+
+export async function checkAccessTokenRequest(): Promise<TokenRequestResult> {
+  if (!isTauriRuntime()) {
+    throw new Error("令牌申请仅在桌面应用中可用");
+  }
+  return invoke<TokenRequestResult>("check_access_token_request");
+}
+
+export async function updateSyncConfig(config: SyncConfig): Promise<SyncConfig> {
+  if (!isTauriRuntime()) {
+    return config;
+  }
+  return invoke<SyncConfig>("update_sync_config", { config });
+}
+
+export async function uploadUserData(): Promise<CloudSyncResult> {
+  if (!isTauriRuntime()) {
+    throw new Error("云端同步仅在桌面应用中可用");
+  }
+  return invoke<CloudSyncResult>("upload_user_data");
+}
+
+export async function downloadUserData(): Promise<CloudSyncResult> {
+  if (!isTauriRuntime()) {
+    throw new Error("云端同步仅在桌面应用中可用");
+  }
+  return invoke<CloudSyncResult>("download_user_data");
 }
 
 import type { UpdateCheckResult } from "../types/update";

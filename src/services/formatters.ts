@@ -11,11 +11,10 @@ export function formatTemperature(value: number | null): string {
  *  source is reported (older snapshot or no reading at all). */
 export function temperatureSourceLabel(source: string | null): string {
   switch (source) {
-    case "librehardwaremonitor":
+    case "integrated":
       return "高精度";
     case "sysinfo":
-    case "thermalzone":
-      return "估算";
+      return "系统传感器";
     default:
       return "";
   }

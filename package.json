@@ -1,15 +1,16 @@
 {
   "name": "cowork-pal",
-  "version": "0.3.4",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
+    "build:hardware-monitor": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-hardware-monitor.ps1",
     "test:corecat": "node scripts/run-corecat-animation-tests.mjs",
     "optimize:animations": "node scripts/optimize-animation-pngs.mjs",
     "typecheck": "tsc --noEmit",
-    "tauri": "tauri"
+    "tauri": "pnpm build:hardware-monitor && tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.6.0",

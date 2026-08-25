@@ -16,20 +16,19 @@ use crate::{
 use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
-use super::windows_perf::{
-    query_primary_gpu_info, WindowsGpuInfo, WindowsPerformanceCounters,
-};
+use super::windows_perf::{query_primary_gpu_info, WindowsGpuInfo, WindowsPerformanceCounters};
 
-use super::libre_hardware_monitor;
+use super::integrated_hardware_monitor::{
+    IntegratedHardwareMonitorProbe, IntegratedHardwareMonitorSample,
+};
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-/// How long a cached `libre_hardware_monitor_enabled` reading from settings.json
+/// How long a cached `integrated_hardware_monitor_enabled` reading from settings.json
 /// is trusted before the file is re-read. The adapter has no access to the live
 /// settings state (its `sample()` takes no args), so it polls the file on disk.
-const LHM_SETTINGS_RECHECK_INTERVAL: Duration = Duration::from_secs(30);
-const LHM_QUERY_INTERVAL: Duration = Duration::from_secs(5);
+const INTEGRATED_MONITOR_SETTINGS_RECHECK_INTERVAL: Duration = Duration::from_secs(2);
 
 pub struct SysinfoAdapter {
     system: System,
@@ -43,17 +42,11 @@ pub struct SysinfoAdapter {
     gpu_info: WindowsGpuInfo,
     #[cfg(windows)]
     performance_counters: Option<WindowsPerformanceCounters>,
-    /// LibreHardwareMonitor probe result, refreshed at most every
-    /// `LHM_QUERY_INTERVAL`. `None` may mean "disabled", "not running", or
-    /// "queried but no CPU temp available" — `lhm_last_query_at` distinguishes
-    /// "not yet / disabled" (never queried) from a genuine miss.
-    cached_lhm_temperature: Option<f32>,
-    last_lhm_query_at: Option<Instant>,
-    /// Whether the user enabled the LHM data source in settings. Re-read from
-    /// settings.json every `LHM_SETTINGS_RECHECK_INTERVAL` so toggling the
-    /// switch takes effect without a restart.
-    lhm_enabled: bool,
-    lhm_settings_checked_at: Option<Instant>,
+    integrated_monitor: IntegratedHardwareMonitorProbe,
+    /// Whether the user enabled the bundled privileged sensor helper. Re-read
+    /// from settings.json so toggling the switch takes effect without restart.
+    integrated_monitor_enabled: bool,
+    integrated_monitor_settings_checked_at: Option<Instant>,
 }
 
 impl SysinfoAdapter {
@@ -77,14 +70,16 @@ impl SysinfoAdapter {
             gpu_info: query_primary_gpu_info(),
             #[cfg(windows)]
             performance_counters: WindowsPerformanceCounters::new(),
-            cached_lhm_temperature: None,
-            last_lhm_query_at: None,
-            lhm_enabled: read_libre_hardware_monitor_enabled(),
-            lhm_settings_checked_at: Some(Instant::now()),
+            integrated_monitor: IntegratedHardwareMonitorProbe::new(),
+            integrated_monitor_enabled: read_integrated_hardware_monitor_enabled(),
+            integrated_monitor_settings_checked_at: Some(Instant::now()),
         }
     }
 
-    fn sample_network_bytes_per_second(&mut self, elapsed_seconds: f32) -> (Option<f32>, Option<f32>) {
+    fn sample_network_bytes_per_second(
+        &mut self,
+        elapsed_seconds: f32,
+    ) -> (Option<f32>, Option<f32>) {
         self.networks.refresh();
 
         if self.networks.is_empty() {
@@ -111,14 +106,11 @@ impl SysinfoAdapter {
 
     fn sample_cpu_temperature(&mut self) -> Option<f32> {
         self.components.refresh();
-        self.components
-            .iter()
-            .filter_map(|component| {
-                let value = component.temperature();
-                value.is_finite().then_some(value)
-            })
-            .filter(|value| (-30.0..=125.0).contains(value))
-            .max_by(|left, right| left.total_cmp(right))
+        select_cpu_component_temperature(
+            self.components
+                .iter()
+                .map(|component| (component.label(), component.temperature())),
+        )
     }
 
     fn sample_nvidia_smi(&mut self) -> Option<NvidiaSmiSample> {
@@ -133,50 +125,31 @@ impl SysinfoAdapter {
         }
 
         self.last_nvidia_query_at = Some(now);
-        if let Some(sample) = query_nvidia_smi() {
-            self.cached_nvidia_sample = Some(sample.clone());
-        }
+        self.cached_nvidia_sample = query_nvidia_smi();
 
         self.cached_nvidia_sample.clone()
     }
 
-    /// Probes LibreHardwareMonitor (REST first, WMI fallback) for the CPU
-    /// package temperature. Returns `None` when the source is disabled in
-    /// settings, not installed, not running, or yielded no plausible value —
-    /// in every such case the caller falls back to sysinfo / thermal zone.
-    ///
-    /// Throttled to `LHM_QUERY_INTERVAL`; within a window the cached value is
-    /// returned so a 1s dashboard tick never hammers the LHM REST endpoint.
-    fn sample_libre_hardware_monitor(&mut self) -> Option<f32> {
+    fn sample_integrated_hardware_monitor(
+        &mut self,
+    ) -> Option<IntegratedHardwareMonitorSample> {
         let now = Instant::now();
 
-        // Re-read the settings flag periodically so toggling the switch in the
-        // UI takes effect without restarting CoworkPal.
+        // The adapter is intentionally independent of AppState, so it observes
+        // the persisted toggle on a short cadence.
         if self
-            .lhm_settings_checked_at
-            .is_some_and(|checked| now.duration_since(checked) >= LHM_SETTINGS_RECHECK_INTERVAL)
-            || self.lhm_settings_checked_at.is_none()
+            .integrated_monitor_settings_checked_at
+            .is_some_and(|checked| {
+                now.duration_since(checked) >= INTEGRATED_MONITOR_SETTINGS_RECHECK_INTERVAL
+            })
+            || self.integrated_monitor_settings_checked_at.is_none()
         {
-            self.lhm_enabled = read_libre_hardware_monitor_enabled();
-            self.lhm_settings_checked_at = Some(now);
+            self.integrated_monitor_enabled = read_integrated_hardware_monitor_enabled();
+            self.integrated_monitor_settings_checked_at = Some(now);
         }
 
-        if !self.lhm_enabled {
-            self.cached_lhm_temperature = None;
-            return None;
-        }
-
-        let due = self
-            .last_lhm_query_at
-            .is_none_or(|previous| now.duration_since(previous) >= LHM_QUERY_INTERVAL);
-        if due {
-            self.last_lhm_query_at = Some(now);
-            self.cached_lhm_temperature =
-                libre_hardware_monitor::query_libre_hardware_monitor()
-                    .and_then(|sample| sample.cpu_package_temperature);
-        }
-
-        self.cached_lhm_temperature
+        self.integrated_monitor
+            .sample(self.integrated_monitor_enabled)
     }
 
     fn sample_processes(&mut self, elapsed_seconds: f32) -> Vec<ProcessUsageSnapshot> {
@@ -206,8 +179,8 @@ impl SysinfoAdapter {
                 }
 
                 let disk_usage = process.disk_usage();
-                let disk_read_bytes_per_second = (disk_usage.read_bytes > 0)
-                    .then_some(disk_usage.read_bytes as f32 / elapsed);
+                let disk_read_bytes_per_second =
+                    (disk_usage.read_bytes > 0).then_some(disk_usage.read_bytes as f32 / elapsed);
                 let disk_write_bytes_per_second = (disk_usage.written_bytes > 0)
                     .then_some(disk_usage.written_bytes as f32 / elapsed);
                 let disk_rate = disk_read_bytes_per_second.unwrap_or(0.0)
@@ -276,22 +249,18 @@ impl HardwareSensorAdapter for SysinfoAdapter {
         #[cfg(not(windows))]
         let performance_sample = EmptyPerformanceSample::default();
 
-        // CPU temperature merge chain, highest precision first:
-        //   LibreHardwareMonitor (core MSR) → sysinfo → ACPI thermal zone.
-        // `cpu_temperature_source` records which probe won so the UI can flag
-        // whether the reading is high-precision or an ACPI estimate.
-        let lhm_temperature = self.sample_libre_hardware_monitor();
-        let (cpu_temperature, cpu_temperature_source) = match lhm_temperature {
-            Some(value) => (Some(value), Some("librehardwaremonitor".to_string())),
+        // Only hardware-scoped sensors are accepted as CPU temperatures. ACPI
+        // thermal zones describe a platform/chassis zone and can differ from
+        // CPU package temperature by tens of degrees, so they are not used.
+        let integrated_sample = self.sample_integrated_hardware_monitor();
+        let integrated_cpu_temperature = integrated_sample
+            .as_ref()
+            .and_then(|sample| sample.cpu_temperature_celsius);
+        let (cpu_temperature, cpu_temperature_source) = match integrated_cpu_temperature {
+            Some(value) => (Some(value), Some("integrated".to_string())),
             None => match cpu_temperature_celsius {
                 Some(value) => (Some(value), Some("sysinfo".to_string())),
-                None => match &performance_sample.cpu_temperature_celsius {
-                    Some(_) => (
-                        performance_sample.cpu_temperature_celsius,
-                        Some("thermalzone".to_string()),
-                    ),
-                    None => (None, None),
-                },
+                None => (None, None),
             },
         };
 
@@ -307,7 +276,12 @@ impl HardwareSensorAdapter for SysinfoAdapter {
             cpu_temperature_source,
             gpu_temperature_celsius: nvidia_sample
                 .as_ref()
-                .and_then(|sample| sample.temperature_celsius),
+                .and_then(|sample| sample.temperature_celsius)
+                .or_else(|| {
+                    integrated_sample
+                        .as_ref()
+                        .and_then(|sample| sample.gpu_temperature_celsius)
+                }),
             disk_read_bytes_per_second: performance_sample.disk_read_bytes_per_second,
             disk_write_bytes_per_second: performance_sample.disk_write_bytes_per_second,
             network_download_bytes_per_second,
@@ -367,6 +341,42 @@ fn process_snapshot_score(process: &ProcessUsageSnapshot) -> f32 {
         + disk_rate / (1024.0 * 1024.0)
 }
 
+fn select_cpu_component_temperature<'a>(
+    components: impl Iterator<Item = (&'a str, f32)>,
+) -> Option<f32> {
+    let mut best_score = 0;
+    let mut values = Vec::new();
+    for (label, value) in components {
+        if !value.is_finite() || !(0.0..=125.0).contains(&value) {
+            continue;
+        }
+        let label = label.to_ascii_lowercase();
+        if label.contains("acpi") || label.contains("thermal zone") {
+            continue;
+        }
+        let score = if label.contains("package") || label.contains("tctl") || label.contains("tdie")
+        {
+            3
+        } else if label.contains("cpu") || label.contains("processor") {
+            2
+        } else if label.contains("core") {
+            1
+        } else {
+            continue;
+        };
+
+        if score > best_score {
+            best_score = score;
+            values.clear();
+        }
+        if score == best_score {
+            values.push(value);
+        }
+    }
+
+    (!values.is_empty()).then(|| values.iter().sum::<f32>() / values.len() as f32)
+}
+
 fn should_skip_process_name(name: &str) -> bool {
     let normalized = name.to_ascii_lowercase();
     normalized.contains("coworkpal")
@@ -406,7 +416,10 @@ fn query_nvidia_smi() -> Option<NvidiaSmiSample> {
     }
 
     let stdout = String::from_utf8(output.stdout).ok()?;
-    stdout.lines().find_map(parse_nvidia_smi_line)
+    stdout
+        .lines()
+        .filter_map(parse_nvidia_smi_line)
+        .max_by_key(|sample| sample.memory_total_bytes.unwrap_or(0))
 }
 
 fn parse_nvidia_smi_line(line: &str) -> Option<NvidiaSmiSample> {
@@ -600,33 +613,31 @@ fn query_device_inventory() -> Option<HardwareDeviceInventory> {
 #[cfg(not(windows))]
 #[derive(Default)]
 struct EmptyPerformanceSample {
-    cpu_temperature_celsius: Option<f32>,
     disk_read_bytes_per_second: Option<f32>,
     disk_write_bytes_per_second: Option<f32>,
     gpu_usage_percent: Option<f32>,
     gpu_memory_used_bytes: Option<u64>,
 }
 
-/// Reads the `libreHardwareMonitorEnabled` flag from settings.json without
-/// pulling in the full `AppSettings` type. The adapter polls this on a 30s
-/// cadence (see `LHM_SETTINGS_RECHECK_INTERVAL`) so a UI toggle propagates
-/// without a restart. Any read/parse failure defaults to `true` (the setting's
-/// own default), matching pre-feature behaviour where the probe always ran.
-fn read_libre_hardware_monitor_enabled() -> bool {
+/// Reads the `integratedHardwareMonitorEnabled` flag from settings.json without
+/// pulling in the full `AppSettings` type. The adapter polls this on a short
+/// cadence so a UI toggle propagates without a restart. Any read/parse failure
+/// defaults to false, preventing an unexpected UAC prompt.
+fn read_integrated_hardware_monitor_enabled() -> bool {
     let Some(root) = app_data_root() else {
-        return true;
+        return false;
     };
     let path = root.join("settings.json");
     let Ok(content) = std::fs::read_to_string(&path) else {
-        return true;
+        return false;
     };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return true;
+        return false;
     };
     value
-        .get("libreHardwareMonitorEnabled")
+        .get("integratedHardwareMonitorEnabled")
         .and_then(|flag| flag.as_bool())
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 /// Resolves the per-user app data directory (`%APPDATA%\CoworkPal` on
@@ -637,4 +648,44 @@ fn app_data_root() -> Option<std::path::PathBuf> {
         .or_else(|| std::env::var_os("XDG_DATA_HOME"))
         .map(std::path::PathBuf::from)
         .map(|base| base.join("CoworkPal"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpu_component_selection_ignores_unrelated_hot_components() {
+        let components = [
+            ("NVMe Composite", 83.0),
+            ("ACPI Thermal Zone CPU", 72.0),
+            ("Core 0", 50.0),
+            ("Core 1", 54.0),
+        ];
+        assert_eq!(
+            select_cpu_component_temperature(components.into_iter()),
+            Some(52.0)
+        );
+    }
+
+    #[test]
+    fn cpu_component_selection_prefers_package_sensor() {
+        let components = [("Core 0", 50.0), ("Package id 0", 58.0)];
+        assert_eq!(
+            select_cpu_component_temperature(components.into_iter()),
+            Some(58.0)
+        );
+    }
+
+    #[test]
+    fn nvidia_smi_selection_prefers_primary_gpu_memory_size() {
+        let output = "NVIDIA A, 10, 100, 4096, 45\nNVIDIA B, 20, 200, 8192, 55";
+        let selected = output
+            .lines()
+            .filter_map(parse_nvidia_smi_line)
+            .max_by_key(|sample| sample.memory_total_bytes.unwrap_or(0))
+            .unwrap();
+        assert_eq!(selected.name.as_deref(), Some("NVIDIA B"));
+        assert_eq!(selected.temperature_celsius, Some(55.0));
+    }
 }

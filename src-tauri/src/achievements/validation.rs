@@ -1,8 +1,6 @@
 use std::{collections::HashSet, fmt};
 
-use super::definitions::{
-    AchievementDefinition, AchievementDifficulty, AchievementRepeatPolicy,
-};
+use super::definitions::{AchievementDefinition, AchievementDifficulty, AchievementRepeatPolicy};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AchievementValidationError {
@@ -70,9 +68,7 @@ pub fn validate_definitions(
 
     for definition in definitions {
         if !is_valid_achievement_id(&definition.id) {
-            return Err(AchievementValidationError::InvalidId(
-                definition.id.clone(),
-            ));
+            return Err(AchievementValidationError::InvalidId(definition.id.clone()));
         }
         if !ids.insert(definition.id.clone()) {
             return Err(AchievementValidationError::DuplicateId(
@@ -109,7 +105,9 @@ pub fn validate_definitions(
             ));
         }
         if definition.title.trim().is_empty() {
-            return Err(AchievementValidationError::EmptyTitle(definition.id.clone()));
+            return Err(AchievementValidationError::EmptyTitle(
+                definition.id.clone(),
+            ));
         }
         if definition.condition_summary.trim().is_empty() {
             return Err(AchievementValidationError::EmptyConditionSummary(
@@ -176,7 +174,10 @@ mod tests {
     fn seed_covers_all_categories_and_hidden_flags() {
         let definitions = load_seed_definitions().unwrap();
         let mut categories = HashSet::new();
-        let hidden_count = definitions.iter().filter(|definition| definition.is_hidden).count();
+        let hidden_count = definitions
+            .iter()
+            .filter(|definition| definition.is_hidden)
+            .count();
 
         for definition in definitions {
             categories.insert(definition.category.key());
@@ -194,7 +195,10 @@ mod tests {
 
         let error = validate_definitions(&definitions).unwrap_err();
 
-        assert!(matches!(error, AchievementValidationError::DuplicateBadgeKey(_)));
+        assert!(matches!(
+            error,
+            AchievementValidationError::DuplicateBadgeKey(_)
+        ));
     }
 
     #[test]

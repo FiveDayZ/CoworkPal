@@ -1,13 +1,18 @@
 use tauri::{AppHandle, Manager};
 
+use crate::app_state::AppState;
 use crate::models::{AppSettings, HardwareSnapshot, MonitorBarMode, MonitorMetric};
-use crate::{app_state::AppState, window_manager};
+#[cfg(not(windows))]
+use crate::window_manager;
 
 const TASKBAR_WINDOW_LABEL: &str = "taskbar-monitor";
-const TASKBAR_COLUMN_WIDTH: i32 = 96;
-const TASKBAR_HORIZONTAL_PADDING: i32 = 8;
-const TASKBAR_MIN_WIDTH: i32 = 180;
-const TASKBAR_MAX_WIDTH: i32 = 640;
+const DEFAULT_DPI: u32 = 96;
+const TASKBAR_COLUMN_WIDTH: i32 = 64;
+const TASKBAR_HORIZONTAL_PADDING: i32 = 4;
+const TASKBAR_MIN_WIDTH: i32 = 90;
+const TASKBAR_MAX_WIDTH: i32 = 320;
+const TASKBAR_FONT_POINT_SIZE: i32 = 9;
+const TASKBAR_ROW_HEIGHT: i32 = 16;
 
 pub async fn sync_taskbar_monitor(app: &AppHandle) {
     let (settings, snapshot) = if let Some(state) = app.try_state::<AppState>() {
@@ -30,8 +35,8 @@ pub async fn sync_taskbar_monitor(app: &AppHandle) {
         }
 
         if let Some(window) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
-            if let Err(error) = window.hide() {
-                tracing::warn!("failed to hide taskbar monitor: {error}");
+            if let Err(error) = window.close() {
+                tracing::warn!("failed to close taskbar monitor: {error}");
             }
         }
         return;
@@ -40,8 +45,8 @@ pub async fn sync_taskbar_monitor(app: &AppHandle) {
     #[cfg(windows)]
     {
         if let Some(window) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
-            if let Err(error) = window.hide() {
-                tracing::warn!("failed to hide legacy taskbar monitor window: {error}");
+            if let Err(error) = window.close() {
+                tracing::warn!("failed to close legacy taskbar monitor window: {error}");
             }
         }
 
@@ -87,6 +92,27 @@ fn resolve_taskbar_width(settings: &AppSettings) -> i32 {
 
     (TASKBAR_HORIZONTAL_PADDING + metric_count * TASKBAR_COLUMN_WIDTH)
         .clamp(TASKBAR_MIN_WIDTH, TASKBAR_MAX_WIDTH)
+}
+
+fn scale_for_dpi(value: i32, dpi: u32) -> i32 {
+    let dpi = if dpi == 0 { DEFAULT_DPI } else { dpi };
+    ((i64::from(value) * i64::from(dpi) + i64::from(DEFAULT_DPI / 2)) / i64::from(DEFAULT_DPI))
+        as i32
+}
+
+fn taskbar_font_height(dpi: u32) -> i32 {
+    let dpi = if dpi == 0 { DEFAULT_DPI } else { dpi };
+    -((i64::from(TASKBAR_FONT_POINT_SIZE) * i64::from(dpi) + 36) / 72) as i32
+}
+
+fn taskbar_row_bounds(top: i32, bottom: i32, dpi: u32) -> (i32, i32, i32) {
+    let height = (bottom - top).max(2);
+    let row_height = scale_for_dpi(TASKBAR_ROW_HEIGHT, dpi)
+        .max(1)
+        .min(height / 2);
+    let rows_top = top + (height - row_height * 2) / 2;
+
+    (rows_top, rows_top + row_height, rows_top + row_height * 2)
 }
 
 fn displayed_taskbar_metrics(settings: &AppSettings) -> Vec<MonitorMetric> {
@@ -192,23 +218,65 @@ fn format_compact_bytes_value(mut size: f64) -> String {
         unit_index += 1;
     }
 
-    let digits = if unit_index == 0 || size >= 10.0 { 0 } else { 1 };
+    let digits = if unit_index == 0 || size >= 10.0 {
+        0
+    } else {
+        1
+    };
     format!("{size:.digits$}{}", UNITS[unit_index])
 }
 
 #[cfg(windows)]
-async fn show_native_taskbar_context_menu(app: AppHandle) -> Result<(), String> {
-    let menu = crate::tray::build_shared_menu(&app)
-        .map_err(|error| format!("failed to build taskbar context menu: {error}"))?;
-    let window = window_manager::ensure_webview_window(&app, "main").await?;
+async fn show_native_taskbar_context_menu(app: AppHandle, owner_hwnd: isize) -> Result<(), String> {
+    use std::ffi::c_void;
 
-    tokio::task::spawn_blocking(move || {
-        window
-            .popup_menu(&menu)
-            .map_err(|error| format!("failed to popup taskbar context menu: {error}"))
+    use tauri::menu::ContextMenu;
+    use windows::Win32::{
+        Foundation::{HWND, POINT},
+        UI::WindowsAndMessaging::{
+            GetCursorPos, GetMenuItemID, SetForegroundWindow, TrackPopupMenuEx, HMENU,
+            TPM_LEFTALIGN, TPM_RETURNCMD,
+        },
+    };
+
+    let menu = crate::tray::build_shared_menu(&app)
+        .await
+        .map_err(|error| format!("failed to build taskbar context menu: {error}"))?;
+    let popup_handle = menu
+        .hpopupmenu()
+        .map_err(|error| format!("failed to resolve taskbar menu handle: {error}"))?;
+    let dispatch_app = app.clone();
+
+    app.run_on_main_thread(move || unsafe {
+        let owner = HWND(owner_hwnd as *mut c_void);
+        let popup = HMENU(popup_handle as *mut c_void);
+        let mut cursor = POINT::default();
+        if GetCursorPos(&mut cursor).is_err() {
+            return;
+        }
+
+        let _ = SetForegroundWindow(owner);
+        let selected = TrackPopupMenuEx(
+            popup,
+            (TPM_LEFTALIGN | TPM_RETURNCMD).0,
+            cursor.x,
+            cursor.y,
+            owner,
+            None,
+        )
+        .0 as u32;
+        if selected == 0 {
+            return;
+        }
+
+        for position in 0..12 {
+            if GetMenuItemID(popup, position) == selected {
+                crate::tray::handle_shared_menu_position(&dispatch_app, position as usize);
+                break;
+            }
+        }
     })
-    .await
-    .map_err(|join_error| format!("taskbar menu task failed: {join_error}"))??;
+    .map_err(|error| format!("failed to schedule taskbar context menu: {error}"))?;
 
     Ok(())
 }
@@ -221,35 +289,37 @@ mod imp {
     };
 
     use super::{
-        show_native_taskbar_context_menu, TASKBAR_COLUMN_WIDTH, TASKBAR_MAX_WIDTH, TASKBAR_MIN_WIDTH,
+        scale_for_dpi, show_native_taskbar_context_menu, taskbar_font_height, taskbar_row_bounds,
+        TASKBAR_HORIZONTAL_PADDING, TASKBAR_MAX_WIDTH, TASKBAR_MIN_WIDTH,
     };
     use tauri::AppHandle;
     use windows::{
         core::w,
         Win32::{
-            Foundation::{
-                COLORREF, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
-            },
+            Foundation::{COLORREF, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
             Graphics::Gdi::{
                 BeginPaint, CreateFontW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
                 FillRect, GetDC, GetPixel, InvalidateRect, ReleaseDC, SelectObject, SetBkMode,
-                SetTextColor, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER,
-                DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FW_SEMIBOLD, HDC,
-                HGDIOBJ, NONANTIALIASED_QUALITY, OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
-                UpdateWindow,
+                SetTextColor, UpdateWindow, CLEARTYPE_NATURAL_QUALITY, CLIP_DEFAULT_PRECIS,
+                DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_END_ELLIPSIS, DT_NOPREFIX,
+                DT_SINGLELINE, DT_VCENTER, FF_SWISS, FONT_QUALITY, FW_NORMAL, HDC, HGDIOBJ,
+                OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
             },
             System::{
                 LibraryLoader::GetModuleHandleW,
                 Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD},
             },
-            UI::WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowExW, FindWindowW,
-                GetClientRect, GetWindowLongPtrW, GetWindowRect, IsWindow, RegisterClassW,
-                SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW, SetWindowPos,
-                ShowWindow, CS_HREDRAW, CS_VREDRAW, GWL_STYLE, HWND_TOP, LWA_COLORKEY, SW_HIDE,
-                SW_SHOW, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_SHOWWINDOW, WM_CONTEXTMENU,
-                WM_ERASEBKGND, WM_PAINT, WNDCLASSW, WS_CHILD, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
-                WS_POPUP, WS_VISIBLE,
+            UI::{
+                HiDpi::GetDpiForWindow,
+                WindowsAndMessaging::{
+                    CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowExW, FindWindowW,
+                    GetClientRect, GetWindowLongPtrW, GetWindowRect, IsWindow, RegisterClassW,
+                    SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW, SetWindowPos,
+                    ShowWindow, CS_HREDRAW, CS_VREDRAW, GWL_STYLE, HWND_TOP, LWA_COLORKEY,
+                    SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW,
+                    WM_CONTEXTMENU, WM_ERASEBKGND, WM_PAINT, WNDCLASSW, WS_CHILD, WS_EX_LAYERED,
+                    WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
+                },
             },
         },
     };
@@ -263,6 +333,7 @@ mod imp {
     #[derive(Default)]
     struct NativeState {
         hwnd: isize,
+        menu_owner_hwnd: isize,
         cells: Vec<(String, String)>,
         text_color: COLORREF,
     }
@@ -298,7 +369,13 @@ mod imp {
             }
 
             let hwnd = ensure_native_window(taskbar_hwnd)?;
-            let (x, y, width, height) = resolve_taskbar_slot(taskbar_hwnd, desired_width);
+            let dpi = window_dpi(hwnd);
+            let (x, y, width, height) = resolve_taskbar_slot(
+                taskbar_hwnd,
+                scale_for_dpi(desired_width, dpi),
+                scale_for_dpi(TASKBAR_MIN_WIDTH, dpi),
+                scale_for_dpi(TASKBAR_MAX_WIDTH, dpi),
+            );
             let text_color = resolve_theme_text_color(taskbar_hwnd, x, y, width, height);
 
             {
@@ -308,8 +385,9 @@ mod imp {
                 state.text_color = text_color;
             }
 
-            SetLayeredWindowAttributes(hwnd, COLOR_KEY, 0, LWA_COLORKEY)
-                .map_err(|error| format!("failed to set native taskbar transparent key: {error}"))?;
+            SetLayeredWindowAttributes(hwnd, COLOR_KEY, 0, LWA_COLORKEY).map_err(|error| {
+                format!("failed to set native taskbar transparent key: {error}")
+            })?;
             SetWindowPos(
                 hwnd,
                 Some(HWND_TOP),
@@ -330,8 +408,9 @@ mod imp {
     }
 
     pub fn hide_native(app: AppHandle) -> Result<(), String> {
-        app.run_on_main_thread(hide_native_now)
-            .map_err(|error| format!("failed to hide native taskbar monitor on main thread: {error}"))
+        app.run_on_main_thread(hide_native_now).map_err(|error| {
+            format!("failed to hide native taskbar monitor on main thread: {error}")
+        })
     }
 
     fn hide_native_now() {
@@ -339,7 +418,7 @@ mod imp {
             return;
         };
 
-        if state.hwnd == 0 {
+        if state.hwnd == 0 && state.menu_owner_hwnd == 0 {
             state.cells.clear();
             return;
         }
@@ -350,9 +429,14 @@ mod imp {
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 let _ = DestroyWindow(hwnd);
             }
+            let menu_owner = HWND(state.menu_owner_hwnd as *mut c_void);
+            if IsWindow(Some(menu_owner)).as_bool() {
+                let _ = DestroyWindow(menu_owner);
+            }
         }
 
         state.hwnd = 0;
+        state.menu_owner_hwnd = 0;
         state.cells.clear();
     }
 
@@ -381,6 +465,14 @@ mod imp {
             ..Default::default()
         };
         let _ = RegisterClassW(&window_class);
+        let menu_owner_class = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW,
+            lpfnWndProc: Some(native_taskbar_proc),
+            hInstance: hinstance,
+            lpszClassName: w!("CoworkPalNativeTaskbarMenuOwner"),
+            ..Default::default()
+        };
+        let _ = RegisterClassW(&menu_owner_class);
 
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_LAYERED,
@@ -402,6 +494,27 @@ mod imp {
             return Err("native taskbar monitor HWND is null".to_string());
         }
 
+        let menu_owner = CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            w!("CoworkPalNativeTaskbarMenuOwner"),
+            w!(""),
+            WS_POPUP,
+            0,
+            0,
+            1,
+            1,
+            None,
+            None,
+            Some(hinstance),
+            None,
+        )
+        .map_err(|error| format!("failed to create native taskbar menu owner: {error}"))?;
+
+        if menu_owner.0.is_null() {
+            let _ = DestroyWindow(hwnd);
+            return Err("native taskbar menu owner HWND is null".to_string());
+        }
+
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
         SetWindowLongPtrW(
             hwnd,
@@ -410,6 +523,10 @@ mod imp {
         );
         SetParent(hwnd, Some(parent))
             .map_err(|error| format!("failed to parent native taskbar monitor: {error}"))?;
+
+        if let Ok(mut state) = native_state().lock() {
+            state.menu_owner_hwnd = menu_owner.0 as isize;
+        }
 
         Ok(hwnd)
     }
@@ -428,8 +545,15 @@ mod imp {
             }
             WM_CONTEXTMENU => {
                 if let Some(app) = APP_HANDLE.get().cloned() {
+                    let owner_hwnd = native_state()
+                        .lock()
+                        .ok()
+                        .map(|state| state.menu_owner_hwnd)
+                        .filter(|owner| *owner != 0)
+                        .unwrap_or(hwnd.0 as isize);
                     tauri::async_runtime::spawn(async move {
-                        if let Err(error) = show_native_taskbar_context_menu(app).await {
+                        if let Err(error) = show_native_taskbar_context_menu(app, owner_hwnd).await
+                        {
                             tracing::warn!("failed to show native taskbar context menu: {error}");
                         }
                     });
@@ -462,39 +586,40 @@ mod imp {
             .map(|state| (state.cells.clone(), state.text_color))
             .unwrap_or_else(|_| (Vec::new(), LIGHT_TEXT));
 
-        draw_cells(hdc, rect, &cells, text_color);
+        draw_cells(hdc, rect, &cells, text_color, window_dpi(hwnd));
 
         let _ = EndPaint(hwnd, &paint);
     }
 
-    unsafe fn draw_cells(hdc: HDC, rect: RECT, cells: &[(String, String)], text_color: COLORREF) {
+    unsafe fn draw_cells(
+        hdc: HDC,
+        rect: RECT,
+        cells: &[(String, String)],
+        text_color: COLORREF,
+        dpi: u32,
+    ) {
         let cell_count = cells.len().max(1) as i32;
-        let height = (rect.bottom - rect.top).max(24);
-        let width = (rect.right - rect.left).max(TASKBAR_MIN_WIDTH);
-        let content_width = (TASKBAR_COLUMN_WIDTH * cell_count).min(width).max(1);
+        let width = (rect.right - rect.left).max(1);
+        let content_width = (width - scale_for_dpi(TASKBAR_HORIZONTAL_PADDING, dpi)).max(1);
         let content_left = rect.right - content_width;
         let column_width = (content_width / cell_count).max(1);
-        let center_y = rect.top + (height / 2);
-
-        let font_pixel_height = (height / 2 - 5).clamp(13, 16);
-        let line_height = (font_pixel_height + 4).clamp(16, 20);
-        let rows_top = center_y - line_height;
-        let font_height = -font_pixel_height;
+        let (rows_top, middle_y, rows_bottom) = taskbar_row_bounds(rect.top, rect.bottom, dpi);
+        let horizontal_inset = scale_for_dpi(2, dpi).max(1);
         let font = CreateFontW(
-            font_height,
+            taskbar_font_height(dpi),
             0,
             0,
             0,
-            FW_SEMIBOLD.0 as i32,
+            FW_NORMAL.0 as i32,
             0,
             0,
             0,
             DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS,
             CLIP_DEFAULT_PRECIS,
-            NONANTIALIASED_QUALITY,
-            0,
-            w!("Tahoma"),
+            FONT_QUALITY(CLEARTYPE_NATURAL_QUALITY as u8),
+            (DEFAULT_PITCH.0 | FF_SWISS.0) as u32,
+            w!("Microsoft YaHei Light"),
         );
         let old_font = SelectObject(hdc, HGDIOBJ(font.0));
         let _ = SetBkMode(hdc, TRANSPARENT);
@@ -509,16 +634,16 @@ mod imp {
             };
 
             let top_rect = RECT {
-                left: left + 3,
+                left: left + horizontal_inset,
                 top: rows_top,
-                right: right - 3,
-                bottom: rows_top + line_height,
+                right: right - horizontal_inset,
+                bottom: middle_y,
             };
             let bottom_rect = RECT {
-                left: left + 3,
-                top: rows_top + line_height,
-                right: right - 3,
-                bottom: rows_top + (line_height * 2),
+                left: left + horizontal_inset,
+                top: middle_y,
+                right: right - horizontal_inset,
+                bottom: rows_bottom,
             };
 
             let mut top_rect = top_rect;
@@ -616,19 +741,33 @@ mod imp {
         }
     }
 
-    unsafe fn resolve_taskbar_slot(taskbar_hwnd: HWND, desired_width: i32) -> (i32, i32, i32, i32) {
+    unsafe fn window_dpi(hwnd: HWND) -> u32 {
+        let dpi = GetDpiForWindow(hwnd);
+        if dpi == 0 {
+            super::DEFAULT_DPI
+        } else {
+            dpi
+        }
+    }
+
+    unsafe fn resolve_taskbar_slot(
+        taskbar_hwnd: HWND,
+        desired_width: i32,
+        min_width: i32,
+        max_width: i32,
+    ) -> (i32, i32, i32, i32) {
         let mut client = RECT::default();
         if GetClientRect(taskbar_hwnd, &mut client).is_err() {
-            return (0, 0, desired_width.clamp(TASKBAR_MIN_WIDTH, TASKBAR_MAX_WIDTH), 36);
+            return (0, 0, desired_width.clamp(min_width, max_width), 36);
         }
 
-        let taskbar_width = (client.right - client.left).max(TASKBAR_MIN_WIDTH);
+        let taskbar_width = (client.right - client.left).max(min_width);
         let taskbar_height = (client.bottom - client.top).max(24);
         let tray_left = find_notification_area_left(taskbar_hwnd).unwrap_or(taskbar_width);
         let available_width =
-            (tray_left - NOTIFICATION_AREA_GAP - TASKBAR_EDGE_PADDING).max(TASKBAR_MIN_WIDTH);
+            (tray_left - NOTIFICATION_AREA_GAP - TASKBAR_EDGE_PADDING).max(min_width);
         let width = desired_width
-            .clamp(TASKBAR_MIN_WIDTH, TASKBAR_MAX_WIDTH)
+            .clamp(min_width, max_width)
             .min(available_width);
         let x = (tray_left - width - NOTIFICATION_AREA_GAP).max(TASKBAR_EDGE_PADDING);
 
@@ -647,6 +786,31 @@ mod imp {
         GetWindowRect(tray, &mut tray_rect).ok()?;
 
         Some((tray_rect.left - taskbar_rect.left).max(0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{scale_for_dpi, taskbar_font_height, taskbar_row_bounds};
+
+    #[test]
+    fn taskbar_typography_scales_with_monitor_dpi() {
+        assert_eq!(scale_for_dpi(64, 0), 64);
+        assert_eq!(scale_for_dpi(64, 96), 64);
+        assert_eq!(scale_for_dpi(64, 120), 80);
+        assert_eq!(scale_for_dpi(64, 144), 96);
+        assert_eq!(scale_for_dpi(64, 192), 128);
+
+        assert_eq!(taskbar_font_height(0), -12);
+        assert_eq!(taskbar_font_height(96), -12);
+        assert_eq!(taskbar_font_height(120), -15);
+        assert_eq!(taskbar_font_height(144), -18);
+        assert_eq!(taskbar_font_height(192), -24);
+
+        assert_eq!(taskbar_row_bounds(0, 32, 96), (0, 16, 32));
+        assert_eq!(taskbar_row_bounds(0, 60, 120), (10, 30, 50));
+        assert_eq!(taskbar_row_bounds(0, 72, 144), (12, 36, 60));
+        assert_eq!(taskbar_row_bounds(0, 96, 192), (16, 48, 80));
     }
 }
 

@@ -22,6 +22,19 @@ pub struct AchievementBook {
     pub idempotency_keys: BTreeSet<String>,
 }
 
+pub fn compact_achievement_book(book: &mut AchievementBook) -> bool {
+    let retained_keys = book
+        .events
+        .iter()
+        .map(|event| event.idempotency_key.clone())
+        .collect::<BTreeSet<_>>();
+    if book.idempotency_keys == retained_keys {
+        return false;
+    }
+    book.idempotency_keys = retained_keys;
+    true
+}
+
 impl Default for AchievementBook {
     fn default() -> Self {
         Self {
@@ -1658,7 +1671,14 @@ fn trim_events(book: &mut AchievementBook) {
         return;
     }
     let overflow = book.events.len() - MAX_STORED_EVENTS;
-    book.events.drain(0..overflow);
+    let expired_keys = book
+        .events
+        .drain(0..overflow)
+        .map(|event| event.idempotency_key)
+        .collect::<Vec<_>>();
+    for key in expired_keys {
+        book.idempotency_keys.remove(&key);
+    }
 }
 
 fn increment_bucket(
@@ -1684,6 +1704,59 @@ mod tests {
 
     use super::*;
     use crate::achievements::{load_seed_definitions, validate_definitions};
+
+    fn stored_event(index: usize) -> AchievementEventRecord {
+        AchievementEventRecord {
+            event_id: format!("event-{index}"),
+            event_name: "test".to_string(),
+            occurred_at: index as i64,
+            received_at: index as i64,
+            source: "test".to_string(),
+            idempotency_key: format!("key-{index}"),
+            payload: json!({}),
+            app_version: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn compaction_discards_unbounded_legacy_idempotency_keys() {
+        let mut book = AchievementBook {
+            events: vec![stored_event(1), stored_event(2)],
+            idempotency_keys: ["key-1", "key-2", "stale-key"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            ..Default::default()
+        };
+
+        assert!(compact_achievement_book(&mut book));
+        assert_eq!(
+            book.idempotency_keys,
+            ["key-1", "key-2"].into_iter().map(str::to_string).collect()
+        );
+        assert!(!compact_achievement_book(&mut book));
+    }
+
+    #[test]
+    fn event_retention_also_bounds_idempotency_keys() {
+        let events = (0..=MAX_STORED_EVENTS)
+            .map(stored_event)
+            .collect::<Vec<_>>();
+        let mut book = AchievementBook {
+            idempotency_keys: events
+                .iter()
+                .map(|event| event.idempotency_key.clone())
+                .collect(),
+            events,
+            ..Default::default()
+        };
+
+        trim_events(&mut book);
+
+        assert_eq!(book.events.len(), MAX_STORED_EVENTS);
+        assert_eq!(book.idempotency_keys.len(), MAX_STORED_EVENTS);
+        assert!(!book.idempotency_keys.contains("key-0"));
+    }
 
     #[test]
     fn event_unlocks_simple_counter_achievement_once() {

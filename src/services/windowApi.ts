@@ -1,5 +1,6 @@
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import {
+  hideMainWindow,
   showMainWindow,
   showPetPanel,
   togglePetPanel,
@@ -67,5 +68,5 @@ export async function closeMainWindow(): Promise<void> {
   if (!isTauriRuntime()) {
     return;
   }
-  await getCurrentWindow().hide();
+  await hideMainWindow();
 }
