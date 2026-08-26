@@ -172,6 +172,26 @@ export function SettingsPage() {
     return saved;
   }
 
+  async function saveSyncSchedule(
+    patch: Pick<SyncConfig, "autoBackupEnabled" | "autoBackupIntervalMinutes">,
+  ) {
+    if (syncBusy) return;
+    const previous = syncConfig;
+    const next = { ...syncConfig, ...patch };
+    setSyncConfig(next);
+    setSyncBusy("save");
+    setSyncMessage("");
+    try {
+      setSyncConfig(await updateSyncConfig(next));
+      setSyncMessage("自动备份设置已保存");
+    } catch (error) {
+      setSyncConfig(await getSyncConfig().catch(() => previous));
+      setSyncMessage(`保存自动备份设置失败：${String(error)}`);
+    } finally {
+      setSyncBusy(null);
+    }
+  }
+
   async function handleTokenRequest() {
     if (syncBusy) return;
     setSyncBusy("request");
@@ -929,7 +949,7 @@ export function SettingsPage() {
                 </label>
               </div>
               <div className="cwp-settings-note">
-                直接读取 CPU / GPU 硬件传感器。首次开启会请求管理员权限；无需安装或运行第三方监控程序。
+                直接读取 CPU / GPU 硬件传感器。首次开启会请求管理员权限，并自动安装随应用提供的硬件访问驱动。
               </div>
             </div>
 
@@ -945,7 +965,7 @@ export function SettingsPage() {
                   onChange={(event) =>
                     setSyncConfig((current) => ({ ...current, serverUrl: event.target.value }))
                   }
-                  placeholder="https://sync.example.com"
+                  placeholder="http://192.168.124.13:18080"
                   type="url"
                   value={syncConfig.serverUrl}
                 />
@@ -985,12 +1005,12 @@ export function SettingsPage() {
                     <input
                       aria-label="自动备份上传"
                       checked={syncConfig.autoBackupEnabled}
-                      disabled={!syncConfig.accessToken}
+                      disabled={syncBusy !== null || !syncConfig.accessToken}
                       onChange={(event) =>
-                        setSyncConfig((current) => ({
-                          ...current,
+                        void saveSyncSchedule({
                           autoBackupEnabled: event.target.checked,
-                        }))
+                          autoBackupIntervalMinutes: syncConfig.autoBackupIntervalMinutes,
+                        })
                       }
                       type="checkbox"
                     />
@@ -1002,12 +1022,16 @@ export function SettingsPage() {
                   <select
                     aria-label="自动备份上传间隔"
                     className="cwp-custom-select"
-                    disabled={!syncConfig.autoBackupEnabled || !syncConfig.accessToken}
+                    disabled={
+                      syncBusy !== null ||
+                      !syncConfig.autoBackupEnabled ||
+                      !syncConfig.accessToken
+                    }
                     onChange={(event) =>
-                      setSyncConfig((current) => ({
-                        ...current,
+                      void saveSyncSchedule({
+                        autoBackupEnabled: syncConfig.autoBackupEnabled,
                         autoBackupIntervalMinutes: Number(event.target.value),
-                      }))
+                      })
                     }
                     value={syncConfig.autoBackupIntervalMinutes}
                   >

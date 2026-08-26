@@ -53,8 +53,7 @@ impl SysinfoAdapter {
     pub fn new() -> Self {
         let mut system = System::new_all();
         system.refresh_all();
-        let mut components = Components::new_with_refreshed_list();
-        components.refresh();
+        let components = create_platform_components();
         let mut networks = Networks::new_with_refreshed_list();
         networks.refresh();
 
@@ -213,6 +212,22 @@ impl SysinfoAdapter {
         });
         processes.truncate(32);
         processes
+    }
+}
+
+fn create_platform_components() -> Components {
+    #[cfg(windows)]
+    {
+        // sysinfo 0.30 initializes WMI as COM MTA here, while its Windows sensor is an
+        // ACPI thermal zone that CoworkPal intentionally rejects as a CPU temperature.
+        Components::new()
+    }
+
+    #[cfg(not(windows))]
+    {
+        let mut components = Components::new_with_refreshed_list();
+        components.refresh();
+        components
     }
 }
 
@@ -653,6 +668,12 @@ fn app_data_root() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_skips_sysinfo_acpi_component_probe() {
+        assert!(create_platform_components().is_empty());
+    }
 
     #[test]
     fn cpu_component_selection_ignores_unrelated_hot_components() {

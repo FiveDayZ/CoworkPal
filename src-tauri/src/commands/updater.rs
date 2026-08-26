@@ -368,12 +368,13 @@ mod tests {
                 }
                 Err(e) => {
                     println!("Anonymous check returned error: {}", e);
+                    let normalized = e.to_ascii_lowercase();
                     assert!(
-                        e.contains("rate limit")
-                            || e.contains("error status")
-                            || e.contains("Failed to send")
-                            || e.contains("No valid release assets")
-                            || e.contains("not found")
+                        normalized.contains("rate limit")
+                            || normalized.contains("error status")
+                            || normalized.contains("failed to send")
+                            || normalized.contains("no valid release assets")
+                            || normalized.contains("not found")
                     );
                 }
             }

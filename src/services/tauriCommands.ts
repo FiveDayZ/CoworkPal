@@ -1272,18 +1272,18 @@ export async function updateWorkshopState(
   return invoke<WorkshopState>("update_workshop_state", { workshop });
 }
 
+let browserSyncConfig: SyncConfig = {
+  serverUrl: "",
+  accessToken: "",
+  userName: "",
+  tokenRequestId: "",
+  tokenRequestSecret: "",
+  autoBackupEnabled: false,
+  autoBackupIntervalMinutes: 30,
+};
+
 export async function getSyncConfig(): Promise<SyncConfig> {
-  if (!isTauriRuntime()) {
-    return {
-      serverUrl: "",
-      accessToken: "",
-      userName: "",
-      tokenRequestId: "",
-      tokenRequestSecret: "",
-      autoBackupEnabled: false,
-      autoBackupIntervalMinutes: 30,
-    };
-  }
+  if (!isTauriRuntime()) return { ...browserSyncConfig };
   return invoke<SyncConfig>("get_sync_config");
 }
 
@@ -1303,7 +1303,8 @@ export async function checkAccessTokenRequest(): Promise<TokenRequestResult> {
 
 export async function updateSyncConfig(config: SyncConfig): Promise<SyncConfig> {
   if (!isTauriRuntime()) {
-    return config;
+    browserSyncConfig = { ...config };
+    return { ...browserSyncConfig };
   }
   return invoke<SyncConfig>("update_sync_config", { config });
 }

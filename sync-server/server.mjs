@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 
 const host = process.env.HOST ?? "0.0.0.0";
-const port = Number(process.env.PORT ?? 8080);
+const port = Number(process.env.PORT ?? 18080);
 const dataRoot = process.env.DATA_DIR ?? "/data";
 const maxBodyBytes = Number(process.env.MAX_BODY_BYTES ?? 10 * 1024 * 1024);
 const maxVersions = Math.max(2, Number(process.env.MAX_VERSIONS ?? 30));

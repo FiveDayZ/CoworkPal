@@ -13,6 +13,8 @@ const TASKBAR_MIN_WIDTH: i32 = 90;
 const TASKBAR_MAX_WIDTH: i32 = 320;
 const TASKBAR_FONT_POINT_SIZE: i32 = 9;
 const TASKBAR_ROW_HEIGHT: i32 = 16;
+#[cfg(windows)]
+const TASKBAR_FONT_BYTES: &[u8] = include_bytes!("../fonts/NotoSansCJKsc-CoworkPal.otf");
 
 pub async fn sync_taskbar_monitor(app: &AppHandle) {
     let (settings, snapshot) = if let Some(state) = app.try_state::<AppState>() {
@@ -239,6 +241,7 @@ async fn show_native_taskbar_context_menu(app: AppHandle, owner_hwnd: isize) -> 
         },
     };
 
+    tracing::info!("opening taskbar context menu");
     let menu = crate::tray::build_shared_menu(&app)
         .await
         .map_err(|error| format!("failed to build taskbar context menu: {error}"))?;
@@ -248,6 +251,9 @@ async fn show_native_taskbar_context_menu(app: AppHandle, owner_hwnd: isize) -> 
     let dispatch_app = app.clone();
 
     app.run_on_main_thread(move || unsafe {
+        // Keep the Tauri menu alive for the whole native modal menu loop. Dropping it after
+        // scheduling this closure invalidates HMENU while TrackPopupMenuEx is still using it.
+        let _menu_guard = menu;
         let owner = HWND(owner_hwnd as *mut c_void);
         let popup = HMENU(popup_handle as *mut c_void);
         let mut cursor = POINT::default();
@@ -265,6 +271,7 @@ async fn show_native_taskbar_context_menu(app: AppHandle, owner_hwnd: isize) -> 
             None,
         )
         .0 as u32;
+        tracing::info!(command_id = selected, "taskbar context menu closed");
         if selected == 0 {
             return;
         }
@@ -290,20 +297,46 @@ mod imp {
 
     use super::{
         scale_for_dpi, show_native_taskbar_context_menu, taskbar_font_height, taskbar_row_bounds,
-        TASKBAR_HORIZONTAL_PADDING, TASKBAR_MAX_WIDTH, TASKBAR_MIN_WIDTH,
+        DEFAULT_DPI, TASKBAR_FONT_BYTES, TASKBAR_FONT_POINT_SIZE, TASKBAR_HORIZONTAL_PADDING,
+        TASKBAR_MAX_WIDTH, TASKBAR_MIN_WIDTH,
     };
     use tauri::AppHandle;
     use windows::{
-        core::w,
+        core::{w, Interface},
         Win32::{
-            Foundation::{COLORREF, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
-            Graphics::Gdi::{
-                BeginPaint, CreateFontW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
-                FillRect, GetDC, GetPixel, InvalidateRect, ReleaseDC, SelectObject, SetBkMode,
-                SetTextColor, UpdateWindow, CLEARTYPE_NATURAL_QUALITY, CLIP_DEFAULT_PRECIS,
-                DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_END_ELLIPSIS, DT_NOPREFIX,
-                DT_SINGLELINE, DT_VCENTER, FF_SWISS, FONT_QUALITY, FW_NORMAL, HDC, HGDIOBJ,
-                OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
+            Foundation::{
+                COLORREF, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE,
+                WPARAM,
+            },
+            Graphics::{
+                Direct2D::{
+                    Common::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT},
+                    D2D1CreateFactory, ID2D1DCRenderTarget, ID2D1Factory,
+                    D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_DRAW_TEXT_OPTIONS_NO_SNAP,
+                    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT,
+                    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                    D2D1_RENDER_TARGET_USAGE_NONE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+                },
+                DirectWrite::{
+                    DWriteCreateFactory, IDWriteFactory, IDWriteFactory5, IDWriteFontCollection,
+                    IDWriteInMemoryFontFileLoader, IDWriteTextFormat, IDWriteTextLayout,
+                    DWRITE_FACTORY_TYPE_ISOLATED, DWRITE_FONT_STRETCH_NORMAL,
+                    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_NORMAL,
+                    DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
+                    DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                    DWRITE_WORD_WRAPPING_NO_WRAP,
+                },
+                Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
+                Gdi::{
+                    AddFontMemResourceEx, BeginPaint, CreateCompatibleDC, CreateDIBSection,
+                    CreateFontW, CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint,
+                    FillRect, GetDC, GetPixel, InvalidateRect, ReleaseDC, SelectObject, SetBkMode,
+                    SetTextColor, UpdateWindow, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO,
+                    BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET,
+                    DEFAULT_PITCH, DEFAULT_QUALITY, DIB_RGB_COLORS, DT_CENTER, DT_END_ELLIPSIS,
+                    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_SWISS, FW_NORMAL, HBITMAP, HDC,
+                    HGDIOBJ, OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
+                },
             },
             System::{
                 LibraryLoader::GetModuleHandleW,
@@ -315,14 +348,15 @@ mod imp {
                     CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowExW, FindWindowW,
                     GetClientRect, GetWindowLongPtrW, GetWindowRect, IsWindow, RegisterClassW,
                     SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW, SetWindowPos,
-                    ShowWindow, CS_HREDRAW, CS_VREDRAW, GWL_STYLE, HWND_TOP, LWA_COLORKEY,
-                    SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW,
-                    WM_CONTEXTMENU, WM_ERASEBKGND, WM_PAINT, WNDCLASSW, WS_CHILD, WS_EX_LAYERED,
-                    WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
+                    ShowWindow, UpdateLayeredWindow, CS_HREDRAW, CS_VREDRAW, GWL_STYLE, HWND_TOP,
+                    LWA_COLORKEY, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_SHOWWINDOW, SW_HIDE,
+                    SW_SHOW, ULW_ALPHA, WM_CONTEXTMENU, WM_ERASEBKGND, WM_PAINT, WNDCLASSW,
+                    WS_CHILD, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
                 },
             },
         },
     };
+    use windows_numerics::Vector2;
 
     const TASKBAR_EDGE_PADDING: i32 = 2;
     const NOTIFICATION_AREA_GAP: i32 = 8;
@@ -340,6 +374,311 @@ mod imp {
 
     static NATIVE_STATE: OnceLock<Mutex<NativeState>> = OnceLock::new();
     static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+    static EMBEDDED_FONT_REGISTERED: OnceLock<bool> = OnceLock::new();
+    static DIRECTWRITE_RENDERER: OnceLock<Result<Mutex<DirectWriteRenderer>, String>> =
+        OnceLock::new();
+    static DIRECTWRITE_FAILURE_LOGGED: OnceLock<()> = OnceLock::new();
+
+    struct DirectWriteRenderer {
+        factory: IDWriteFactory,
+        font_collection: IDWriteFontCollection,
+        target: ID2D1DCRenderTarget,
+        _font_loader: IDWriteInMemoryFontFileLoader,
+    }
+
+    struct MemorySurface {
+        dc: HDC,
+        bitmap: HBITMAP,
+        old_bitmap: HGDIOBJ,
+    }
+
+    impl MemorySurface {
+        unsafe fn new(width: i32, height: i32) -> Result<Self, String> {
+            let dc = CreateCompatibleDC(None);
+            if dc.0.is_null() {
+                return Err("failed to create taskbar memory DC".to_string());
+            }
+
+            let bitmap_info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: width,
+                    biHeight: -height,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits = std::ptr::null_mut();
+            let bitmap = match CreateDIBSection(
+                Some(dc),
+                &bitmap_info,
+                DIB_RGB_COLORS,
+                &mut bits,
+                None,
+                0,
+            ) {
+                Ok(bitmap) if !bits.is_null() => bitmap,
+                Ok(bitmap) => {
+                    let _ = DeleteObject(HGDIOBJ(bitmap.0));
+                    let _ = DeleteDC(dc);
+                    return Err("taskbar DIB section has no pixel buffer".to_string());
+                }
+                Err(error) => {
+                    let _ = DeleteDC(dc);
+                    return Err(format!("failed to create taskbar DIB section: {error}"));
+                }
+            };
+            let old_bitmap = SelectObject(dc, HGDIOBJ(bitmap.0));
+
+            Ok(Self {
+                dc,
+                bitmap,
+                old_bitmap,
+            })
+        }
+    }
+
+    impl Drop for MemorySurface {
+        fn drop(&mut self) {
+            unsafe {
+                if !self.old_bitmap.0.is_null() {
+                    let _ = SelectObject(self.dc, self.old_bitmap);
+                }
+                let _ = DeleteObject(HGDIOBJ(self.bitmap.0));
+                let _ = DeleteDC(self.dc);
+            }
+        }
+    }
+
+    impl DirectWriteRenderer {
+        unsafe fn new() -> Result<Self, String> {
+            let factory5 = DWriteCreateFactory::<IDWriteFactory5>(DWRITE_FACTORY_TYPE_ISOLATED)
+                .map_err(|error| format!("failed to create DirectWrite factory: {error}"))?;
+            let font_loader = factory5
+                .CreateInMemoryFontFileLoader()
+                .map_err(|error| format!("failed to create embedded font loader: {error}"))?;
+            factory5
+                .RegisterFontFileLoader(&font_loader)
+                .map_err(|error| format!("failed to register embedded font loader: {error}"))?;
+            let font_file = font_loader
+                .CreateInMemoryFontFileReference(
+                    &factory5,
+                    TASKBAR_FONT_BYTES.as_ptr().cast(),
+                    TASKBAR_FONT_BYTES.len() as u32,
+                    None,
+                )
+                .map_err(|error| format!("failed to load embedded taskbar font: {error}"))?;
+            let font_set_builder = factory5
+                .CreateFontSetBuilder()
+                .map_err(|error| format!("failed to create taskbar font set: {error}"))?;
+            font_set_builder
+                .AddFontFile(&font_file)
+                .map_err(|error| format!("failed to add embedded taskbar font: {error}"))?;
+            let font_set = font_set_builder
+                .CreateFontSet()
+                .map_err(|error| format!("failed to finalize taskbar font set: {error}"))?;
+            let font_collection = factory5
+                .CreateFontCollectionFromFontSet(&font_set)
+                .map_err(|error| format!("failed to create taskbar font collection: {error}"))?
+                .cast::<IDWriteFontCollection>()
+                .map_err(|error| format!("failed to use taskbar font collection: {error}"))?;
+            let factory = factory5
+                .cast::<IDWriteFactory>()
+                .map_err(|error| format!("failed to use DirectWrite factory: {error}"))?;
+
+            let d2d_factory =
+                D2D1CreateFactory::<ID2D1Factory>(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)
+                    .map_err(|error| format!("failed to create Direct2D factory: {error}"))?;
+            let properties = D2D1_RENDER_TARGET_PROPERTIES {
+                r#type: D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                pixelFormat: D2D1_PIXEL_FORMAT {
+                    format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                    alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+                },
+                dpiX: DEFAULT_DPI as f32,
+                dpiY: DEFAULT_DPI as f32,
+                usage: D2D1_RENDER_TARGET_USAGE_NONE,
+                minLevel: D2D1_FEATURE_LEVEL_DEFAULT,
+            };
+            let target = d2d_factory
+                .CreateDCRenderTarget(&properties)
+                .map_err(|error| format!("failed to create Direct2D DC target: {error}"))?;
+
+            Ok(Self {
+                factory,
+                font_collection,
+                target,
+                _font_loader: font_loader,
+            })
+        }
+
+        unsafe fn create_text_format(&self, dpi: u32) -> Result<IDWriteTextFormat, String> {
+            let font_size = TASKBAR_FONT_POINT_SIZE as f32 * DEFAULT_DPI as f32 / 72.0
+                * dpi.max(1) as f32
+                / DEFAULT_DPI as f32;
+            let format = self
+                .factory
+                .CreateTextFormat(
+                    w!("Noto Sans CJK SC"),
+                    &self.font_collection,
+                    DWRITE_FONT_WEIGHT_NORMAL,
+                    DWRITE_FONT_STYLE_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    font_size,
+                    w!("zh-CN"),
+                )
+                .map_err(|error| format!("failed to create taskbar text format: {error}"))?;
+            format
+                .SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)
+                .map_err(|error| format!("failed to center taskbar text: {error}"))?;
+            format
+                .SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)
+                .map_err(|error| format!("failed to center taskbar text row: {error}"))?;
+            format
+                .SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)
+                .map_err(|error| format!("failed to disable taskbar text wrapping: {error}"))?;
+            let ellipsis = self
+                .factory
+                .CreateEllipsisTrimmingSign(&format)
+                .map_err(|error| format!("failed to create taskbar ellipsis: {error}"))?;
+            let trimming = DWRITE_TRIMMING {
+                granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                delimiter: 0,
+                delimiterCount: 0,
+            };
+            format
+                .SetTrimming(&trimming, &ellipsis)
+                .map_err(|error| format!("failed to enable taskbar ellipsis: {error}"))?;
+            Ok(format)
+        }
+
+        unsafe fn create_text_layout(
+            &self,
+            text: &str,
+            width: f32,
+            height: f32,
+            format: &IDWriteTextFormat,
+        ) -> Result<IDWriteTextLayout, String> {
+            let text: Vec<u16> = text.encode_utf16().collect();
+            self.factory
+                .CreateTextLayout(&text, format, width.max(1.0), height.max(1.0))
+                .map_err(|error| format!("failed to layout taskbar text: {error}"))
+        }
+
+        unsafe fn draw(
+            &mut self,
+            hwnd: HWND,
+            rect: RECT,
+            cells: &[(String, String)],
+            text_color: COLORREF,
+            dpi: u32,
+        ) -> Result<(), String> {
+            let cell_count = cells.len().max(1) as i32;
+            let width = (rect.right - rect.left).max(1);
+            let content_width = (width - scale_for_dpi(TASKBAR_HORIZONTAL_PADDING, dpi)).max(1);
+            let content_left = rect.right - content_width;
+            let column_width = (content_width / cell_count).max(1);
+            let (rows_top, middle_y, rows_bottom) = taskbar_row_bounds(rect.top, rect.bottom, dpi);
+            let horizontal_inset = scale_for_dpi(2, dpi).max(1);
+            let height = (rect.bottom - rect.top).max(1);
+            let surface = MemorySurface::new(width, height)?;
+            let target_rect = RECT {
+                left: 0,
+                top: 0,
+                right: width,
+                bottom: height,
+            };
+            let format = self.create_text_format(dpi)?;
+            let mut layouts = Vec::with_capacity(cells.len() * 2);
+
+            for (index, (top, bottom)) in cells.iter().enumerate() {
+                let left = content_left + index as i32 * column_width;
+                let right = if index == cells.len().saturating_sub(1) {
+                    rect.right
+                } else {
+                    left + column_width
+                };
+                let text_left = left + horizontal_inset;
+                let text_width = (right - horizontal_inset - text_left).max(1) as f32;
+
+                for (text, row_top, row_bottom) in
+                    [(top, rows_top, middle_y), (bottom, middle_y, rows_bottom)]
+                {
+                    if !text.is_empty() {
+                        layouts.push((
+                            Vector2 {
+                                X: text_left as f32,
+                                Y: row_top as f32,
+                            },
+                            self.create_text_layout(
+                                text,
+                                text_width,
+                                (row_bottom - row_top).max(1) as f32,
+                                &format,
+                            )?,
+                        ));
+                    }
+                }
+            }
+
+            self.target
+                .BindDC(surface.dc, &target_rect)
+                .map_err(|error| format!("failed to bind Direct2D taskbar target: {error}"))?;
+            self.target
+                .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+            let color = colorref_to_d2d(text_color);
+            let brush = self
+                .target
+                .CreateSolidColorBrush(&color, None)
+                .map_err(|error| format!("failed to create taskbar text brush: {error}"))?;
+
+            self.target.BeginDraw();
+            self.target.Clear(Some(&D2D1_COLOR_F {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            }));
+            for (origin, layout) in layouts {
+                self.target.DrawTextLayout(
+                    origin,
+                    &layout,
+                    &brush,
+                    D2D1_DRAW_TEXT_OPTIONS_CLIP | D2D1_DRAW_TEXT_OPTIONS_NO_SNAP,
+                );
+            }
+            self.target
+                .EndDraw(None, None)
+                .map_err(|error| format!("failed to draw DirectWrite taskbar text: {error}"))?;
+
+            let source = POINT::default();
+            let size = SIZE {
+                cx: width,
+                cy: height,
+            };
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: 255,
+                AlphaFormat: AC_SRC_ALPHA as u8,
+            };
+            UpdateLayeredWindow(
+                hwnd,
+                None,
+                None,
+                Some(&size),
+                Some(surface.dc),
+                Some(&source),
+                COLORREF(0),
+                Some(&blend),
+                ULW_ALPHA,
+            )
+            .map_err(|error| format!("failed to alpha-compose taskbar text: {error}"))
+        }
+    }
 
     pub fn embed_and_show_native(
         app: AppHandle,
@@ -385,9 +724,6 @@ mod imp {
                 state.text_color = text_color;
             }
 
-            SetLayeredWindowAttributes(hwnd, COLOR_KEY, 0, LWA_COLORKEY).map_err(|error| {
-                format!("failed to set native taskbar transparent key: {error}")
-            })?;
             SetWindowPos(
                 hwnd,
                 Some(HWND_TOP),
@@ -577,21 +913,51 @@ mod imp {
             return;
         }
 
-        let brush = CreateSolidBrush(COLOR_KEY);
-        let _ = FillRect(hdc, &rect, brush);
-        let _ = DeleteObject(HGDIOBJ(brush.0));
-
         let (cells, text_color) = native_state()
             .lock()
             .map(|state| (state.cells.clone(), state.text_color))
             .unwrap_or_else(|_| (Vec::new(), LIGHT_TEXT));
 
-        draw_cells(hdc, rect, &cells, text_color, window_dpi(hwnd));
+        let dpi = window_dpi(hwnd);
+        if let Err(error) = draw_cells_directwrite(hwnd, rect, &cells, text_color, dpi) {
+            if DIRECTWRITE_FAILURE_LOGGED.set(()).is_ok() {
+                tracing::warn!(
+                    "DirectWrite taskbar rendering unavailable; using GDI fallback: {error}"
+                );
+            }
+            let _ = SetLayeredWindowAttributes(hwnd, COLOR_KEY, 0, LWA_COLORKEY);
+            fill_color_key(hdc, &rect);
+            draw_cells_gdi(hdc, rect, &cells, text_color, dpi);
+        }
 
         let _ = EndPaint(hwnd, &paint);
     }
 
-    unsafe fn draw_cells(
+    unsafe fn draw_cells_directwrite(
+        hwnd: HWND,
+        rect: RECT,
+        cells: &[(String, String)],
+        text_color: COLORREF,
+        dpi: u32,
+    ) -> Result<(), String> {
+        let renderer =
+            match DIRECTWRITE_RENDERER.get_or_init(|| DirectWriteRenderer::new().map(Mutex::new)) {
+                Ok(renderer) => renderer,
+                Err(error) => return Err(error.clone()),
+            };
+        renderer
+            .lock()
+            .map_err(|error| format!("failed to lock DirectWrite taskbar renderer: {error}"))?
+            .draw(hwnd, rect, cells, text_color, dpi)
+    }
+
+    unsafe fn fill_color_key(hdc: HDC, rect: &RECT) {
+        let brush = CreateSolidBrush(COLOR_KEY);
+        let _ = FillRect(hdc, rect, brush);
+        let _ = DeleteObject(HGDIOBJ(brush.0));
+    }
+
+    unsafe fn draw_cells_gdi(
         hdc: HDC,
         rect: RECT,
         cells: &[(String, String)],
@@ -605,6 +971,11 @@ mod imp {
         let column_width = (content_width / cell_count).max(1);
         let (rows_top, middle_y, rows_bottom) = taskbar_row_bounds(rect.top, rect.bottom, dpi);
         let horizontal_inset = scale_for_dpi(2, dpi).max(1);
+        let font_face = if ensure_embedded_taskbar_font() {
+            w!("Noto Sans CJK SC")
+        } else {
+            w!("Microsoft YaHei")
+        };
         let font = CreateFontW(
             taskbar_font_height(dpi),
             0,
@@ -617,9 +988,9 @@ mod imp {
             DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS,
             CLIP_DEFAULT_PRECIS,
-            FONT_QUALITY(CLEARTYPE_NATURAL_QUALITY as u8),
+            DEFAULT_QUALITY,
             (DEFAULT_PITCH.0 | FF_SWISS.0) as u32,
-            w!("Microsoft YaHei Light"),
+            font_face,
         );
         let old_font = SelectObject(hdc, HGDIOBJ(font.0));
         let _ = SetBkMode(hdc, TRANSPARENT);
@@ -657,6 +1028,59 @@ mod imp {
         }
         if !font.0.is_null() {
             let _ = DeleteObject(HGDIOBJ(font.0));
+        }
+    }
+
+    pub(super) fn ensure_embedded_taskbar_font() -> bool {
+        *EMBEDDED_FONT_REGISTERED.get_or_init(|| unsafe {
+            let font_count = std::cell::UnsafeCell::new(0_u32);
+            let handle = AddFontMemResourceEx(
+                TASKBAR_FONT_BYTES.as_ptr().cast(),
+                TASKBAR_FONT_BYTES.len() as u32,
+                None,
+                font_count.get(),
+            );
+            !handle.0.is_null() && *font_count.get() > 0
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn verify_directwrite_taskbar_font() -> Result<(), String> {
+        unsafe {
+            let renderer = match DIRECTWRITE_RENDERER
+                .get_or_init(|| DirectWriteRenderer::new().map(Mutex::new))
+            {
+                Ok(renderer) => renderer,
+                Err(error) => return Err(error.clone()),
+            };
+            let renderer = renderer
+                .lock()
+                .map_err(|error| format!("failed to lock DirectWrite taskbar renderer: {error}"))?;
+            let mut family_index = 0;
+            let mut family_exists = windows::core::BOOL::default();
+            renderer
+                .font_collection
+                .FindFamilyName(
+                    w!("Noto Sans CJK SC"),
+                    &mut family_index,
+                    &mut family_exists,
+                )
+                .map_err(|error| format!("failed to inspect embedded font collection: {error}"))?;
+            if !family_exists.as_bool() {
+                return Err("embedded font family is missing from DirectWrite collection".into());
+            }
+            let format = renderer.create_text_format(DEFAULT_DPI)?;
+            let _ = renderer.create_text_layout("CPU 42% 温度", 96.0, 16.0, &format)?;
+            Ok(())
+        }
+    }
+
+    fn colorref_to_d2d(color: COLORREF) -> D2D1_COLOR_F {
+        D2D1_COLOR_F {
+            r: (color.0 & 0xff) as f32 / 255.0,
+            g: ((color.0 >> 8) & 0xff) as f32 / 255.0,
+            b: ((color.0 >> 16) & 0xff) as f32 / 255.0,
+            a: 1.0,
         }
     }
 
@@ -791,6 +1215,11 @@ mod imp {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::{
+        imp::{ensure_embedded_taskbar_font, verify_directwrite_taskbar_font},
+        TASKBAR_FONT_BYTES,
+    };
     use super::{scale_for_dpi, taskbar_font_height, taskbar_row_bounds};
 
     #[test]
@@ -811,6 +1240,20 @@ mod tests {
         assert_eq!(taskbar_row_bounds(0, 60, 120), (10, 30, 50));
         assert_eq!(taskbar_row_bounds(0, 72, 144), (12, 36, 60));
         assert_eq!(taskbar_row_bounds(0, 96, 192), (16, 48, 80));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn taskbar_font_is_embedded_and_registers_with_gdi() {
+        assert!(TASKBAR_FONT_BYTES.starts_with(b"OTTO"));
+        assert!(TASKBAR_FONT_BYTES.len() < 100_000);
+        assert!(ensure_embedded_taskbar_font());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn taskbar_font_loads_with_directwrite() {
+        verify_directwrite_taskbar_font().expect("embedded font should load with DirectWrite");
     }
 }
 

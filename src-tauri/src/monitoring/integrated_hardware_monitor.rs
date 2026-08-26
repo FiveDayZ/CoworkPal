@@ -7,7 +7,7 @@
 
 use std::{
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::Deserialize;
@@ -34,6 +34,8 @@ pub struct IntegratedHardwareMonitorProbe {
     output_path: PathBuf,
     last_launch_attempt: Option<Instant>,
     launch_suppressed: bool,
+    diagnostic_logged: bool,
+    error_logged: bool,
     #[cfg(windows)]
     process: Option<windows::Win32::Foundation::HANDLE>,
 }
@@ -48,12 +50,11 @@ unsafe impl Sync for IntegratedHardwareMonitorProbe {}
 impl IntegratedHardwareMonitorProbe {
     pub fn new() -> Self {
         Self {
-            output_path: std::env::temp_dir().join(format!(
-                "coworkpal-hardware-monitor-{}.json",
-                std::process::id()
-            )),
+            output_path: helper_output_path(),
             last_launch_attempt: None,
             launch_suppressed: false,
+            diagnostic_logged: false,
+            error_logged: false,
             #[cfg(windows)]
             process: None,
         }
@@ -66,6 +67,7 @@ impl IntegratedHardwareMonitorProbe {
         }
 
         self.ensure_running();
+        self.log_helper_sidecars();
         read_fresh_sample(&self.output_path, crate::models::current_timestamp_ms())
     }
 
@@ -75,7 +77,14 @@ impl IntegratedHardwareMonitorProbe {
             if self.helper_is_running() {
                 return;
             }
-            self.close_process_handle();
+            if let Some(exit_code) = self.close_process_handle() {
+                if exit_code != 0 {
+                    tracing::warn!(
+                        exit_code,
+                        "integrated hardware monitor helper exited unexpectedly"
+                    );
+                }
+            }
             if self.launch_suppressed {
                 return;
             }
@@ -88,16 +97,30 @@ impl IntegratedHardwareMonitorProbe {
                 return;
             }
             self.last_launch_attempt = Some(now);
+            self.diagnostic_logged = false;
+            self.error_logged = false;
 
             let Some(helper_path) = resolve_helper_path() else {
                 tracing::warn!("integrated hardware monitor helper was not found");
                 return;
             };
+            if let Some(directory) = self.output_path.parent() {
+                if let Err(error) = std::fs::create_dir_all(directory) {
+                    tracing::warn!(
+                        path = %directory.display(),
+                        %error,
+                        "failed to prepare integrated hardware monitor output directory"
+                    );
+                }
+            }
             let _ = std::fs::remove_file(&self.output_path);
 
             match launch_elevated(&helper_path, &self.output_path) {
                 Ok(process) => {
-                    tracing::info!("integrated hardware monitor helper started");
+                    tracing::info!(
+                        output_path = %self.output_path.display(),
+                        "integrated hardware monitor helper started"
+                    );
                     self.process = Some(process);
                 }
                 Err(LaunchError::UserDeclined) => {
@@ -128,7 +151,11 @@ impl IntegratedHardwareMonitorProbe {
         }
         self.last_launch_attempt = None;
         self.launch_suppressed = false;
+        self.diagnostic_logged = false;
+        self.error_logged = false;
         let _ = std::fs::remove_file(&self.output_path);
+        let _ = std::fs::remove_file(sidecar_path(&self.output_path, ".diagnostic.log"));
+        let _ = std::fs::remove_file(sidecar_path(&self.output_path, ".error.log"));
     }
 
     #[cfg(windows)]
@@ -137,9 +164,40 @@ impl IntegratedHardwareMonitorProbe {
     }
 
     #[cfg(windows)]
-    fn close_process_handle(&mut self) {
-        if let Some(process) = self.process.take() {
-            close_handle(process);
+    fn close_process_handle(&mut self) -> Option<u32> {
+        let process = self.process.take()?;
+        let exit_code = process_exit_code(process);
+        close_handle(process);
+        exit_code
+    }
+
+    #[cfg(windows)]
+    fn log_helper_sidecars(&mut self) {
+        if !self.diagnostic_logged {
+            if let Ok(diagnostic) =
+                std::fs::read_to_string(sidecar_path(&self.output_path, ".diagnostic.log"))
+            {
+                let diagnostic = diagnostic.trim();
+                if !diagnostic.is_empty() {
+                    tracing::warn!(
+                        diagnostic,
+                        "integrated hardware monitor did not report a CPU temperature"
+                    );
+                    self.diagnostic_logged = true;
+                }
+            }
+        }
+
+        if !self.error_logged {
+            if let Ok(error) =
+                std::fs::read_to_string(sidecar_path(&self.output_path, ".error.log"))
+            {
+                let error = error.trim();
+                if !error.is_empty() {
+                    tracing::warn!(error, "integrated hardware monitor helper failed");
+                    self.error_logged = true;
+                }
+            }
         }
     }
 }
@@ -176,6 +234,33 @@ fn normalize_sample(sample: HelperSample, now_ms: i64) -> Option<IntegratedHardw
 
 fn sanitize_temperature(value: f32) -> Option<f32> {
     (value.is_finite() && value > 0.0 && value <= 125.0).then_some(value)
+}
+
+fn helper_output_path() -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+
+    #[cfg(windows)]
+    let directory = std::env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
+        .join("CoworkPal")
+        .join("HardwareMonitor");
+    #[cfg(not(windows))]
+    let directory = std::env::temp_dir();
+
+    directory.join(format!(
+        "coworkpal-hardware-monitor-{}-{nonce}.json",
+        std::process::id()
+    ))
+}
+
+fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    value.into()
 }
 
 #[cfg(windows)]
@@ -256,6 +341,16 @@ fn process_is_running(process: windows::Win32::Foundation::HANDLE) -> bool {
 }
 
 #[cfg(windows)]
+fn process_exit_code(process: windows::Win32::Foundation::HANDLE) -> Option<u32> {
+    use windows::Win32::System::Threading::GetExitCodeProcess;
+
+    let mut exit_code = 0;
+    unsafe { GetExitCodeProcess(process, &mut exit_code) }
+        .is_ok()
+        .then_some(exit_code)
+}
+
+#[cfg(windows)]
 fn close_handle(handle: windows::Win32::Foundation::HANDLE) {
     use windows::Win32::Foundation::CloseHandle;
     let _ = unsafe { CloseHandle(handle) };
@@ -296,5 +391,24 @@ mod tests {
             gpu_temperature_celsius: None,
         };
         assert_eq!(normalize_sample(zero, 100_000), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn helper_output_uses_shared_program_data_directory() {
+        let output_path = helper_output_path();
+        let expected_directory = std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
+            .join("CoworkPal")
+            .join("HardwareMonitor");
+
+        assert_eq!(output_path.parent(), Some(expected_directory.as_path()));
+        assert!(output_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(
+                |name| name.starts_with("coworkpal-hardware-monitor-") && name.ends_with(".json")
+            ));
     }
 }

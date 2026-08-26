@@ -1,6 +1,6 @@
 [package]
 name = "cowork-pal"
-version = "1.0.0"
+version = "1.0.1"
 description = "CoworkPal desktop scaffold"
 authors = ["CoworkPal"]
 edition = "2021"
@@ -33,9 +33,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 windows = { version = "0.61.3", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_DirectWrite",
     "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_System_Com",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
@@ -49,6 +54,7 @@ windows = { version = "0.61.3", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+windows-numerics = "0.2"
 
 [profile.release]
 codegen-units = 1

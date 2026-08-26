@@ -89,6 +89,19 @@ pub async fn ensure_webview_window(app: &AppHandle, label: &str) -> Result<Webvi
         .visible(false)
         .shadow(false);
 
+    #[cfg(windows)]
+    {
+        // Tao's native file-drop handler calls OleInitialize (STA) when each window is built.
+        // Some Windows drivers initialize the UI thread as MTA first, which makes lazy window
+        // creation panic with RPC_E_CHANGED_MODE. CoworkPal uses its own pointer-based window
+        // dragging and does not consume native file-drop events.
+        builder = builder.drag_and_drop(false);
+
+        if crate::monitoring::webview_software_rendering_recommended() {
+            builder = builder.additional_browser_args("--disable-gpu");
+        }
+    }
+
     if label == "main" {
         builder = builder.center();
     }

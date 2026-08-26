@@ -269,9 +269,12 @@ async fn toggle_minimal_mode(app: AppHandle) -> Result<(), String> {
 }
 
 async fn show_main_route(app: &AppHandle, route: &str) -> Result<(), String> {
+    tracing::info!(route, "opening main window");
     window_manager::show_window(app, "main", true).await?;
     app.emit(UI_NAVIGATE_MAIN, route)
-        .map_err(|error| format!("failed to emit {UI_NAVIGATE_MAIN}: {error}"))
+        .map_err(|error| format!("failed to emit {UI_NAVIGATE_MAIN}: {error}"))?;
+    tracing::info!(route, "main window opened");
+    Ok(())
 }
 
 async fn toggle_cat_visibility(app: AppHandle) -> Result<(), String> {

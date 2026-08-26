@@ -491,7 +491,7 @@ fn migrate_settings(settings: &mut AppSettings, smbios_uuid: Option<String>) -> 
     changed
 }
 
-fn app_data_root() -> std::io::Result<PathBuf> {
+pub(crate) fn app_data_root() -> std::io::Result<PathBuf> {
     std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("XDG_DATA_HOME").map(PathBuf::from))

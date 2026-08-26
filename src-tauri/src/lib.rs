@@ -24,10 +24,18 @@ use tauri::Manager;
 pub static IS_EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn run() {
-    #[cfg(debug_assertions)]
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
+    init_logging();
+    #[cfg(windows)]
+    let _ui_com_apartment = match initialize_ui_com_apartment() {
+        Ok(apartment) => apartment,
+        Err(error) => {
+            tracing::error!("failed to initialize UI COM apartment: {error}");
+            return;
+        }
+    };
+    #[cfg(windows)]
+    tracing::info!("UI COM apartment initialized as STA");
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "CoworkPal started");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -155,6 +163,83 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(windows)]
+struct UiComApartment;
+
+#[cfg(windows)]
+fn initialize_ui_com_apartment() -> Result<UiComApartment, String> {
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+
+    unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }
+        .ok()
+        .map_err(|error| format!("CoInitializeEx(STA) failed: {error}"))?;
+    Ok(UiComApartment)
+}
+
+#[cfg(windows)]
+impl Drop for UiComApartment {
+    fn drop(&mut self) {
+        unsafe { windows::Win32::System::Com::CoUninitialize() };
+    }
+}
+
+fn init_logging() {
+    use std::{fs, sync::Mutex};
+
+    const MAX_LOG_SIZE: u64 = 4 * 1024 * 1024;
+
+    let Ok(root) = storage::app_data_root() else {
+        return;
+    };
+    let logs = root.join("logs");
+    if fs::create_dir_all(&logs).is_err() {
+        return;
+    }
+
+    let path = logs.join("coworkpal.log");
+    if fs::metadata(&path).is_ok_and(|metadata| metadata.len() >= MAX_LOG_SIZE) {
+        let old_path = logs.join("coworkpal.old.log");
+        let _ = fs::remove_file(&old_path);
+        let _ = fs::rename(&path, old_path);
+    }
+
+    let Ok(file) = fs::OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_ansi(false)
+        .with_thread_ids(true)
+        .with_writer(Mutex::new(file))
+        .try_init();
+
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        tracing::error!(%panic_info, "unhandled panic");
+        default_hook(panic_info);
+    }));
+}
+
+#[cfg(all(test, windows))]
+mod windows_com_tests {
+    use super::initialize_ui_com_apartment;
+    use windows::Win32::{
+        Foundation::RPC_E_CHANGED_MODE,
+        System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
+    };
+
+    #[test]
+    fn ui_com_apartment_is_sta_before_tauri_setup() {
+        std::thread::spawn(|| {
+            let _apartment = initialize_ui_com_apartment().expect("STA initialization must work");
+            let result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            assert_eq!(result, RPC_E_CHANGED_MODE);
+        })
+        .join()
+        .expect("COM apartment test thread must not panic");
+    }
 }
 
 async fn apply_saved_visibility(app: &tauri::AppHandle) {

@@ -21,6 +21,8 @@ use crate::{
 static TOKEN_REQUEST_CHECK_LOCK: Mutex<()> = Mutex::const_new(());
 static UPLOAD_LOCK: Mutex<()> = Mutex::const_new(());
 
+type AutoBackupSchedule = (String, String, String, u64, Instant);
+
 const DEFAULT_AUTO_BACKUP_INTERVAL_MINUTES: u64 = 30;
 const MIN_AUTO_BACKUP_INTERVAL_MINUTES: u64 = 5;
 const MAX_AUTO_BACKUP_INTERVAL_MINUTES: u64 = 24 * 60;
@@ -289,7 +291,7 @@ pub fn start_token_request_polling(app: AppHandle) {
 
 pub fn start_auto_backup_polling(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let mut schedule: Option<(String, String, u64, Instant)> = None;
+        let mut schedule: Option<AutoBackupSchedule> = None;
         let mut poll = tokio::time::interval(Duration::from_secs(30));
         poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -309,31 +311,9 @@ pub fn start_auto_backup_polling(app: AppHandle) {
                 continue;
             };
 
-            let schedule_changed =
-                schedule
-                    .as_ref()
-                    .is_none_or(|(server_url, user_name, interval_minutes, _)| {
-                        server_url != &config.server_url
-                            || user_name != &config.user_name
-                            || *interval_minutes != config.auto_backup_interval_minutes
-                    });
-            if schedule_changed {
-                schedule = Some((
-                    config.server_url.clone(),
-                    config.user_name.clone(),
-                    config.auto_backup_interval_minutes,
-                    Instant::now() + interval,
-                ));
+            if !automatic_backup_due(&mut schedule, &config, interval, Instant::now()) {
                 continue;
             }
-
-            let Some((_, _, _, next_upload_at)) = schedule.as_mut() else {
-                continue;
-            };
-            if Instant::now() < *next_upload_at {
-                continue;
-            }
-            *next_upload_at = Instant::now() + interval;
 
             match upload_with_config(&state, &config).await {
                 Ok(result) => tracing::info!(
@@ -344,6 +324,41 @@ pub fn start_auto_backup_polling(app: AppHandle) {
             }
         }
     });
+}
+
+fn automatic_backup_due(
+    schedule: &mut Option<AutoBackupSchedule>,
+    config: &SyncConfig,
+    interval: Duration,
+    now: Instant,
+) -> bool {
+    let schedule_changed = schedule.as_ref().is_none_or(
+        |(server_url, access_token, user_name, interval_minutes, _)| {
+            server_url != &config.server_url
+                || access_token != &config.access_token
+                || user_name != &config.user_name
+                || *interval_minutes != config.auto_backup_interval_minutes
+        },
+    );
+    if schedule_changed {
+        *schedule = Some((
+            config.server_url.clone(),
+            config.access_token.clone(),
+            config.user_name.clone(),
+            config.auto_backup_interval_minutes,
+            now + interval,
+        ));
+        return true;
+    }
+
+    let Some((_, _, _, _, next_upload_at)) = schedule.as_mut() else {
+        return false;
+    };
+    if now < *next_upload_at {
+        return false;
+    }
+    *next_upload_at = now + interval;
+    true
 }
 
 #[tauri::command]
@@ -585,8 +600,8 @@ fn snapshot_endpoint(config: &SyncConfig) -> Result<Url, String> {
 
 fn api_endpoint(server_url: &str, endpoint_path: &str) -> Result<Url, String> {
     let mut url = Url::parse(server_url).map_err(|_| "同步服务器地址无效".to_string())?;
-    if url.scheme() != "https" && !(url.scheme() == "http" && is_local_host(&url)) {
-        return Err("远程同步服务器必须使用 HTTPS".to_string());
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("同步服务器地址必须使用 HTTP 或 HTTPS".to_string());
     }
     if !url.username().is_empty()
         || url.password().is_some()
@@ -598,10 +613,6 @@ fn api_endpoint(server_url: &str, endpoint_path: &str) -> Result<Url, String> {
     let path = format!("{}{}", url.path().trim_end_matches('/'), endpoint_path);
     url.set_path(&path);
     Ok(url)
-}
-
-fn is_local_host(url: &Url) -> bool {
-    matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
 }
 
 fn http_client() -> Result<Client, String> {
@@ -683,26 +694,34 @@ fn emit_restored_state(app: &AppHandle, snapshot: &UserDataSnapshot) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
-    use super::{auto_backup_interval, normalize_config, DeviceProfile, SyncConfig};
+    use super::{
+        auto_backup_interval, automatic_backup_due, normalize_config, DeviceProfile, SyncConfig,
+    };
     use crate::models::{HardwareSnapshot, ProcessUsageSnapshot};
 
     #[test]
-    fn remote_http_is_rejected_but_local_http_is_allowed() {
+    fn remote_http_and_https_are_allowed_but_other_schemes_are_rejected() {
         let token = "x".repeat(32);
         assert!(normalize_config(SyncConfig {
             server_url: "http://example.com".to_string(),
             access_token: token.clone(),
             ..Default::default()
         })
-        .is_err());
+        .is_ok());
         assert!(normalize_config(SyncConfig {
-            server_url: "http://127.0.0.1:8080/".to_string(),
-            access_token: token,
+            server_url: "https://sync.example.com".to_string(),
+            access_token: token.clone(),
             ..Default::default()
         })
         .is_ok());
+        assert!(normalize_config(SyncConfig {
+            server_url: "ftp://example.com".to_string(),
+            access_token: token,
+            ..Default::default()
+        })
+        .is_err());
     }
 
     #[test]
@@ -757,6 +776,39 @@ mod tests {
             auto_backup_interval(&config),
             Some(Duration::from_secs(30 * 60))
         );
+    }
+
+    #[test]
+    fn automatic_backup_uploads_immediately_then_waits_for_the_interval() {
+        let config = SyncConfig {
+            server_url: "https://sync.example.com".to_string(),
+            access_token: "x".repeat(32),
+            auto_backup_enabled: true,
+            auto_backup_interval_minutes: 30,
+            ..Default::default()
+        };
+        let interval = auto_backup_interval(&config).unwrap();
+        let started_at = Instant::now();
+        let mut schedule = None;
+
+        assert!(automatic_backup_due(
+            &mut schedule,
+            &config,
+            interval,
+            started_at
+        ));
+        assert!(!automatic_backup_due(
+            &mut schedule,
+            &config,
+            interval,
+            started_at + Duration::from_secs(60)
+        ));
+        assert!(automatic_backup_due(
+            &mut schedule,
+            &config,
+            interval,
+            started_at + interval
+        ));
     }
 
     #[test]

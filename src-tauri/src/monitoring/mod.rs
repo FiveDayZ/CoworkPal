@@ -4,6 +4,39 @@ mod sysinfo_adapter;
 #[cfg(windows)]
 mod windows_perf;
 
+#[cfg(windows)]
+pub(crate) fn webview_software_rendering_recommended() -> bool {
+    use std::sync::OnceLock;
+
+    static RECOMMENDED: OnceLock<bool> = OnceLock::new();
+    *RECOMMENDED.get_or_init(|| {
+        if std::env::var("COWORKPAL_DISABLE_WEBVIEW_GPU")
+            .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        {
+            return true;
+        }
+        let gpu = windows_perf::query_primary_gpu_info();
+        low_memory_intel_gpu(gpu.name.as_deref(), gpu.dedicated_memory_bytes)
+    })
+}
+
+#[cfg(windows)]
+fn low_memory_intel_gpu(name: Option<&str>, dedicated_memory_bytes: Option<u64>) -> bool {
+    const MAX_HARDWARE_RENDERING_MEMORY: u64 = 512 * 1024 * 1024;
+
+    let Some(name) = name else {
+        return false;
+    };
+    let name = name.to_ascii_lowercase();
+    let is_intel_integrated =
+        name.contains("intel") && (name.contains("uhd graphics") || name.contains("hd graphics"));
+
+    is_intel_integrated
+        && dedicated_memory_bytes
+            .map(|bytes| bytes <= MAX_HARDWARE_RENDERING_MEMORY)
+            .unwrap_or(true)
+}
+
 use std::time::{Duration, Instant};
 
 pub use fake::FakeHardwareSensorAdapter;
@@ -136,6 +169,27 @@ fn has_visible_monitor_surface(app: &AppHandle) -> bool {
                 .and_then(|window| window.is_visible().ok())
                 .unwrap_or(false)
         })
+}
+
+#[cfg(all(test, windows))]
+mod compatibility_tests {
+    use super::low_memory_intel_gpu;
+
+    #[test]
+    fn low_memory_intel_uhd_uses_software_webview_rendering() {
+        assert!(low_memory_intel_gpu(
+            Some("Intel(R) UHD Graphics"),
+            Some(128 * 1024 * 1024),
+        ));
+    }
+
+    #[test]
+    fn discrete_gpu_keeps_hardware_webview_rendering() {
+        assert!(!low_memory_intel_gpu(
+            Some("NVIDIA GeForce RTX 4060"),
+            Some(8 * 1024 * 1024 * 1024),
+        ));
+    }
 }
 
 async fn update_work_log_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapshot) {

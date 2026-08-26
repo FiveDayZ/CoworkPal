@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "cowork-pal"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "futures-util",
@@ -419,6 +419,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows 0.61.3",
+ "windows-numerics",
 ]
 
 [[package]]

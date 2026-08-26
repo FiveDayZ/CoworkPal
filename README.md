@@ -6,15 +6,16 @@
 
 ---
 
-## 🚀 v1.0.0 正式版
+## 🚀 v1.0.1
 
-- **内置硬件温度监控**：CPU / GPU 传感器助手随应用打包，不再依赖 LibreHardwareMonitor
-- **更轻的常驻体验**：新增极简模式、内存占用优化，并可从托盘菜单快速切换
-- **可靠保留进度**：修复设备身份变化导致重启后工坊等级和历史进度重置的问题
-- **清晰一致的任务栏监控**：采用 TrafficMonitor 风格的 DPI 感知原生文字渲染
-- **完整数据备份**：支持自托管同步服务、自动备份、历史恢复和管理看板
+- **自动备份更可靠**：开关与间隔立即保存；启用、启动或连接配置变化后先上传一次，再按设定间隔持续备份
+- **完整自托管同步**：客户端申请令牌、管理员审核发放、历史版本恢复、HTTP / HTTPS 接入和 Docker 管理看板形成完整流程
+- **总览式管理看板**：集中查看用户在线时间、工坊等级、日报、体检、成就、笔记以及 CPU、显卡、内存、磁盘等设备配置
+- **清晰一致的任务栏监控**：采用 DirectWrite + Direct2D 预乘 Alpha 合成，加入 DPI 感知和内置固定字体
+- **内置硬件温度监控**：随应用提供硬件传感器助手和 PawnIO 安装程序，并增加完整性校验、诊断日志与安全输出目录
+- **更稳定的桌面运行**：补充生产日志轮换、Windows STA 初始化和窗口生命周期处理
 
-前往 [CoworkPal v1.0.0 Release](https://github.com/FiveDayZ/CoworkPal/releases/tag/v1.0.0) 下载安装包。
+前往 [CoworkPal v1.0.1 Release](https://github.com/FiveDayZ/CoworkPal/releases/tag/v1.0.1) 下载安装包。
 
 ---
 
@@ -409,6 +410,7 @@ graph TD
 │   │   ├── lib.rs            # 窗口配置与核心初始化
 │   │   └── main.rs           # 程序入口
 │   └── tauri.conf.json
+├── sync-server/             # 自托管备份服务、Docker Compose 与管理看板
 └── src/                      # 前端 (React 19 + TypeScript)
     ├── assets/
     │   ├── achievements/     # 132 枚像素风格成就徽章 (.webp)
@@ -452,6 +454,8 @@ pnpm tauri build
 - **免安装绿色版**：`src-tauri/target/release/cowork-pal.exe`
 - **NSIS 安装包**：`src-tauri/target/release/bundle/nsis/CoworkPal_<version>_x64-setup.exe`
 
+运行错误日志保存在 `%APPDATA%\CoworkPal\logs\coworkpal.log`；超过 4 MiB 时会轮换为 `coworkpal.old.log`。
+
 > 当前打包目标为 NSIS。若需生成 MSI 安装包，需额外下载 [WiX 工具集](https://wixtoolset.org/)（首次打包时 Tauri 会自动拉取，也可手动放置到 `%LOCALAPPDATA%\tauri\WixTools314\`）。
 
 ---
@@ -462,7 +466,7 @@ pnpm tauri build
 
 ### 自托管数据同步
 
-可部署 [`sync-server`](sync-server/) Docker 服务，并在设置页手动上传、启用定时自动上传或恢复完整用户数据。自动备份默认间隔为 30 分钟，仅在客户端运行且已保存服务器地址和访问令牌时执行。服务使用独立用户令牌鉴权、原子更新最新快照，并默认保留最近 30 个历史版本。远程部署必须通过 HTTPS 反向代理访问。
+可部署 [`sync-server`](sync-server/) Docker 服务，并在设置页手动上传、启用定时自动上传或恢复完整用户数据。自动备份默认间隔为 30 分钟，仅在客户端运行且已保存服务器地址和访问令牌时执行；启用或启动后会先上传一次，随后按间隔继续。服务使用独立用户令牌鉴权、原子更新最新快照，并默认保留最近 30 个历史版本。远程同步支持 HTTP 和 HTTPS；HTTP 内容不加密，建议仅在可信局域网使用。
 - **开源透明**：完整源代码托管于 GitHub，可自由审计与编译
   → `https://github.com/FiveDayZ/CoworkPal`
 - **零隐蔽占用**：不含任何后台网络回传、挖矿或敏感资源占用行为
@@ -470,4 +474,4 @@ pnpm tauri build
 
 ---
 
-*CoworkPal v1.0.0 · MIT License · Made with ❤️ and a lot of pixel art*
+*CoworkPal v1.0.1 · MIT License · Made with ❤️ and a lot of pixel art*

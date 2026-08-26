@@ -6,6 +6,6 @@ COPY --chown=node:node public ./public
 RUN mkdir -p /data && chown node:node /data
 
 USER node
-EXPOSE 8080
+EXPOSE 18080
 VOLUME ["/data"]
 CMD ["node", "server.mjs"]
