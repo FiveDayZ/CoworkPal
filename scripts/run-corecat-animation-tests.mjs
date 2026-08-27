@@ -38,38 +38,38 @@ const {
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "animation",
   "animationConfig.js",
 ));
 const {
-  createCoreCatActionControllerState,
-  updateCoreCatActionController,
+  createCoCatActionControllerState,
+  updateCoCatActionController,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "animation",
   "animationActionController.js",
 ));
 const {
-  getCoreCatOneShotDurationMs,
-  getCoreCatTransitionMs,
-  resolveCoreCatAnimationState,
+  getCoCatOneShotDurationMs,
+  getCoCatTransitionMs,
+  resolveCoCatAnimationState,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "animation",
   "animationStateMachine.js",
 ));
-const { sampleCoreCatPose } = require(path.join(
+const { sampleCoCatPose } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "animation",
   "animationRuntime.js",
 ));
@@ -77,102 +77,102 @@ const { mixTransitionPose } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "animation",
   "animationMixer.js",
 ));
 const {
-  createCoreCatVfxBus,
+  createCoCatVfxBus,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "vfx",
   "vfxBus.js",
 ));
 const {
-  createCoreCatVfxSnapshot,
-  CORECAT_VFX_LIMITS,
-  createCoreCatVfxParticleCounts,
-  getCoreCatStateVfxEvents,
+  createCoCatVfxSnapshot,
+  COCAT_VFX_LIMITS,
+  createCoCatVfxParticleCounts,
+  getCoCatStateVfxEvents,
   shouldPauseHighFrequencyVfx,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "vfx",
   "vfxRuntime.js",
 ));
 const {
-  createCoreCatPerformanceMonitor,
-  CORECAT_PERFORMANCE_SAMPLE_INTERVAL_MS,
-  CORECAT_PERFORMANCE_TRANSITION_HISTORY_LIMIT,
+  createCoCatPerformanceMonitor,
+  COCAT_PERFORMANCE_SAMPLE_INTERVAL_MS,
+  COCAT_PERFORMANCE_TRANSITION_HISTORY_LIMIT,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "performance",
-  "coreCatPerformanceMonitor.js",
+  "coCatPerformanceMonitor.js",
 ));
 const {
-  getCoreCatQaSequence,
-  getCoreCatQaStepHoldMs,
-  shouldCoreCatQaStepAutoFallback,
+  getCoCatQaSequence,
+  getCoCatQaStepHoldMs,
+  shouldCoCatQaStepAutoFallback,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "debug",
-  "coreCatQaSequences.js",
+  "coCatQaSequences.js",
 ));
-const { resolveCoreCatHoverHitArea } = require(path.join(
+const { resolveCoCatHoverHitArea } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "animation",
   "hoverHitArea.js",
 ));
 const {
-  coreCatSkeletonNodes,
-  coreCatSkeletonNodeMap,
+  coCatSkeletonNodes,
+  coCatSkeletonNodeMap,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "animation",
   "skeletonNodes.js",
 ));
 const {
-  coreCatAssetManifest,
-  coreCatAssetMetaById,
-  coreCatRequiredAssetIds,
-  getCoreCatAssetIdForBone,
+  coCatAssetManifest,
+  coCatAssetMetaById,
+  coCatRequiredAssetIds,
+  getCoCatAssetIdForBone,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "assets",
-  "coreCatAssetManifest.js",
+  "coCatAssetManifest.js",
 ));
 const {
-  getCoreCatAssetValidationItem,
-  resolveCoreCatAssetRenderMode,
-  shouldShowCoreCatAssetPanel,
-  validateCoreCatAssets,
+  getCoCatAssetValidationItem,
+  resolveCoCatAssetRenderMode,
+  shouldShowCoCatAssetPanel,
+  validateCoCatAssets,
 } = require(path.join(
   outDir,
   "src",
   "pet",
-  "corecat",
+  "cocat",
   "assets",
-  "coreCatAssetValidator.js",
+  "coCatAssetValidator.js",
 ));
 const {
   deriveCatStatusFromHardware,
@@ -192,86 +192,86 @@ function input(overrides = {}) {
   };
 }
 
-assert.equal(resolveCoreCatAnimationState(input()), "idle");
-assert.equal(resolveCoreCatAnimationState(input({ pointerInside: true })), "hover");
+assert.equal(resolveCoCatAnimationState(input()), "idle");
+assert.equal(resolveCoCatAnimationState(input({ pointerInside: true })), "hover");
 assert.equal(
-  resolveCoreCatAnimationState(input({ isDragging: true, pointerInside: true })),
+  resolveCoCatAnimationState(input({ isDragging: true, pointerInside: true })),
   "dragging",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ isClicking: true, pointerInside: true })),
+  resolveCoCatAnimationState(input({ isClicking: true, pointerInside: true })),
   "click",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ lowPowerMode: true, pointerInside: true })),
+  resolveCoCatAnimationState(input({ lowPowerMode: true, pointerInside: true })),
   "lowPowerStatic",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ isClicking: true, lowPowerMode: true })),
+  resolveCoCatAnimationState(input({ isClicking: true, lowPowerMode: true })),
   "click",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({ catState: "TemperatureCheck", lowPowerMode: true, pointerInside: true }),
   ),
   "temperatureCheck",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({ catState: "MemoryCrowded", staticMode: true, pointerInside: true }),
   ),
   "memoryCrowded",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ catState: "Sleep", isClicking: true })),
+  resolveCoCatAnimationState(input({ catState: "Sleep", isClicking: true })),
   "click",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({ catState: "Hidden", isClicking: true, pointerInside: true }),
   ),
   "sleep",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({ catState: "TemperatureCheck", isClicking: true, pointerInside: true }),
   ),
   "click",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ catState: "MemoryCrowded" })),
+  resolveCoCatAnimationState(input({ catState: "MemoryCrowded" })),
   "memoryCrowded",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ catState: "RepairHeavy" })),
+  resolveCoCatAnimationState(input({ catState: "RepairHeavy" })),
   "repairing",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ catState: "RepairLight" })),
+  resolveCoCatAnimationState(input({ catState: "RepairLight" })),
   "repairing",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ catState: "DataSorting" })),
+  resolveCoCatAnimationState(input({ catState: "DataSorting" })),
   "dataSorting",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ catState: "Fatigued" })),
+  resolveCoCatAnimationState(input({ catState: "Fatigued" })),
   "fatigued",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ catState: "NeedsBreak" })),
+  resolveCoCatAnimationState(input({ catState: "NeedsBreak" })),
   "needsBreak",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ catState: "Celebrate" })),
+  resolveCoCatAnimationState(input({ catState: "Celebrate" })),
   "celebrate",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "bootWake" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "bootWake" })),
   "bootWake",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       completedOneShotState: "bootWake",
       interactionStateOverride: "bootWake",
@@ -280,11 +280,11 @@ assert.equal(
   "idle",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "dropLanding" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "dropLanding" })),
   "dropLanding",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       completedOneShotState: "dropLanding",
       interactionStateOverride: "dropLanding",
@@ -293,27 +293,27 @@ assert.equal(
   "idle",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "panelOpen" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "panelOpen" })),
   "panelOpen",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "panelClose" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "panelClose" })),
   "panelClose",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "pettingHearts" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "pettingHearts" })),
   "pettingHearts",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ debugStateOverride: "scaredByMouse" })),
+  resolveCoCatAnimationState(input({ debugStateOverride: "scaredByMouse" })),
   "scaredByMouse",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ debugStateOverride: "eatingFish" })),
+  resolveCoCatAnimationState(input({ debugStateOverride: "eatingFish" })),
   "eatingFish",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       catState: "TemperatureCheck",
       interactionStateOverride: "panelOpen",
@@ -322,7 +322,7 @@ assert.equal(
   "panelOpen",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       interactionStateOverride: "panelClose",
       lowPowerMode: true,
@@ -331,11 +331,11 @@ assert.equal(
   "panelClose",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "errorGlitch" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "errorGlitch" })),
   "errorGlitch",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       completedOneShotState: "errorGlitch",
       interactionStateOverride: "errorGlitch",
@@ -344,23 +344,23 @@ assert.equal(
   "idle",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "updateInstalling" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "updateInstalling" })),
   "updateInstalling",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "achievementPop" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "achievementPop" })),
   "achievementPop",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "workshopUpgrade" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "workshopUpgrade" })),
   "workshopUpgrade",
 );
 assert.equal(
-  resolveCoreCatAnimationState(input({ interactionStateOverride: "moduleUpgrade" })),
+  resolveCoCatAnimationState(input({ interactionStateOverride: "moduleUpgrade" })),
   "moduleUpgrade",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       completedOneShotState: "pettingHearts",
       interactionStateOverride: "pettingHearts",
@@ -369,7 +369,7 @@ assert.equal(
   "idle",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       catState: "TemperatureCheck",
       interactionStateOverride: "achievementPop",
@@ -378,7 +378,7 @@ assert.equal(
   "achievementPop",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       catState: "TemperatureCheck",
       interactionStateOverride: "workshopUpgrade",
@@ -387,7 +387,7 @@ assert.equal(
   "workshopUpgrade",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       catState: "MemoryCrowded",
       interactionStateOverride: "moduleUpgrade",
@@ -396,7 +396,7 @@ assert.equal(
   "moduleUpgrade",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       catState: "TemperatureCheck",
       completedOneShotState: "workshopUpgrade",
@@ -406,7 +406,7 @@ assert.equal(
   "temperatureCheck",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({
       catState: "MemoryCrowded",
       completedOneShotState: "moduleUpgrade",
@@ -417,46 +417,46 @@ assert.equal(
 );
 
 assert.equal(
-  getCoreCatTransitionMs("idle", "hover"),
+  getCoCatTransitionMs("idle", "hover"),
   CORE_CAT_ANIMATION_CONFIG.transition.durations.Idle_to_Hover,
 );
-assert.equal(getCoreCatTransitionMs("hover", "idle"), 180);
-assert.equal(getCoreCatTransitionMs("idle", "click"), 40);
-assert.equal(getCoreCatTransitionMs("repairing", "celebrate"), 80);
-assert.equal(getCoreCatTransitionMs("idle", "workshopUpgrade"), 80);
-assert.equal(getCoreCatTransitionMs("workshopUpgrade", "idle"), 240);
-assert.equal(getCoreCatTransitionMs("idle", "moduleUpgrade"), 80);
-assert.equal(getCoreCatTransitionMs("moduleUpgrade", "idle"), 240);
-assert.equal(getCoreCatTransitionMs("idle", "bootWake"), 80);
-assert.equal(getCoreCatTransitionMs("bootWake", "idle"), 220);
-assert.equal(getCoreCatTransitionMs("idle", "dragging"), 60);
-assert.equal(getCoreCatTransitionMs("dragging", "dropLanding"), 40);
-assert.equal(getCoreCatTransitionMs("dropLanding", "idle"), 220);
-assert.equal(getCoreCatTransitionMs("idle", "panelOpen"), 80);
-assert.equal(getCoreCatTransitionMs("panelOpen", "idle"), 160);
-assert.equal(getCoreCatTransitionMs("idle", "panelClose"), 80);
-assert.equal(getCoreCatTransitionMs("panelClose", "idle"), 160);
-assert.equal(getCoreCatTransitionMs("idle", "errorGlitch"), 40);
-assert.equal(getCoreCatTransitionMs("errorGlitch", "idle"), 180);
-assert.equal(getCoreCatTransitionMs("idle", "updateInstalling"), 160);
-assert.equal(getCoreCatTransitionMs("updateInstalling", "celebrate"), 80);
-assert.equal(getCoreCatTransitionMs("idle", "achievementPop"), 60);
-assert.equal(getCoreCatTransitionMs("achievementPop", "idle"), 160);
-assert.equal(getCoreCatTransitionMs("idle", "sleep"), 600);
-assert.equal(getCoreCatTransitionMs("sleep", "idle"), 420);
-assert.equal(getCoreCatTransitionMs("celebrate", "idle"), 240);
-assert.equal(getCoreCatTransitionMs("hover", "hover"), 0);
+assert.equal(getCoCatTransitionMs("hover", "idle"), 180);
+assert.equal(getCoCatTransitionMs("idle", "click"), 40);
+assert.equal(getCoCatTransitionMs("repairing", "celebrate"), 80);
+assert.equal(getCoCatTransitionMs("idle", "workshopUpgrade"), 80);
+assert.equal(getCoCatTransitionMs("workshopUpgrade", "idle"), 240);
+assert.equal(getCoCatTransitionMs("idle", "moduleUpgrade"), 80);
+assert.equal(getCoCatTransitionMs("moduleUpgrade", "idle"), 240);
+assert.equal(getCoCatTransitionMs("idle", "bootWake"), 80);
+assert.equal(getCoCatTransitionMs("bootWake", "idle"), 220);
+assert.equal(getCoCatTransitionMs("idle", "dragging"), 60);
+assert.equal(getCoCatTransitionMs("dragging", "dropLanding"), 40);
+assert.equal(getCoCatTransitionMs("dropLanding", "idle"), 220);
+assert.equal(getCoCatTransitionMs("idle", "panelOpen"), 80);
+assert.equal(getCoCatTransitionMs("panelOpen", "idle"), 160);
+assert.equal(getCoCatTransitionMs("idle", "panelClose"), 80);
+assert.equal(getCoCatTransitionMs("panelClose", "idle"), 160);
+assert.equal(getCoCatTransitionMs("idle", "errorGlitch"), 40);
+assert.equal(getCoCatTransitionMs("errorGlitch", "idle"), 180);
+assert.equal(getCoCatTransitionMs("idle", "updateInstalling"), 160);
+assert.equal(getCoCatTransitionMs("updateInstalling", "celebrate"), 80);
+assert.equal(getCoCatTransitionMs("idle", "achievementPop"), 60);
+assert.equal(getCoCatTransitionMs("achievementPop", "idle"), 160);
+assert.equal(getCoCatTransitionMs("idle", "sleep"), 600);
+assert.equal(getCoCatTransitionMs("sleep", "idle"), 420);
+assert.equal(getCoCatTransitionMs("celebrate", "idle"), 240);
+assert.equal(getCoCatTransitionMs("hover", "hover"), 0);
 assert.equal(
-  getCoreCatOneShotDurationMs("bootWake"),
+  getCoCatOneShotDurationMs("bootWake"),
   CORE_CAT_ANIMATION_CONFIG.oneShot.bootWakeMs,
 );
 assert.equal(
-  getCoreCatOneShotDurationMs("dropLanding"),
+  getCoCatOneShotDurationMs("dropLanding"),
   CORE_CAT_ANIMATION_CONFIG.oneShot.dropLandingMs,
 );
-assert.equal(getCoreCatOneShotDurationMs("workshopUpgrade"), 5000);
-assert.equal(getCoreCatOneShotDurationMs("moduleUpgrade"), 5000);
-assert.equal(getCoreCatOneShotDurationMs("updateInstalling"), null);
+assert.equal(getCoCatOneShotDurationMs("workshopUpgrade"), 5000);
+assert.equal(getCoCatOneShotDurationMs("moduleUpgrade"), 5000);
+assert.equal(getCoCatOneShotDurationMs("updateInstalling"), null);
 
 const fromPose = { body_base: { x: 0, opacity: 0.2 } };
 const toPose = { body_base: { x: 10, opacity: 1 } };
@@ -464,60 +464,60 @@ assert.equal(mixTransitionPose(fromPose, toPose, 0, 160).body_base.x, 0);
 assertNear(mixTransitionPose(fromPose, toPose, 80, 160).body_base.x, 5);
 assert.equal(mixTransitionPose(fromPose, toPose, 160, 160).body_base.x, 10);
 
-let actionState = createCoreCatActionControllerState();
-let action = updateCoreCatActionController(actionState, true, 1000);
+let actionState = createCoCatActionControllerState();
+let action = updateCoCatActionController(actionState, true, 1000);
 assert.equal(action.didStartClick, true);
 assert.equal(action.isClicking, true);
 
-action = updateCoreCatActionController(action.state, true, 1299);
+action = updateCoCatActionController(action.state, true, 1299);
 assert.equal(action.didStartClick, false);
 assert.equal(action.isClicking, true);
 
-action = updateCoreCatActionController(action.state, true, 1300);
+action = updateCoCatActionController(action.state, true, 1300);
 assert.equal(action.didStartClick, false);
 assert.equal(action.isClicking, false);
 assert.equal(
-  resolveCoreCatAnimationState(input({ isClicking: action.isClicking, pointerInside: true })),
+  resolveCoCatAnimationState(input({ isClicking: action.isClicking, pointerInside: true })),
   "hover",
 );
 assert.equal(
-  resolveCoreCatAnimationState(
+  resolveCoCatAnimationState(
     input({ catState: "Celebrate", completedOneShotState: "celebrate" }),
   ),
   "idle",
 );
 
-action = updateCoreCatActionController(action.state, false, 1301);
-action = updateCoreCatActionController(action.state, true, 1400);
+action = updateCoCatActionController(action.state, false, 1301);
+action = updateCoCatActionController(action.state, true, 1400);
 assert.equal(action.didStartClick, true);
 assert.equal(action.isClicking, true);
 
 // Test rapid clicking / click interruption and extension
-let rapidAction = createCoreCatActionControllerState();
+let rapidAction = createCoCatActionControllerState();
 // First click at 2000ms
-rapidAction = updateCoreCatActionController(rapidAction, true, 2000).state;
+rapidAction = updateCoCatActionController(rapidAction, true, 2000).state;
 // Release click at 2080ms
-rapidAction = updateCoreCatActionController(rapidAction, false, 2080).state;
+rapidAction = updateCoCatActionController(rapidAction, false, 2080).state;
 // Second click at 2150ms (before 2300ms)
-let secondClickRes = updateCoreCatActionController(rapidAction, true, 2150);
+let secondClickRes = updateCoCatActionController(rapidAction, true, 2150);
 assert.equal(secondClickRes.didStartClick, true);
 assert.equal(secondClickRes.isClicking, true);
 assert.equal(secondClickRes.state.clickUntilMs, 2450);
 
 const hoverRect = { left: 100, top: 50, width: 160, height: 160 };
-const hoverCenter = resolveCoreCatHoverHitArea(180, 130, hoverRect);
+const hoverCenter = resolveCoCatHoverHitArea(180, 130, hoverRect);
 assert.equal(hoverCenter.isInside, true);
 assertNear(hoverCenter.x, 0);
 assertNear(hoverCenter.y, 0);
-const hoverEdge = resolveCoreCatHoverHitArea(40, 130, hoverRect);
+const hoverEdge = resolveCoCatHoverHitArea(40, 130, hoverRect);
 assert.equal(hoverEdge.isInside, true);
 assertNear(hoverEdge.x, -1);
-const hoverOutside = resolveCoreCatHoverHitArea(39, 130, hoverRect);
+const hoverOutside = resolveCoCatHoverHitArea(39, 130, hoverRect);
 assert.equal(hoverOutside.isInside, false);
 assert.equal(hoverOutside.x, 0);
 
 assert.deepEqual(
-  coreCatSkeletonNodes.map((node) => node.id),
+  coCatSkeletonNodes.map((node) => node.id),
   [
     "root",
     "shadow",
@@ -536,10 +536,10 @@ assert.deepEqual(
     "vfx_anchor",
   ],
 );
-assert.equal(coreCatSkeletonNodeMap.tail_base.parentId, "root");
-assert.equal(coreCatSkeletonNodeMap.tail_mid.parentId, "tail_base");
-assert.equal(coreCatSkeletonNodeMap.tail_tip.parentId, "tail_mid");
-assert.equal(sampleCoreCatPose("idle", {
+assert.equal(coCatSkeletonNodeMap.tail_base.parentId, "root");
+assert.equal(coCatSkeletonNodeMap.tail_mid.parentId, "tail_base");
+assert.equal(coCatSkeletonNodeMap.tail_tip.parentId, "tail_mid");
+assert.equal(sampleCoCatPose("idle", {
   blinkActive: false,
   earTwitch: null,
   isClicking: false,
@@ -554,7 +554,7 @@ assert.equal(sampleCoreCatPose("idle", {
   updateProgress: 0,
 }).tail_tip.rotate !== undefined, true);
 
-const expectedCoreCatAssetIds = [
+const expectedCoCatAssetIds = [
   "shadow",
   "tail_base",
   "tail_mid",
@@ -580,61 +580,61 @@ const expectedCoreCatAssetIds = [
   "sleep_bubble",
 ];
 assert.deepEqual(
-  coreCatAssetManifest.map((asset) => asset.id),
-  expectedCoreCatAssetIds,
+  coCatAssetManifest.map((asset) => asset.id),
+  expectedCoCatAssetIds,
 );
-assert.deepEqual(coreCatRequiredAssetIds, expectedCoreCatAssetIds);
+assert.deepEqual(coCatRequiredAssetIds, expectedCoCatAssetIds);
 assert.equal(
-  coreCatAssetManifest.every((asset) => asset.fallbackPath.length > 0),
+  coCatAssetManifest.every((asset) => asset.fallbackPath.length > 0),
   true,
 );
-assert.equal(getCoreCatAssetIdForBone("body_base", "normal"), "body_base");
-assert.equal(getCoreCatAssetIdForBone("eyes", "focused"), "eye_focused");
-assert.equal(getCoreCatAssetIdForBone("vfx_anchor", "normal"), null);
-assert.equal(coreCatAssetMetaById.body_base.anchorNode, "body_base");
-assert.equal(coreCatAssetMetaById.tail_base.anchorNode, "tail_base");
-assert.equal(coreCatAssetMetaById.tail_mid.anchorNode, "tail_mid");
-assert.equal(coreCatAssetMetaById.tail_tip.anchorNode, "tail_tip");
-assert.equal(coreCatAssetMetaById.eye_focused.anchorNode, "eyes");
+assert.equal(getCoCatAssetIdForBone("body_base", "normal"), "body_base");
+assert.equal(getCoCatAssetIdForBone("eyes", "focused"), "eye_focused");
+assert.equal(getCoCatAssetIdForBone("vfx_anchor", "normal"), null);
+assert.equal(coCatAssetMetaById.body_base.anchorNode, "body_base");
+assert.equal(coCatAssetMetaById.tail_base.anchorNode, "tail_base");
+assert.equal(coCatAssetMetaById.tail_mid.anchorNode, "tail_mid");
+assert.equal(coCatAssetMetaById.tail_tip.anchorNode, "tail_tip");
+assert.equal(coCatAssetMetaById.eye_focused.anchorNode, "eyes");
 
-const emptyAssetReport = validateCoreCatAssets(coreCatAssetManifest, []);
+const emptyAssetReport = validateCoCatAssets(coCatAssetManifest, []);
 assert.equal(emptyAssetReport.allRequiredSatisfied, false);
 assert.equal(emptyAssetReport.formalCount, 0);
-assert.equal(emptyAssetReport.placeholderCount, expectedCoreCatAssetIds.length);
+assert.equal(emptyAssetReport.placeholderCount, expectedCoCatAssetIds.length);
 assert.equal(
   emptyAssetReport.missingRequired.length,
-  expectedCoreCatAssetIds.length,
+  expectedCoCatAssetIds.length,
 );
 assert.equal(
-  getCoreCatAssetValidationItem(emptyAssetReport, "body_base").source,
+  getCoCatAssetValidationItem(emptyAssetReport, "body_base").source,
   "placeholder",
 );
 
-const completeAssetReport = validateCoreCatAssets(
-  coreCatAssetManifest,
-  coreCatAssetManifest.map((asset) => asset.path),
+const completeAssetReport = validateCoCatAssets(
+  coCatAssetManifest,
+  coCatAssetManifest.map((asset) => asset.path),
 );
 assert.equal(completeAssetReport.allRequiredSatisfied, true);
-assert.equal(completeAssetReport.formalCount, expectedCoreCatAssetIds.length);
+assert.equal(completeAssetReport.formalCount, expectedCoCatAssetIds.length);
 assert.equal(completeAssetReport.placeholderCount, 0);
 assert.equal(
-  getCoreCatAssetValidationItem(completeAssetReport, "body_base").source,
+  getCoCatAssetValidationItem(completeAssetReport, "body_base").source,
   "formal",
 );
-const completeSvgAssetReport = validateCoreCatAssets(
-  coreCatAssetManifest,
-  coreCatAssetManifest.map((asset) => asset.path.replace(/\.png$/, ".svg")),
+const completeSvgAssetReport = validateCoCatAssets(
+  coCatAssetManifest,
+  coCatAssetManifest.map((asset) => asset.path.replace(/\.png$/, ".svg")),
 );
 assert.equal(completeSvgAssetReport.allRequiredSatisfied, true);
-assert.equal(completeSvgAssetReport.formalCount, expectedCoreCatAssetIds.length);
+assert.equal(completeSvgAssetReport.formalCount, expectedCoCatAssetIds.length);
 assert.equal(
-  getCoreCatAssetValidationItem(completeSvgAssetReport, "tail_tip").resolvedPath,
-  "corecat_skeleton/tail/tail_tip.svg",
+  getCoCatAssetValidationItem(completeSvgAssetReport, "tail_tip").resolvedPath,
+  "cocat_skeleton/tail/tail_tip.svg",
 );
-assert.equal(resolveCoreCatAssetRenderMode("body_base", null), "placeholder");
-assert.equal(resolveCoreCatAssetRenderMode("body_base", "/asset.png"), "formal");
-assert.equal(shouldShowCoreCatAssetPanel(false), false);
-assert.equal(shouldShowCoreCatAssetPanel(true), true);
+assert.equal(resolveCoCatAssetRenderMode("body_base", null), "placeholder");
+assert.equal(resolveCoCatAssetRenderMode("body_base", "/asset.png"), "formal");
+assert.equal(shouldShowCoCatAssetPanel(false), false);
+assert.equal(shouldShowCoCatAssetPanel(true), true);
 
 const settings = {
   schemaVersion: 1,
@@ -893,7 +893,7 @@ assert.equal(
   true,
 );
 
-const vfxBus = createCoreCatVfxBus();
+const vfxBus = createCoCatVfxBus();
 const receivedVfx = [];
 const unsubscribeVfx = vfxBus.subscribe((event) => receivedVfx.push(event));
 vfxBus.emit({ intensity: 1, type: "coolingWind" });
@@ -903,7 +903,7 @@ vfxBus.emit({ type: "goldenSteamRing" });
 assert.deepEqual(receivedVfx.map((event) => event.type), ["coolingWind", "spark"]);
 
 assert.deepEqual(
-  getCoreCatStateVfxEvents("temperatureCheck").map((event) => event.type),
+  getCoCatStateVfxEvents("temperatureCheck").map((event) => event.type),
   ["coolingWind", "coldPixels"],
 );
 
@@ -918,19 +918,19 @@ const baseVfxInput = {
   updateProgress: 0,
 };
 assert.ok(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "temperatureCheck",
   }).activeEffects.includes("coolingWind"),
 );
 assert.ok(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "memoryCrowded",
   }).activeEffects.includes("memoryRamBox"),
 );
 assert.deepEqual(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "sleep",
     stars: [{ delayMs: 0, dx: 1, dy: 1, id: "test" }],
@@ -938,20 +938,20 @@ assert.deepEqual(
   ["sleepBubble"],
 );
 assert.ok(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "celebrate",
     stateElapsedMs: CORE_CAT_ANIMATION_CONFIG.celebrate.burstStartMs,
   }).activeEffects.includes("celebrateBurst"),
 );
 assert.ok(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "errorGlitch",
   }).activeEffects.includes("errorGlitch"),
 );
 assert.equal(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "updateInstalling",
     updateProgress: 0.64,
@@ -959,19 +959,19 @@ assert.equal(
   0.64,
 );
 assert.ok(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "updateInstalling",
   }).activeEffects.includes("updateProgress"),
 );
 assert.ok(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "achievementPop",
   }).activeEffects.includes("achievementBadge"),
 );
 assert.equal(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "temperatureCheck",
     lowPowerMode: true,
@@ -979,7 +979,7 @@ assert.equal(
   false,
 );
 assert.equal(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "sleep",
     lowPowerMode: true,
@@ -992,29 +992,29 @@ const manyStars = Array.from({ length: 120 }, (_, index) => ({
   dy: -index,
   id: `many-${index}`,
 }));
-const cappedVfxSnapshot = createCoreCatVfxSnapshot({
+const cappedVfxSnapshot = createCoCatVfxSnapshot({
   ...baseVfxInput,
   animationState: "idle",
   stars: manyStars,
 });
 assert.equal(
   cappedVfxSnapshot.stars.length,
-  CORECAT_VFX_LIMITS.maxActiveParticles,
+  COCAT_VFX_LIMITS.maxActiveParticles,
 );
 assert.equal(
-  cappedVfxSnapshot.particleCounts.total <= CORECAT_VFX_LIMITS.maxActiveParticles,
+  cappedVfxSnapshot.particleCounts.total <= COCAT_VFX_LIMITS.maxActiveParticles,
   true,
 );
 assert.equal(cappedVfxSnapshot.isAutoDegraded, true);
 assert.equal(
-  createCoreCatVfxParticleCounts(
+  createCoCatVfxParticleCounts(
     ["coolingParticles", "dataCubes", "memorySteam", "repairSparks", "celebrateBurst"],
     0,
-  ).coolingParticles <= CORECAT_VFX_LIMITS.maxCoolingParticles,
+  ).coolingParticles <= COCAT_VFX_LIMITS.maxCoolingParticles,
   true,
 );
 assert.equal(
-  createCoreCatVfxSnapshot({
+  createCoCatVfxSnapshot({
     ...baseVfxInput,
     animationState: "dataSorting",
     degradeVfx: true,
@@ -1025,9 +1025,9 @@ assert.equal(shouldPauseHighFrequencyVfx("sleep", false), true);
 assert.equal(shouldPauseHighFrequencyVfx("temperatureCheck", false), false);
 assert.equal(shouldPauseHighFrequencyVfx("temperatureCheck", true), true);
 
-const qaHardwareSequence = getCoreCatQaSequence("hardware");
-assert.ok(getCoreCatQaSequence("all").states.includes("workshopUpgrade"));
-assert.ok(getCoreCatQaSequence("all").states.includes("moduleUpgrade"));
+const qaHardwareSequence = getCoCatQaSequence("hardware");
+assert.ok(getCoCatQaSequence("all").states.includes("workshopUpgrade"));
+assert.ok(getCoCatQaSequence("all").states.includes("moduleUpgrade"));
 assert.deepEqual(qaHardwareSequence.states, [
   "idle",
   "scaredByMouse",
@@ -1038,7 +1038,7 @@ assert.deepEqual(qaHardwareSequence.states, [
   "celebrate",
   "idle",
 ]);
-assert.deepEqual(getCoreCatQaSequence("interaction").states, [
+assert.deepEqual(getCoCatQaSequence("interaction").states, [
   "bootWake",
   "hover",
   "click",
@@ -1050,11 +1050,11 @@ assert.deepEqual(getCoreCatQaSequence("interaction").states, [
   "lowPowerStatic",
   "idle",
 ]);
-assert.equal(shouldCoreCatQaStepAutoFallback("bootWake"), true);
-assert.equal(shouldCoreCatQaStepAutoFallback("dropLanding"), true);
-assert.equal(shouldCoreCatQaStepAutoFallback("dragging"), false);
+assert.equal(shouldCoCatQaStepAutoFallback("bootWake"), true);
+assert.equal(shouldCoCatQaStepAutoFallback("dropLanding"), true);
+assert.equal(shouldCoCatQaStepAutoFallback("dragging"), false);
 assert.equal(
-  getCoreCatQaStepHoldMs("bootWake") > CORE_CAT_ANIMATION_CONFIG.oneShot.bootWakeMs,
+  getCoCatQaStepHoldMs("bootWake") > CORE_CAT_ANIMATION_CONFIG.oneShot.bootWakeMs,
   true,
 );
 
@@ -1071,9 +1071,9 @@ const perfBaseInput = {
   transitionDurationMs: 0,
   vfxParticleCount: 0,
 };
-const perfMonitor = createCoreCatPerformanceMonitor(perfBaseInput, 0);
+const perfMonitor = createCoCatPerformanceMonitor(perfBaseInput, 0);
 let perfReports = 0;
-for (let now = 16; now < CORECAT_PERFORMANCE_SAMPLE_INTERVAL_MS; now += 16) {
+for (let now = 16; now < COCAT_PERFORMANCE_SAMPLE_INTERVAL_MS; now += 16) {
   if (perfMonitor.recordFrame(perfBaseInput, now)) {
     perfReports += 1;
   }
@@ -1099,10 +1099,10 @@ for (let index = 0; index < 12; index += 1) {
 }
 assert.equal(
   perfMonitor.snapshot(1200).stateTransitions.length,
-  CORECAT_PERFORMANCE_TRANSITION_HISTORY_LIMIT,
+  COCAT_PERFORMANCE_TRANSITION_HISTORY_LIMIT,
 );
 
-console.log("CoreCat animation tests passed");
+console.log("CoCat animation tests passed");
 
 function assertNear(actual, expected, epsilon = 0.000001) {
   assert.ok(
@@ -1135,6 +1135,7 @@ function validateAnimationSpriteSheets() {
     "Eating_Fish",
     "ErrorGlitch",
     "Fatigued",
+    "Free_Memory",
     "Hover",
     "Idle",
     "Memory_Crowded",

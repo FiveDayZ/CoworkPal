@@ -1,9 +1,11 @@
 export interface SyncConfig {
   serverUrl: string;
   accessToken: string;
+  userId: string;
   userName: string;
   tokenRequestId: string;
   tokenRequestSecret: string;
+  tokenRequestKind: "" | "registration" | "recovery";
   autoBackupEnabled: boolean;
   autoBackupIntervalMinutes: number;
 }
@@ -15,7 +17,9 @@ export interface CloudSyncResult {
 }
 
 export interface TokenRequestResult {
+  kind: "registration" | "recovery";
   status: "pending" | "approved" | "rejected";
+  userId: string | null;
   userName: string;
   requestedAt: string;
   decidedAt: string | null;

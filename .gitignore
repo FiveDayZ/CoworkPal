@@ -22,6 +22,7 @@ docs/
 stderr.txt
 stdout.txt
 .docs/
+.doc/
 src-tauri/tauri.windows.conf.json
 AGENTS.md.md
 

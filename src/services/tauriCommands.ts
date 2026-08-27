@@ -1275,9 +1275,11 @@ export async function updateWorkshopState(
 let browserSyncConfig: SyncConfig = {
   serverUrl: "",
   accessToken: "",
+  userId: "",
   userName: "",
   tokenRequestId: "",
   tokenRequestSecret: "",
+  tokenRequestKind: "",
   autoBackupEnabled: false,
   autoBackupIntervalMinutes: 30,
 };
@@ -1292,6 +1294,13 @@ export async function requestAccessToken(config: SyncConfig): Promise<TokenReque
     throw new Error("令牌申请仅在桌面应用中可用");
   }
   return invoke<TokenRequestResult>("request_access_token", { config });
+}
+
+export async function requestAccessTokenRecovery(config: SyncConfig): Promise<TokenRequestResult> {
+  if (!isTauriRuntime()) {
+    throw new Error("令牌恢复仅在桌面应用中可用");
+  }
+  return invoke<TokenRequestResult>("request_access_token_recovery", { config });
 }
 
 export async function checkAccessTokenRequest(): Promise<TokenRequestResult> {
@@ -1329,7 +1338,7 @@ export async function checkUpdate(pat?: string): Promise<UpdateCheckResult> {
   if (!isTauriRuntime()) {
     return {
       hasUpdate: true,
-      currentVersion: "0.1.0",
+      currentVersion: "1.0.1",
       latestVersion: "1.1.0",
       changelog: "### 更新日志\n- [优化] 提升了桌面猫咪动画运行效率\n- [修复] 解决任务栏嵌入在某些分辨率下的偏移问题",
       downloadUrl: "https://mock.com/cowork-pal_1.1.0_x64-setup.exe",

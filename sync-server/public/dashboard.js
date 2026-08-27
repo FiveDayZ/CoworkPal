@@ -138,8 +138,13 @@ function renderTokenRequests() {
     const row = element("article", "request-row");
     const identity = element("div", "request-identity");
     identity.append(
-      textElement("strong", request.userName || "未命名用户"),
-      textElement("span", request.deviceId || "未知设备"),
+      textElement(
+        "strong",
+        request.kind === "recovery"
+          ? `恢复令牌 · ${request.userName || "未命名用户"}`
+          : request.userName || "未命名用户",
+      ),
+      textElement("span", request.userId || request.deviceId || "未知设备"),
     );
     const requestedAt = textElement("time", formatDateTime(request.requestedAt), "request-time");
     const actions = element("div", "request-actions");
@@ -223,6 +228,7 @@ function renderUsers() {
   const users = state.users.filter((user) => {
     const searchable = [
       user.userName,
+      user.userId,
       user.backup?.device?.catId,
       user.backup?.appVersion,
       user.backup?.hardware?.cpuName,
@@ -249,6 +255,7 @@ function renderUsers() {
 
 function createUserRow(user) {
   const row = element("article", "user-row");
+  const header = element("div", "user-row-header");
   const summary = element("button", "user-summary");
   summary.type = "button";
   summary.title = "点击查看备份、工坊、数据与设备详情";
@@ -291,23 +298,34 @@ function createUserRow(user) {
     summary.setAttribute("aria-expanded", String(!expanded));
     details.hidden = expanded;
   });
-  row.append(summary, details);
+  header.append(summary);
+  if ((user.tokens ?? []).some((token) => token.source === "issued")) {
+    const remove = textElement("button", "删除", "secondary-button user-row-delete danger-button");
+    remove.type = "button";
+    remove.title = `删除用户 ${user.userName}`;
+    remove.setAttribute("aria-label", `删除用户 ${user.userName}`);
+    remove.addEventListener("click", () => deleteUser(user, remove));
+    header.append(remove);
+  }
+  row.append(header, details);
   return row;
 }
 
 function createDetails(user) {
   const backup = user.backup;
+  const grid = element("div", "detail-grid");
+  grid.append(tokenManagementGroup(user), backupHistoryGroup(user));
   if (!backup || backup.status !== "ready") {
-    return textElement(
+    grid.append(textElement(
       "p",
       backup?.status === "invalid"
         ? "该用户的最新备份无法解析，请检查服务日志或重新上传。"
         : "该用户尚未上传云端备份。",
       "missing-detail",
-    );
+    ));
+    return grid;
   }
 
-  const grid = element("div", "detail-grid");
   grid.append(
     detailGroup("备份信息", [
       ["备份时间", formatDateTime(backup.storedAt)],
@@ -348,6 +366,258 @@ function createDetails(user) {
     moduleLevels(backup.workshop?.moduleLevels),
   );
   return grid;
+}
+
+function tokenManagementGroup(user) {
+  const section = element("section", "detail-group token-management");
+  section.append(textElement("h3", "用户与令牌"));
+
+  const identity = element("div", "account-identity");
+  identity.append(
+    textElement("span", "用户唯一 ID"),
+    copyableValue(user.userId, "复制用户唯一 ID"),
+    textElement("span", `云端历史版本 ${formatNumber(user.historyCount)} 份`, "account-meta"),
+  );
+  section.append(identity);
+
+  const list = element("div", "managed-token-list");
+  for (const token of user.tokens ?? []) {
+    const row = element("div", "managed-token");
+    const status = textElement(
+      "span",
+      token.status === "active" ? "使用中" : token.status === "revoked" ? "已停用" : "无法恢复",
+      `token-status token-status-${token.status}`,
+    );
+    const source = textElement(
+      "span",
+      token.source === "configured" ? "环境配置" : "管理员发放",
+      "token-source",
+    );
+    const heading = element("div", "managed-token-heading");
+    heading.append(status, source);
+
+    const field = element("div", "managed-token-field");
+    const input = document.createElement("input");
+    const hasAccessToken = Boolean(token.accessToken);
+    input.type = hasAccessToken ? "password" : "text";
+    input.readOnly = true;
+    input.value = token.accessToken || "旧令牌未保留；请让客户端同步一次，或重置令牌";
+    input.setAttribute("aria-label", `${user.userName} 的访问令牌`);
+    field.append(input);
+
+    if (hasAccessToken) {
+      const reveal = iconButton("◉", "显示令牌");
+      reveal.addEventListener("click", () => {
+        const showing = input.type === "text";
+        input.type = showing ? "password" : "text";
+        reveal.title = showing ? "显示令牌" : "隐藏令牌";
+        reveal.setAttribute("aria-label", reveal.title);
+      });
+      const copy = iconButton("⧉", "复制令牌");
+      copy.addEventListener("click", () => copyText(token.accessToken));
+      field.append(reveal, copy);
+    }
+
+    row.append(heading, field);
+    if (token.source === "issued") {
+      const actions = element("div", "managed-token-actions");
+      const rotate = textElement("button", "重置令牌", "secondary-button request-button");
+      rotate.type = "button";
+      rotate.addEventListener("click", () => manageToken(user, token, "rotate"));
+      const revoke = textElement("button", "停用令牌", "secondary-button request-button danger-button");
+      revoke.type = "button";
+      revoke.disabled = token.status === "revoked";
+      revoke.addEventListener("click", () => manageToken(user, token, "revoke"));
+      actions.append(rotate, revoke);
+      row.append(actions);
+    }
+    list.append(row);
+  }
+  section.append(list);
+  return section;
+}
+
+function backupHistoryGroup(user) {
+  const section = element("section", "detail-group detail-group-wide backup-history");
+  const heading = element("div", "backup-history-heading");
+  heading.append(
+    textElement("h3", "备份记录"),
+    textElement("span", `${formatNumber(user.versions?.length)} / 30`, "account-meta"),
+  );
+  section.append(heading);
+
+  const versions = user.versions ?? [];
+  const controls = element("div", "backup-history-controls");
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", `${user.userName} 的备份记录`);
+  for (const version of versions) {
+    const option = document.createElement("option");
+    option.value = version.revision;
+    option.textContent = `${formatDateTime(version.storedAt)} · ${version.appVersion} · ${formatBytes(version.sizeBytes)}`;
+    select.append(option);
+  }
+  if (versions.length === 0) {
+    const option = document.createElement("option");
+    option.textContent = "暂无备份记录";
+    select.append(option);
+    select.disabled = true;
+  }
+
+  const restore = textElement("button", "推送还原", "secondary-button request-button");
+  restore.type = "button";
+  restore.disabled = versions.length === 0;
+  restore.addEventListener("click", () => restoreSnapshot(user, select, restore));
+  controls.append(select, restore);
+  section.append(controls);
+
+  if (user.pendingRestore) {
+    section.append(
+      textElement(
+        "p",
+        `等待客户端还原 · ${formatDateTime(user.pendingRestore.requestedAt)}`,
+        "restore-pending",
+      ),
+    );
+  }
+  return section;
+}
+
+function copyableValue(value, title) {
+  const field = element("div", "copyable-value");
+  field.append(textElement("code", value));
+  const copy = iconButton("⧉", title);
+  copy.addEventListener("click", () => copyText(value));
+  field.append(copy);
+  return field;
+}
+
+function iconButton(symbol, title) {
+  const button = textElement("button", symbol, "icon-button compact-icon-button");
+  button.type = "button";
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  return button;
+}
+
+async function copyText(value) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("clipboard API unavailable");
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {}
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) {
+    window.prompt("请手动复制以下内容", value);
+  }
+  return copied;
+}
+
+async function manageToken(user, token, action) {
+  const message =
+    action === "rotate"
+      ? "重置后旧令牌立即失效，确定继续吗？"
+      : "停用后该设备将无法上传或恢复数据，确定继续吗？";
+  if (!window.confirm(message)) return;
+  try {
+    const response = await fetch(
+      `/v1/admin/users/${user.userId}/tokens/${token.tokenId}/${action}`,
+      { method: "POST", headers: { Authorization: `Bearer ${state.token}` } },
+    );
+    if (response.status === 401) {
+      logout("登录已失效，请重新输入管理员令牌。");
+      return;
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `服务器返回 ${response.status}`);
+    if (payload.accessToken) {
+      const tokenCheck = await fetch("/v1/snapshot", {
+        headers: { Authorization: `Bearer ${payload.accessToken}` },
+      });
+      if (![200, 404].includes(tokenCheck.status)) {
+        throw new Error("新令牌生成后未通过服务器验证，请勿交付给用户");
+      }
+      const copied = await copyText(payload.accessToken);
+      window.alert(
+        copied
+          ? "新令牌已验证并复制。旧令牌已经失效。"
+          : "新令牌已验证，请在令牌栏中手动复制。旧令牌已经失效。",
+      );
+    }
+    await loadOverview();
+  } catch (error) {
+    window.alert(`令牌操作失败：${error.message}`);
+  }
+}
+
+async function deleteUser(user, button) {
+  const historyCount = formatNumber(user.historyCount);
+  if (
+    !window.confirm(
+      `确定永久删除“${user.userName}”吗？该用户的 ${historyCount} 份备份、全部令牌和待还原任务都会删除，且无法撤销。`,
+    )
+  ) {
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "删除中…";
+  try {
+    const response = await fetch(`/v1/admin/users/${user.userId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (response.status === 401) {
+      logout("登录已失效，请重新输入管理员令牌。");
+      return;
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `服务器返回 ${response.status}`);
+    window.alert(`用户“${user.userName}”及其云端数据已删除。`);
+    await loadOverview();
+  } catch (error) {
+    window.alert(`删除用户失败：${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = "删除";
+  }
+}
+
+async function restoreSnapshot(user, select, button) {
+  const revision = select.value;
+  if (!revision) return;
+  const selectedLabel = select.selectedOptions[0]?.textContent ?? "所选备份";
+  if (!window.confirm(`将 ${selectedLabel} 推送给客户端还原，确定继续吗？`)) return;
+
+  button.disabled = true;
+  button.textContent = "推送中…";
+  try {
+    const response = await fetch(
+      `/v1/admin/users/${user.userId}/snapshots/${encodeURIComponent(revision)}/restore`,
+      { method: "POST", headers: { Authorization: `Bearer ${state.token}` } },
+    );
+    if (response.status === 401) {
+      logout("登录已失效，请重新输入管理员令牌。");
+      return;
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `服务器返回 ${response.status}`);
+    window.alert("备份已推送，客户端在线后将在约 30 秒内自动还原。");
+    await loadOverview();
+  } catch (error) {
+    window.alert(`推送还原失败：${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = "推送还原";
+  }
 }
 
 function hardwareGroup(hardware = {}) {

@@ -1,6 +1,14 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { createServer } from "node:http";
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -14,10 +22,19 @@ const host = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? 18080);
 const dataRoot = process.env.DATA_DIR ?? "/data";
 const maxBodyBytes = Number(process.env.MAX_BODY_BYTES ?? 10 * 1024 * 1024);
-const maxVersions = Math.max(2, Number(process.env.MAX_VERSIONS ?? 30));
+const configuredMaxVersions = Number.parseInt(process.env.MAX_VERSIONS ?? "30", 10);
+const maxVersions = Math.min(
+  30,
+  Math.max(1, Number.isFinite(configuredMaxVersions) ? configuredMaxVersions : 30),
+);
 const maxPendingRequests = Math.max(10, Number(process.env.MAX_PENDING_REQUESTS ?? 200));
 const configuredUsers = loadUsers(process.env.COWORKPAL_USERS_JSON);
 const authStatePath = join(dataRoot, "auth-state.json");
+const adminToken = loadAdminToken(process.env.COWORKPAL_ADMIN_TOKEN);
+const adminTokenHash = createHash("sha256").update(adminToken).digest();
+const tokenEncryptionKey = createHash("sha256")
+  .update(`coworkpal-user-token-v1:${adminToken}`)
+  .digest();
 let authState;
 let users;
 const requestAttempts = new Map();
@@ -32,7 +49,7 @@ const staticFiles = new Map([
 mkdirSync(dataRoot, { recursive: true });
 authState = loadAuthState();
 users = buildUsers();
-const adminTokenHash = loadAdminToken(process.env.COWORKPAL_ADMIN_TOKEN);
+validateAdminToken();
 
 const server = createServer((request, response) => {
   void handleRequest(request, response).catch((error) => {
@@ -79,6 +96,13 @@ async function handleRequest(request, response) {
     return;
   }
 
+  if (request.method === "POST" && requestUrl.pathname === "/v1/token-recoveries") {
+    enforceRequestRateLimit(request.socket.remoteAddress ?? "unknown");
+    const body = await readJsonBody(request);
+    sendJson(response, 201, createTokenRecovery(body));
+    return;
+  }
+
   const tokenRequestMatch = requestUrl.pathname.match(/^\/v1\/token-requests\/([0-9a-f-]+)$/i);
   if (request.method === "GET" && tokenRequestMatch) {
     sendTokenRequestStatus(response, tokenRequestMatch[1], request.headers.authorization);
@@ -95,6 +119,81 @@ async function handleRequest(request, response) {
       return;
     }
     decideTokenRequest(response, adminRequestMatch[1], adminRequestMatch[2]);
+    return;
+  }
+
+  const adminTokenMatch = requestUrl.pathname.match(
+    /^\/v1\/admin\/users\/([0-9a-f-]+)\/tokens\/([0-9a-f-]+)\/(rotate|revoke)$/i,
+  );
+  if (request.method === "POST" && adminTokenMatch) {
+    if (!authenticateAdmin(request.headers.authorization)) {
+      response.setHeader("WWW-Authenticate", "Bearer");
+      sendJson(response, 401, { error: "invalid admin token" });
+      return;
+    }
+    manageUserToken(response, adminTokenMatch[1], adminTokenMatch[2], adminTokenMatch[3]);
+    return;
+  }
+
+  const adminUserMatch = requestUrl.pathname.match(
+    /^\/v1\/admin\/users\/([0-9a-f-]{32,64})$/i,
+  );
+  if (request.method === "DELETE" && adminUserMatch) {
+    if (!authenticateAdmin(request.headers.authorization)) {
+      response.setHeader("WWW-Authenticate", "Bearer");
+      sendJson(response, 401, { error: "invalid admin token" });
+      return;
+    }
+    deleteUser(response, adminUserMatch[1]);
+    return;
+  }
+
+  const adminRestoreMatch = requestUrl.pathname.match(
+    /^\/v1\/admin\/users\/([0-9a-f-]{32,64})\/snapshots\/([0-9a-f-]{32,100})\/restore$/i,
+  );
+  if (request.method === "POST" && adminRestoreMatch) {
+    if (!authenticateAdmin(request.headers.authorization)) {
+      response.setHeader("WWW-Authenticate", "Bearer");
+      sendJson(response, 401, { error: "invalid admin token" });
+      return;
+    }
+    queueSnapshotRestore(response, adminRestoreMatch[1], adminRestoreMatch[2]);
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/v1/snapshot/restore-pending") {
+    const user = authenticate(request.headers.authorization);
+    if (!user) {
+      response.setHeader("WWW-Authenticate", "Bearer");
+      sendJson(response, 401, { error: "invalid access token" });
+      return;
+    }
+    sendPendingRestore(response, user);
+    return;
+  }
+
+  const restoreAckMatch = requestUrl.pathname.match(
+    /^\/v1\/snapshot\/restore-pending\/([0-9a-f-]{36})\/ack$/i,
+  );
+  if (request.method === "POST" && restoreAckMatch) {
+    const user = authenticate(request.headers.authorization);
+    if (!user) {
+      response.setHeader("WWW-Authenticate", "Bearer");
+      sendJson(response, 401, { error: "invalid access token" });
+      return;
+    }
+    acknowledgePendingRestore(response, user, restoreAckMatch[1]);
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/v1/snapshot/history") {
+    const user = authenticate(request.headers.authorization);
+    if (!user) {
+      response.setHeader("WWW-Authenticate", "Bearer");
+      sendJson(response, 401, { error: "invalid access token" });
+      return;
+    }
+    sendSnapshotHistory(response, user);
     return;
   }
 
@@ -144,7 +243,11 @@ function loadUsers(raw) {
     return {
       id: createHash("sha256").update(name).digest("hex"),
       name,
+      tokenId: createHash("sha256").update(`configured:${name}`).digest("hex"),
       tokenHash: createHash("sha256").update(token).digest(),
+      accessToken: token,
+      source: "configured",
+      revoked: false,
     };
   });
 }
@@ -166,8 +269,14 @@ function buildUsers() {
   const issued = authState.issuedUsers.map((user) => ({
     id: user.id,
     name: user.name,
+    tokenId: user.tokenId ?? user.requestId,
     tokenHash: Buffer.from(user.tokenHash, "hex"),
     requestId: user.requestId,
+    accessToken: decryptAccessToken(user.encryptedToken),
+    source: "issued",
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    revoked: Boolean(user.revoked),
   }));
   return [...configuredUsers, ...issued];
 }
@@ -184,19 +293,45 @@ function loadAdminToken(token) {
   if (typeof token !== "string" || token.length < 32) {
     throw new Error("COWORKPAL_ADMIN_TOKEN must be at least 32 characters");
   }
-  const tokenHash = createHash("sha256").update(token).digest();
-  if (users.some((user) => timingSafeEqual(user.tokenHash, tokenHash))) {
+  return token;
+}
+
+function validateAdminToken() {
+  if (users.some((user) => timingSafeEqual(user.tokenHash, adminTokenHash))) {
     throw new Error("COWORKPAL_ADMIN_TOKEN must differ from every user token");
   }
-  return tokenHash;
 }
 
 function authenticate(authorization) {
   if (!authorization?.startsWith("Bearer ")) return null;
+  const accessToken = authorization.slice("Bearer ".length);
   const candidate = createHash("sha256")
-    .update(authorization.slice("Bearer ".length))
+    .update(accessToken)
     .digest();
-  return users.find((user) => timingSafeEqual(candidate, user.tokenHash)) ?? null;
+  const user = users.find(
+    (candidateUser) => !candidateUser.revoked && timingSafeEqual(candidate, candidateUser.tokenHash),
+  );
+  if (user) rememberIssuedAccessToken(user, accessToken);
+  return user ?? null;
+}
+
+function rememberIssuedAccessToken(user, accessToken) {
+  if (user.source !== "issued" || user.accessToken) return;
+  const nextState = structuredClone(authState);
+  const stored = nextState.issuedUsers.find(
+    (candidate) =>
+      candidate.id === user.id &&
+      (candidate.tokenId ?? candidate.requestId) === user.tokenId &&
+      !candidate.encryptedToken,
+  );
+  if (!stored) return;
+  stored.encryptedToken = encryptAccessToken(accessToken);
+  stored.updatedAt = new Date().toISOString();
+  try {
+    persistAuthState(nextState);
+  } catch (error) {
+    console.error(`could not preserve access token for user ${user.id}`, error);
+  }
 }
 
 function authenticateAdmin(authorization) {
@@ -216,16 +351,13 @@ function createTokenRequest(body) {
   if (deviceId.length > 100 || /[\u0000-\u001f\u007f]/.test(deviceId)) {
     throw badRequest("deviceId must contain at most 100 visible characters");
   }
-  const pendingCount = authState.tokenRequests.filter((item) => item.status === "pending").length;
-  if (pendingCount >= maxPendingRequests) {
-    const error = new Error("too many pending token requests");
-    error.statusCode = 503;
-    throw error;
-  }
+  ensurePendingCapacity();
 
   const claimSecret = randomBytes(32).toString("hex");
   const item = {
     id: randomUUID(),
+    kind: "registration",
+    userId: null,
     userName,
     deviceId,
     requestedAt: new Date().toISOString(),
@@ -238,6 +370,50 @@ function createTokenRequest(body) {
   nextState.tokenRequests.push(item);
   persistAuthState(nextState);
   return publicTokenRequest(item, { claimSecret });
+}
+
+function createTokenRecovery(body) {
+  const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
+  const deviceId = typeof body?.deviceId === "string" ? body.deviceId.trim() : "";
+  if (!/^[0-9a-f-]{32,64}$/i.test(userId)) {
+    throw badRequest("userId is invalid");
+  }
+  if (deviceId.length > 100 || /[\u0000-\u001f\u007f]/.test(deviceId)) {
+    throw badRequest("deviceId must contain at most 100 visible characters");
+  }
+  const user = users.find((candidate) => candidate.id === userId && !candidate.revoked);
+  if (!user) throw badRequest("userId is unknown or disabled");
+  if (!recoverableToken(userId)) {
+    throw badRequest("this user has no recoverable token; ask the administrator to rotate it");
+  }
+  ensurePendingCapacity();
+
+  const claimSecret = randomBytes(32).toString("hex");
+  const item = {
+    id: randomUUID(),
+    kind: "recovery",
+    userId,
+    userName: user.name,
+    deviceId,
+    requestedAt: new Date().toISOString(),
+    decidedAt: null,
+    status: "pending",
+    claimSecretHash: sha256Hex(claimSecret),
+    issuedToken: null,
+  };
+  const nextState = structuredClone(authState);
+  nextState.tokenRequests.push(item);
+  persistAuthState(nextState);
+  return publicTokenRequest(item, { claimSecret });
+}
+
+function ensurePendingCapacity() {
+  const pendingCount = authState.tokenRequests.filter((item) => item.status === "pending").length;
+  if (pendingCount >= maxPendingRequests) {
+    const error = new Error("too many token requests");
+    error.statusCode = 503;
+    throw error;
+  }
 }
 
 function sendTokenRequestStatus(response, requestId, authorization) {
@@ -265,16 +441,29 @@ function decideTokenRequest(response, requestId, decision) {
   item.status = decision === "approve" ? "approved" : "rejected";
   item.decidedAt = new Date().toISOString();
   if (item.status === "approved") {
-    const accessToken = randomBytes(32).toString("hex");
-    const existingUser = users.find((user) => user.name === item.userName);
-    nextState.issuedUsers.push({
-      id: existingUser?.id ?? createHash("sha256").update(item.userName).digest("hex"),
-      name: item.userName,
-      tokenHash: sha256Hex(accessToken),
-      createdAt: item.decidedAt,
-      requestId: item.id,
-    });
-    item.issuedToken = accessToken;
+    if (item.kind === "recovery") {
+      item.issuedToken = recoverableToken(item.userId);
+      if (!item.issuedToken) {
+        sendJson(response, 409, { error: "user token is no longer recoverable" });
+        return;
+      }
+    } else {
+      const accessToken = randomBytes(32).toString("hex");
+      const userId = reusableIssuedUserId(item.userName, item.deviceId) ?? randomUUID();
+      nextState.issuedUsers.push({
+        id: userId,
+        name: item.userName,
+        tokenId: item.id,
+        tokenHash: sha256Hex(accessToken),
+        encryptedToken: encryptAccessToken(accessToken),
+        createdAt: item.decidedAt,
+        updatedAt: item.decidedAt,
+        requestId: item.id,
+        revoked: false,
+      });
+      item.userId = userId;
+      item.issuedToken = accessToken;
+    }
   }
   persistAuthState(nextState);
   sendJson(response, 200, publicTokenRequest(item));
@@ -283,6 +472,8 @@ function decideTokenRequest(response, requestId, decision) {
 function publicTokenRequest(item, secrets = {}) {
   return {
     requestId: item.id,
+    kind: item.kind ?? "registration",
+    userId: item.userId ?? null,
     userName: item.userName,
     deviceId: item.deviceId,
     requestedAt: item.requestedAt,
@@ -291,6 +482,130 @@ function publicTokenRequest(item, secrets = {}) {
     ...(secrets.claimSecret ? { claimSecret: secrets.claimSecret } : {}),
     ...(secrets.accessToken ? { accessToken: secrets.accessToken } : {}),
   };
+}
+
+function encryptAccessToken(token) {
+  if (!token) return null;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", tokenEncryptionKey, iv);
+  const ciphertext = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
+  return {
+    algorithm: "aes-256-gcm",
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    ciphertext: ciphertext.toString("base64"),
+  };
+}
+
+function decryptAccessToken(encrypted) {
+  if (!encrypted || encrypted.algorithm !== "aes-256-gcm") return null;
+  try {
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      tokenEncryptionKey,
+      Buffer.from(encrypted.iv, "base64"),
+    );
+    decipher.setAuthTag(Buffer.from(encrypted.tag, "base64"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(encrypted.ciphertext, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+function recoverableToken(userId) {
+  const candidates = users.filter((user) => user.id === userId && !user.revoked && user.accessToken);
+  return candidates.at(-1)?.accessToken ?? null;
+}
+
+function reusableIssuedUserId(userName, deviceId) {
+  if (!deviceId) return null;
+  const candidateIds = new Set(
+    authState.issuedUsers
+      .filter((user) => user.name === userName)
+      .map((user) => user.id),
+  );
+  let newestMatch = null;
+  for (const userId of candidateIds) {
+    try {
+      const envelope = JSON.parse(
+        readFileSync(join(dataRoot, "users", userId, "latest.json"), "utf8"),
+      );
+      if (String(envelope.data?.settings?.catId ?? "") !== deviceId) continue;
+      const storedAt = String(envelope.storedAt ?? "");
+      if (!newestMatch || storedAt > newestMatch.storedAt) newestMatch = { userId, storedAt };
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        console.error(`could not inspect registration target ${userId}`, error);
+      }
+    }
+  }
+  return newestMatch?.userId ?? null;
+}
+
+function manageUserToken(response, userId, tokenId, action) {
+  const nextState = structuredClone(authState);
+  const token = nextState.issuedUsers.find(
+    (candidate) => candidate.id === userId && (candidate.tokenId ?? candidate.requestId) === tokenId,
+  );
+  if (!token) {
+    sendJson(response, 404, { error: "managed token not found" });
+    return;
+  }
+
+  if (action === "revoke") {
+    token.revoked = true;
+    token.updatedAt = new Date().toISOString();
+    persistAuthState(nextState);
+    sendJson(response, 200, { userId, tokenId, status: "revoked" });
+    return;
+  }
+
+  const accessToken = randomBytes(32).toString("hex");
+  token.tokenHash = sha256Hex(accessToken);
+  token.encryptedToken = encryptAccessToken(accessToken);
+  token.revoked = false;
+  token.updatedAt = new Date().toISOString();
+  persistAuthState(nextState);
+  sendJson(response, 200, { userId, tokenId, status: "active", accessToken });
+}
+
+function deleteUser(response, userId) {
+  if (configuredUsers.some((user) => user.id === userId)) {
+    sendJson(response, 409, {
+      error: "configured users must be removed from COWORKPAL_USERS_JSON",
+    });
+    return;
+  }
+  if (!authState.issuedUsers.some((user) => user.id === userId)) {
+    sendJson(response, 404, { error: "managed user not found" });
+    return;
+  }
+
+  const nextState = structuredClone(authState);
+  nextState.issuedUsers = nextState.issuedUsers.filter((user) => user.id !== userId);
+  nextState.tokenRequests = nextState.tokenRequests.filter((request) => request.userId !== userId);
+
+  const directory = join(dataRoot, "users", userId);
+  const deletedDirectory = `${directory}.deleting-${randomUUID()}`;
+  const hasDirectory = existsSync(directory);
+  if (hasDirectory) renameSync(directory, deletedDirectory);
+  try {
+    persistAuthState(nextState);
+  } catch (error) {
+    if (hasDirectory) renameSync(deletedDirectory, directory);
+    throw error;
+  }
+  if (hasDirectory) {
+    try {
+      rmSync(deletedDirectory, { recursive: true, force: true });
+    } catch (error) {
+      console.error(`could not remove deleted user data ${userId}`, error);
+    }
+  }
+  sendJson(response, 200, { userId, status: "deleted" });
 }
 
 function matchesSecret(authorization, expectedHash) {
@@ -372,23 +687,54 @@ function userDirectory(user) {
   return join(dataRoot, "users", user.id);
 }
 
+function pendingRestorePath(user) {
+  return join(userDirectory(user), "pending-restore.json");
+}
+
 function sendAdminSnapshots(response) {
-  const uniqueUsers = [...new Map(users.map((user) => [user.id, user])).values()];
-  const summaries = uniqueUsers.map((user) => {
+  const groupedUsers = new Map();
+  for (const user of users) {
+    const group = groupedUsers.get(user.id) ?? { id: user.id, name: user.name, tokens: [] };
+    group.tokens.push(user);
+    groupedUsers.set(user.id, group);
+  }
+  const summaries = [...groupedUsers.values()].map((user) => {
+    const versions = snapshotHistory(user);
+    const pendingRestore = pendingRestoreSummary(user);
     try {
       const content = readFileSync(join(userDirectory(user), "latest.json"), "utf8");
       const envelope = JSON.parse(content);
       return {
         userId: user.id,
         userName: user.name,
+        tokens: user.tokens.map(adminTokenSummary),
+        historyCount: versions.length,
+        versions,
+        pendingRestore,
         backup: summarizeBackup(envelope, Buffer.byteLength(content)),
       };
     } catch (error) {
       if (error.code === "ENOENT") {
-        return { userId: user.id, userName: user.name, backup: null };
+        return {
+          userId: user.id,
+          userName: user.name,
+          tokens: user.tokens.map(adminTokenSummary),
+          historyCount: 0,
+          versions: [],
+          pendingRestore,
+          backup: null,
+        };
       }
       console.error(`could not summarize backup for user ${user.id}`, error);
-      return { userId: user.id, userName: user.name, backup: { status: "invalid" } };
+      return {
+        userId: user.id,
+        userName: user.name,
+        tokens: user.tokens.map(adminTokenSummary),
+        historyCount: 0,
+        versions: [],
+        pendingRestore,
+        backup: { status: "invalid" },
+      };
     }
   });
 
@@ -399,6 +745,17 @@ function sendAdminSnapshots(response) {
       .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt)),
     users: summaries,
   });
+}
+
+function adminTokenSummary(token) {
+  return {
+    tokenId: token.tokenId,
+    accessToken: token.accessToken,
+    source: token.source,
+    status: token.revoked ? "revoked" : token.accessToken ? "active" : "unavailable",
+    createdAt: token.createdAt ?? null,
+    updatedAt: token.updatedAt ?? null,
+  };
 }
 
 function summarizeBackup(envelope, sizeBytes) {
@@ -519,16 +876,134 @@ function sendLatest(response, user) {
   }
 }
 
-function storeSnapshot(user, data) {
-  const directory = userDirectory(user);
-  const versionsDirectory = join(directory, "versions");
-  mkdirSync(versionsDirectory, { recursive: true });
+function snapshotHistory(user) {
+  const directory = join(userDirectory(user), "versions");
+  try {
+    return readdirSync(directory)
+      .filter((name) => name.endsWith(".json"))
+      .sort()
+      .reverse()
+      .map((name) => {
+        const content = readFileSync(join(directory, name), "utf8");
+        const envelope = JSON.parse(content);
+        return {
+          revision: String(envelope.revision ?? name.slice(0, -5)),
+          storedAt: String(envelope.storedAt ?? ""),
+          exportedAt: Number(envelope.data?.exportedAt ?? 0),
+          appVersion: String(envelope.data?.appVersion ?? "unknown"),
+          sizeBytes: Buffer.byteLength(content),
+        };
+      });
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
 
-  const envelope = {
+function sendSnapshotHistory(response, user) {
+  sendJson(response, 200, { userId: user.id, versions: snapshotHistory(user) });
+}
+
+function readSnapshotVersion(user, revision) {
+  if (!/^[0-9a-f-]{32,100}$/i.test(revision)) throw badRequest("snapshot revision is invalid");
+  try {
+    const content = readFileSync(join(userDirectory(user), "versions", `${revision}.json`), "utf8");
+    return JSON.parse(content);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      const missing = new Error("snapshot version not found");
+      missing.statusCode = 404;
+      throw missing;
+    }
+    throw error;
+  }
+}
+
+function readPendingRestore(user) {
+  try {
+    return JSON.parse(readFileSync(pendingRestorePath(user), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function pendingRestoreSummary(user) {
+  const pending = readPendingRestore(user);
+  if (!pending) return null;
+  return {
+    requestId: pending.requestId,
+    sourceRevision: pending.sourceRevision,
+    revision: pending.envelope.revision,
+    requestedAt: pending.requestedAt,
+  };
+}
+
+function queueSnapshotRestore(response, userId, sourceRevision) {
+  const user = users.find((candidate) => candidate.id === userId && !candidate.revoked);
+  if (!user) {
+    sendJson(response, 404, { error: "active user not found" });
+    return;
+  }
+  const selected = readSnapshotVersion(user, sourceRevision);
+  validateSnapshot(selected.data);
+  const envelope = createSnapshotEnvelope(selected.data);
+  writeSnapshotEnvelope(user, envelope);
+
+  const pending = {
+    requestId: randomUUID(),
+    sourceRevision,
+    requestedAt: new Date().toISOString(),
+    envelope,
+  };
+  const temporaryPath = `${pendingRestorePath(user)}.${randomUUID()}.tmp`;
+  writeFileSync(temporaryPath, JSON.stringify(pending), { encoding: "utf8", mode: 0o600 });
+  renameSync(temporaryPath, pendingRestorePath(user));
+  sendJson(response, 202, { userId, ...pendingRestoreSummary(user), status: "pending" });
+}
+
+function sendPendingRestore(response, user) {
+  const pending = readPendingRestore(user);
+  if (!pending) {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  sendJson(response, 200, {
+    restoreRequestId: pending.requestId,
+    sourceRevision: pending.sourceRevision,
+    requestedAt: pending.requestedAt,
+    ...pending.envelope,
+  });
+}
+
+function acknowledgePendingRestore(response, user, requestId) {
+  const pending = readPendingRestore(user);
+  if (!pending) {
+    sendJson(response, 404, { error: "no pending restore exists" });
+    return;
+  }
+  if (pending.requestId !== requestId) {
+    sendJson(response, 409, { error: "pending restore was replaced by a newer request" });
+    return;
+  }
+  writeSnapshotEnvelope(user, pending.envelope);
+  rmSync(pendingRestorePath(user));
+  sendJson(response, 200, { requestId, status: "restored" });
+}
+
+function createSnapshotEnvelope(data) {
+  return {
     revision: `${Date.now()}-${randomUUID()}`,
     storedAt: new Date().toISOString(),
     data,
   };
+}
+
+function writeSnapshotEnvelope(user, envelope) {
+  const directory = userDirectory(user);
+  const versionsDirectory = join(directory, "versions");
+  mkdirSync(versionsDirectory, { recursive: true });
   const content = JSON.stringify(envelope);
   const versionPath = join(versionsDirectory, `${envelope.revision}.json`);
   const temporaryPath = join(directory, `latest.${randomUUID()}.tmp`);
@@ -536,22 +1011,34 @@ function storeSnapshot(user, data) {
   writeFileSync(temporaryPath, content, { encoding: "utf8", mode: 0o600 });
   renameSync(temporaryPath, join(directory, "latest.json"));
   pruneVersions(versionsDirectory);
-  markTokenRequestClaimed(user.requestId);
+}
+
+function storeSnapshot(user, data) {
+  const envelope = createSnapshotEnvelope(data);
+  writeSnapshotEnvelope(user, envelope);
+  markTokenRequestClaimed(user.requestId, user.id);
   return envelope;
 }
 
-function markTokenRequestClaimed(requestId) {
-  if (!requestId) return;
-  const existing = authState.tokenRequests.find((item) => item.id === requestId);
-  if (!existing?.issuedToken) return;
+function markTokenRequestClaimed(requestId, userId) {
+  const claimable = authState.tokenRequests.filter(
+    (item) =>
+      item.issuedToken &&
+      (item.id === requestId || (item.kind === "recovery" && item.userId === userId)),
+  );
+  if (claimable.length === 0) return;
   const nextState = structuredClone(authState);
-  const item = nextState.tokenRequests.find((request) => request.id === requestId);
-  item.issuedToken = null;
-  item.claimedAt = new Date().toISOString();
+  const claimedAt = new Date().toISOString();
+  for (const item of nextState.tokenRequests) {
+    if (claimable.some((candidate) => candidate.id === item.id)) {
+      item.issuedToken = null;
+      item.claimedAt = claimedAt;
+    }
+  }
   try {
     persistAuthState(nextState);
   } catch (error) {
-    console.error(`could not mark token request ${requestId} as claimed`, error);
+    console.error(`could not mark token requests for user ${userId} as claimed`, error);
   }
 }
 

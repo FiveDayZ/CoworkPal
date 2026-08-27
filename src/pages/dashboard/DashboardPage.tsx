@@ -21,8 +21,10 @@ export function DashboardPage() {
   const snapshot = useHardwareStore((state) => state.snapshot);
   const workshop = useWorkshopStore((state) => state.state);
   const settings = useSettingsStore((state) => state.settings);
+  const updateSettings = useSettingsStore((state) => state.updateSettings);
   const catState = usePetStore((state) => state.catState);
   const catMessage = usePetStore((state) => state.catMessage);
+  const setPetStatus = usePetStore((state) => state.setPetStatus);
   const icons = useThemedIcons();
   const activeFocusSession = useFocusStore((state) => state.activeSession);
   const isStartingFocus = useFocusStore((state) => state.isStarting);
@@ -34,6 +36,9 @@ export function DashboardPage() {
   const [focusMinutes, setFocusMinutes] = useState(25);
   const [focusError, setFocusError] = useState<string | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [resumeState, setResumeState] = useState<
+    "idle" | "pending" | "failed"
+  >("idle");
 
   // Live countdown for an active focus session.
   useEffect(() => {
@@ -64,6 +69,22 @@ export function DashboardPage() {
       setFocusTask("");
     } catch (error) {
       setFocusError(typeof error === "string" ? error : "无法开始专注会话");
+    }
+  }
+
+  async function handleResumeProduction() {
+    setResumeState("pending");
+    try {
+      await updateSettings({ isProductionPaused: false });
+      setPetStatus({
+        timestamp: Date.now(),
+        catState: "Idle",
+        catMessage: "CoCat 已唤醒，工坊生产继续运行。",
+      });
+      setResumeState("idle");
+    } catch (error) {
+      console.error("resume workshop production failed", error);
+      setResumeState("failed");
     }
   }
 
@@ -160,7 +181,9 @@ export function DashboardPage() {
               <div className="cwp-hero-base-light" />
               <div className="cwp-hero-speech-container">
                 <div className="cwp-hero-bubble">
-                  {catMessage || "正在全力监控您的工作区..."}
+                  {settings?.isProductionPaused
+                    ? "工坊生产已暂停。"
+                    : catMessage || "正在全力监控您的工作区..."}
                 </div>
               </div>
               <div className="cwp-hero-pet-canvas">
@@ -172,7 +195,27 @@ export function DashboardPage() {
               </div>
               <div className="cwp-hero-status-row">
                 <span>当前状态:</span>
-                <span className="cwp-hero-status-tag">{getCatStatusText()}</span>
+                {settings?.isProductionPaused ? (
+                  <button
+                    className="cwp-hero-status-tag cwp-hero-resume-button"
+                    disabled={resumeState === "pending"}
+                    onClick={() => void handleResumeProduction()}
+                    title={
+                      resumeState === "failed"
+                        ? "恢复失败，请重试"
+                        : "恢复工坊生产"
+                    }
+                    type="button"
+                  >
+                    {resumeState === "pending"
+                      ? "恢复中..."
+                      : resumeState === "failed"
+                        ? "恢复失败 · 重试"
+                        : "生产暂停 · 点击恢复"}
+                  </button>
+                ) : (
+                  <span className="cwp-hero-status-tag">{getCatStatusText()}</span>
+                )}
               </div>
             </div>
 

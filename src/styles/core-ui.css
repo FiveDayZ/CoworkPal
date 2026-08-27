@@ -2152,6 +2152,23 @@ body:has(.cwp-taskbar-monitor-root) #root {
   font-weight: 700;
 }
 
+.cwp-hero-resume-button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.cwp-hero-resume-button:hover,
+.cwp-hero-resume-button:focus-visible {
+  background: var(--color-brand-orange);
+  color: var(--color-bg-950);
+  outline: none;
+}
+
+.cwp-hero-resume-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .cwp-hero-btn {
   flex: 1;
   height: 20px;

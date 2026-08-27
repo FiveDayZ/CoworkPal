@@ -311,7 +311,7 @@ export function TitleBar({
             userSelect: "none",
           }}
         >
-          v{typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.1.0"}
+          v{typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.0.1"}
         </span>
       </div>
       {center ? <div className="cwp-titlebar-center">{center}</div> : null}

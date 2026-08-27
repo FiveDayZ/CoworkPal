@@ -19,7 +19,7 @@ use crate::{
 };
 
 static TOKEN_REQUEST_CHECK_LOCK: Mutex<()> = Mutex::const_new(());
-static UPLOAD_LOCK: Mutex<()> = Mutex::const_new(());
+static SYNC_LOCK: Mutex<()> = Mutex::const_new(());
 
 type AutoBackupSchedule = (String, String, String, u64, Instant);
 
@@ -32,9 +32,11 @@ const MAX_AUTO_BACKUP_INTERVAL_MINUTES: u64 = 24 * 60;
 pub struct SyncConfig {
     pub server_url: String,
     pub access_token: String,
+    pub user_id: String,
     pub user_name: String,
     pub token_request_id: String,
     pub token_request_secret: String,
+    pub token_request_kind: String,
     pub auto_backup_enabled: bool,
     pub auto_backup_interval_minutes: u64,
 }
@@ -44,9 +46,11 @@ impl Default for SyncConfig {
         Self {
             server_url: String::new(),
             access_token: String::new(),
+            user_id: String::new(),
             user_name: String::new(),
             token_request_id: String::new(),
             token_request_secret: String::new(),
+            token_request_kind: String::new(),
             auto_backup_enabled: false,
             auto_backup_interval_minutes: DEFAULT_AUTO_BACKUP_INTERVAL_MINUTES,
         }
@@ -103,6 +107,8 @@ impl From<&HardwareSnapshot> for DeviceProfile {
 struct CloudEnvelope {
     revision: String,
     stored_at: String,
+    #[serde(default)]
+    restore_request_id: Option<String>,
     data: UserDataSnapshot,
 }
 
@@ -125,6 +131,10 @@ pub struct CloudSyncResult {
 #[serde(rename_all = "camelCase")]
 struct TokenRequestEnvelope {
     request_id: String,
+    #[serde(default = "registration_request_kind")]
+    kind: String,
+    #[serde(default)]
+    user_id: Option<String>,
     user_name: String,
     requested_at: String,
     decided_at: Option<String>,
@@ -133,10 +143,16 @@ struct TokenRequestEnvelope {
     access_token: Option<String>,
 }
 
+fn registration_request_kind() -> String {
+    "registration".to_string()
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenRequestResult {
+    pub kind: String,
     pub status: String,
+    pub user_id: Option<String>,
     pub user_name: String,
     pub requested_at: String,
     pub decided_at: Option<String>,
@@ -203,6 +219,58 @@ pub async fn request_access_token(
     config.user_name = request.user_name.clone();
     config.token_request_id = request.request_id.clone();
     config.token_request_secret = claim_secret;
+    config.token_request_kind = request.kind.clone();
+    state.storage.save_sync_config(&config)?;
+
+    Ok(token_request_result(request, None, None))
+}
+
+#[tauri::command]
+pub async fn request_access_token_recovery(
+    config: SyncConfig,
+    state: State<'_, AppState>,
+) -> Result<TokenRequestResult, String> {
+    let mut config = normalize_config(config)?;
+    if config.server_url.is_empty() {
+        return Err("请先填写同步服务器地址".to_string());
+    }
+    if config.user_id.is_empty() {
+        return Err("请填写需要恢复的用户唯一 ID".to_string());
+    }
+    if !config.access_token.is_empty() {
+        return Err("当前客户端已经保存访问令牌，无需恢复".to_string());
+    }
+    if !config.token_request_id.is_empty() {
+        return Err("当前已有等待管理员处理的令牌申请".to_string());
+    }
+
+    let endpoint = api_endpoint(&config.server_url, "/v1/token-recoveries")?;
+    let device_id = state.settings.read().await.cat_id.clone();
+    let response = http_client()?
+        .post(endpoint)
+        .json(&serde_json::json!({
+            "userId": config.user_id,
+            "deviceId": device_id,
+        }))
+        .send()
+        .await
+        .map_err(|error| format!("无法连接同步服务: {error}"))?;
+    let response = require_success(response).await?;
+    let request = response
+        .json::<TokenRequestEnvelope>()
+        .await
+        .map_err(|error| format!("同步服务返回了无效恢复申请: {error}"))?;
+    let claim_secret = request
+        .claim_secret
+        .clone()
+        .filter(|secret| secret.len() >= 32)
+        .ok_or_else(|| "同步服务未返回有效的申请凭据".to_string())?;
+
+    config.user_name = request.user_name.clone();
+    config.user_id = request.user_id.clone().unwrap_or(config.user_id);
+    config.token_request_id = request.request_id.clone();
+    config.token_request_secret = claim_secret;
+    config.token_request_kind = request.kind.clone();
     state.storage.save_sync_config(&config)?;
 
     Ok(token_request_result(request, None, None))
@@ -211,12 +279,16 @@ pub async fn request_access_token(
 #[tauri::command]
 pub async fn check_access_token_request(
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<TokenRequestResult, String> {
     let _guard = TOKEN_REQUEST_CHECK_LOCK.lock().await;
-    check_token_request(&state).await
+    check_token_request(&state, &app).await
 }
 
-async fn check_token_request(state: &AppState) -> Result<TokenRequestResult, String> {
+async fn check_token_request(
+    state: &AppState,
+    app: &AppHandle,
+) -> Result<TokenRequestResult, String> {
     let mut config = normalize_config(state.storage.load_sync_config()?)?;
     if config.token_request_id.is_empty() || config.token_request_secret.is_empty() {
         return Err("当前没有等待处理的令牌申请".to_string());
@@ -244,10 +316,19 @@ async fn check_token_request(state: &AppState) -> Result<TokenRequestResult, Str
             .filter(|token| token.len() >= 32)
             .ok_or_else(|| "管理员已批准申请，但服务器未返回有效令牌".to_string())?;
         config.access_token = access_token.clone();
+        if let Some(user_id) = request.user_id.as_ref() {
+            config.user_id = user_id.clone();
+        }
         config.token_request_id.clear();
         config.token_request_secret.clear();
+        config.token_request_kind.clear();
         state.storage.save_sync_config(&config)?;
-        let (initial_sync, initial_sync_error) = match upload_with_config(state, &config).await {
+        let sync = if request.kind == "recovery" {
+            download_with_config(state, app, &config).await
+        } else {
+            upload_with_config(state, &config).await
+        };
+        let (initial_sync, initial_sync_error) = match sync {
             Ok(result) => (Some(result), None),
             Err(error) => (None, Some(error)),
         };
@@ -261,6 +342,7 @@ async fn check_token_request(state: &AppState) -> Result<TokenRequestResult, Str
     if request.status == "rejected" {
         config.token_request_id.clear();
         config.token_request_secret.clear();
+        config.token_request_kind.clear();
         state.storage.save_sync_config(&config)?;
     }
     Ok(token_request_result(request, None, None))
@@ -272,17 +354,28 @@ pub fn start_token_request_polling(app: AppHandle) {
             tokio::time::sleep(Duration::from_secs(30)).await;
             let state = app.state::<AppState>();
             let _guard = TOKEN_REQUEST_CHECK_LOCK.lock().await;
-            let config = match state.storage.load_sync_config() {
+            let config = match state.storage.load_sync_config().and_then(normalize_config) {
                 Ok(config) => config,
                 Err(error) => {
-                    tracing::warn!("failed to read token request state: {error}");
+                    tracing::warn!("failed to read cloud sync polling state: {error}");
                     continue;
                 }
             };
-            if config.token_request_id.is_empty() || !config.access_token.is_empty() {
+            if !config.server_url.is_empty() && !config.access_token.is_empty() {
+                match apply_pending_restore(&state, &app, &config).await {
+                    Ok(Some(result)) => tracing::info!(
+                        revision = %result.revision,
+                        "server-pushed cloud restore applied"
+                    ),
+                    Ok(None) => {}
+                    Err(error) => tracing::warn!("server-pushed cloud restore failed: {error}"),
+                }
                 continue;
             }
-            if let Err(error) = check_token_request(&state).await {
+            if config.token_request_id.is_empty() {
+                continue;
+            }
+            if let Err(error) = check_token_request(&state, &app).await {
                 tracing::warn!("automatic token request check failed: {error}");
             }
         }
@@ -371,7 +464,7 @@ async fn upload_with_config(
     state: &AppState,
     config: &SyncConfig,
 ) -> Result<CloudSyncResult, String> {
-    let _guard = UPLOAD_LOCK.lock().await;
+    let _guard = SYNC_LOCK.lock().await;
     let endpoint = snapshot_endpoint(config)?;
     let snapshot = snapshot_from_state(state).await;
     validate_snapshot(&snapshot)?;
@@ -402,7 +495,9 @@ fn token_request_result(
     initial_sync_error: Option<String>,
 ) -> TokenRequestResult {
     TokenRequestResult {
+        kind: request.kind,
         status: request.status,
+        user_id: request.user_id,
         user_name: request.user_name,
         requested_at: request.requested_at,
         decided_at: request.decided_at,
@@ -417,7 +512,16 @@ pub async fn download_user_data(
     app: AppHandle,
 ) -> Result<CloudSyncResult, String> {
     let config = configured(&state)?;
-    let endpoint = snapshot_endpoint(&config)?;
+    download_with_config(&state, &app, &config).await
+}
+
+async fn download_with_config(
+    state: &AppState,
+    app: &AppHandle,
+    config: &SyncConfig,
+) -> Result<CloudSyncResult, String> {
+    let _guard = SYNC_LOCK.lock().await;
+    let endpoint = snapshot_endpoint(config)?;
     let response = http_client()?
         .get(endpoint)
         .bearer_auth(&config.access_token)
@@ -425,13 +529,65 @@ pub async fn download_user_data(
         .await
         .map_err(|error| format!("无法连接同步服务: {error}"))?;
     let response = require_success(response).await?;
-    let mut envelope = response
+    let envelope = response
         .json::<CloudEnvelope>()
         .await
         .map_err(|error| format!("云端备份格式无效: {error}"))?;
+    restore_cloud_envelope(state, app, envelope).await
+}
+
+async fn apply_pending_restore(
+    state: &AppState,
+    app: &AppHandle,
+    config: &SyncConfig,
+) -> Result<Option<CloudSyncResult>, String> {
+    let _guard = SYNC_LOCK.lock().await;
+    let endpoint = api_endpoint(&config.server_url, "/v1/snapshot/restore-pending")?;
+    let response = http_client()?
+        .get(endpoint)
+        .bearer_auth(&config.access_token)
+        .send()
+        .await
+        .map_err(|error| format!("无法连接同步服务: {error}"))?;
+    if matches!(
+        response.status(),
+        StatusCode::NO_CONTENT | StatusCode::NOT_FOUND
+    ) {
+        return Ok(None);
+    }
+    let response = require_success(response).await?;
+    let envelope = response
+        .json::<CloudEnvelope>()
+        .await
+        .map_err(|error| format!("服务端推送的备份格式无效: {error}"))?;
+    let request_id = envelope
+        .restore_request_id
+        .clone()
+        .ok_or_else(|| "服务端推送缺少还原任务 ID".to_string())?;
+    let result = restore_cloud_envelope(state, app, envelope).await?;
+
+    let ack_endpoint = api_endpoint(
+        &config.server_url,
+        &format!("/v1/snapshot/restore-pending/{request_id}/ack"),
+    )?;
+    let response = http_client()?
+        .post(ack_endpoint)
+        .bearer_auth(&config.access_token)
+        .send()
+        .await
+        .map_err(|error| format!("备份已还原，但无法通知同步服务: {error}"))?;
+    require_success(response).await?;
+    Ok(Some(result))
+}
+
+async fn restore_cloud_envelope(
+    state: &AppState,
+    app: &AppHandle,
+    mut envelope: CloudEnvelope,
+) -> Result<CloudSyncResult, String> {
     validate_snapshot(&envelope.data)?;
     envelope.data.settings.enforce_minimal_mode_constraints();
-    let device_profile = current_device_profile(&state).await;
+    let device_profile = current_device_profile(state).await;
 
     let mut settings = state.settings.write().await;
     let mut workshop = state.workshop.write().await;
@@ -480,7 +636,7 @@ pub async fn download_user_data(
             "cloud data restored but startup registration could not be updated: {error}"
         );
     }
-    emit_restored_state(&app, &envelope.data);
+    emit_restored_state(app, &envelope.data);
 
     Ok(CloudSyncResult {
         revision: envelope.revision,
@@ -535,9 +691,14 @@ fn configured(state: &AppState) -> Result<SyncConfig, String> {
 fn normalize_config(mut config: SyncConfig) -> Result<SyncConfig, String> {
     config.server_url = config.server_url.trim().trim_end_matches('/').to_string();
     config.access_token = config.access_token.trim().to_string();
+    config.user_id = config.user_id.trim().to_string();
     config.user_name = config.user_name.trim().to_string();
     config.token_request_id = config.token_request_id.trim().to_string();
     config.token_request_secret = config.token_request_secret.trim().to_string();
+    config.token_request_kind = config.token_request_kind.trim().to_string();
+    if !config.token_request_id.is_empty() && config.token_request_kind.is_empty() {
+        config.token_request_kind = "registration".to_string();
+    }
     if !(MIN_AUTO_BACKUP_INTERVAL_MINUTES..=MAX_AUTO_BACKUP_INTERVAL_MINUTES)
         .contains(&config.auto_backup_interval_minutes)
     {
@@ -547,9 +708,11 @@ fn normalize_config(mut config: SyncConfig) -> Result<SyncConfig, String> {
     }
     if config.server_url.is_empty()
         && config.access_token.is_empty()
+        && config.user_id.is_empty()
         && config.user_name.is_empty()
         && config.token_request_id.is_empty()
         && config.token_request_secret.is_empty()
+        && config.token_request_kind.is_empty()
     {
         if config.auto_backup_enabled {
             return Err("启用自动备份前，请先保存服务器地址和访问令牌".to_string());
@@ -562,6 +725,16 @@ fn normalize_config(mut config: SyncConfig) -> Result<SyncConfig, String> {
     snapshot_endpoint(&config)?;
     if !config.access_token.is_empty() && config.access_token.len() < 32 {
         return Err("访问令牌至少需要 32 个字符".to_string());
+    }
+    if !config.user_id.is_empty()
+        && (config.user_id.len() < 32
+            || config.user_id.len() > 64
+            || !config
+                .user_id
+                .chars()
+                .all(|character| character.is_ascii_hexdigit() || character == '-'))
+    {
+        return Err("用户唯一 ID 无效".to_string());
     }
     if config.user_name.chars().count() > 40
         || config
@@ -577,9 +750,21 @@ fn normalize_config(mut config: SyncConfig) -> Result<SyncConfig, String> {
     if !config.token_request_secret.is_empty() && config.token_request_secret.len() < 32 {
         return Err("本机保存的令牌申请凭据无效，请重新申请".to_string());
     }
+    if !config.token_request_kind.is_empty()
+        && !matches!(
+            config.token_request_kind.as_str(),
+            "registration" | "recovery"
+        )
+    {
+        return Err("本机保存的令牌申请类型无效，请重新申请".to_string());
+    }
+    if config.token_request_id.is_empty() != config.token_request_kind.is_empty() {
+        return Err("本机保存的令牌申请类型不完整，请重新申请".to_string());
+    }
     if !config.access_token.is_empty() {
         config.token_request_id.clear();
         config.token_request_secret.clear();
+        config.token_request_kind.clear();
     }
     if config.auto_backup_enabled
         && (config.server_url.is_empty() || config.access_token.is_empty())

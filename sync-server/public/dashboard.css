@@ -435,6 +435,20 @@ form label {
   border-bottom: 1px solid var(--line);
 }
 
+.user-row-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.user-row-delete {
+  min-width: 52px;
+  height: 34px;
+  margin: 0 8px;
+  padding: 0 10px;
+  z-index: 1;
+}
+
 .user-summary {
   width: 100%;
   min-height: 76px;
@@ -602,6 +616,154 @@ form label {
   grid-column: 1 / -1;
 }
 
+.token-management {
+  grid-column: 1 / -1;
+}
+
+.backup-history {
+  grid-column: 1 / -1;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.backup-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.backup-history-heading h3 {
+  margin: 0;
+}
+
+.backup-history-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.backup-history-controls select {
+  min-width: 0;
+  height: 36px;
+  padding: 0 34px 0 10px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.backup-history-controls select:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.restore-pending {
+  margin: 10px 0 0;
+  color: var(--orange);
+  font-size: 12px;
+}
+
+.account-identity {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.account-identity > span:first-child,
+.account-meta,
+.token-source {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.copyable-value {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 6px;
+}
+
+.copyable-value code {
+  overflow: hidden;
+  color: #dfe1e2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-icon-button {
+  width: 34px;
+  height: 34px;
+  font-size: 15px;
+}
+
+.managed-token-list {
+  border-top: 1px solid var(--line-soft);
+}
+
+.managed-token {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.5fr) minmax(260px, 1.5fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.managed-token-heading {
+  min-width: 0;
+}
+
+.managed-token-heading span {
+  display: block;
+}
+
+.token-status {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.token-status-active {
+  color: var(--green);
+}
+
+.token-status-revoked,
+.token-status-unavailable {
+  color: var(--red);
+}
+
+.managed-token-field {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
+  gap: 6px;
+}
+
+.managed-token-field input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.managed-token-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.danger-button {
+  color: #f29a9a;
+  border-color: rgba(226, 111, 111, 0.45);
+}
+
 .module-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -635,6 +797,7 @@ form label {
 }
 
 .missing-detail {
+  grid-column: 1 / -1;
   margin: 0;
   padding-top: 18px;
   color: var(--muted);
@@ -676,8 +839,21 @@ form label {
     grid-column: span 6;
   }
 
+  .token-management {
+    grid-column: 1 / -1;
+  }
+
   .module-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .managed-token {
+    grid-template-columns: minmax(110px, 0.4fr) minmax(220px, 1fr);
+  }
+
+  .managed-token-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
   }
 }
 
@@ -783,6 +959,25 @@ form label {
   .detail-group,
   .detail-group-wide {
     grid-column: 1 / -1;
+  }
+
+  .account-identity,
+  .managed-token {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backup-history-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backup-history-controls .request-button {
+    width: 100%;
+  }
+
+  .account-meta,
+  .managed-token-actions {
+    grid-column: 1;
+    justify-content: flex-start;
   }
 
   .module-grid {

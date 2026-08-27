@@ -146,6 +146,7 @@ pub fn run() {
             cloud_sync::get_sync_config,
             cloud_sync::update_sync_config,
             cloud_sync::request_access_token,
+            cloud_sync::request_access_token_recovery,
             cloud_sync::check_access_token_request,
             cloud_sync::upload_user_data,
             cloud_sync::download_user_data,

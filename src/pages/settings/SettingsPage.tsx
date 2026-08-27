@@ -10,6 +10,7 @@ import {
   getMemoryStatus,
   getSyncConfig,
   requestAccessToken,
+  requestAccessTokenRecovery,
   triggerMemoryRelease,
   updateSyncConfig,
   uploadUserData,
@@ -92,14 +93,16 @@ export function SettingsPage() {
   const [syncConfig, setSyncConfig] = useState<SyncConfig>({
     serverUrl: "",
     accessToken: "",
+    userId: "",
     userName: "",
     tokenRequestId: "",
     tokenRequestSecret: "",
+    tokenRequestKind: "",
     autoBackupEnabled: false,
     autoBackupIntervalMinutes: 30,
   });
   const [syncBusy, setSyncBusy] = useState<
-    "save" | "request" | "check" | "upload" | "download" | null
+    "save" | "request" | "recover" | "check" | "upload" | "download" | null
   >(null);
   const [syncMessage, setSyncMessage] = useState("");
   const tokenCheckInFlightRef = useRef(false);
@@ -209,6 +212,23 @@ export function SettingsPage() {
     }
   }
 
+  async function handleTokenRecovery() {
+    if (syncBusy) return;
+    setSyncBusy("recover");
+    setSyncMessage("");
+    try {
+      const result = await requestAccessTokenRecovery(syncConfig);
+      setSyncConfig(await getSyncConfig());
+      setSyncMessage(
+        `已提交 ${result.userName} 的令牌恢复申请，管理员批准后会自动恢复令牌并拉取完整备份`,
+      );
+    } catch (error) {
+      setSyncMessage(`恢复申请失败：${String(error)}`);
+    } finally {
+      setSyncBusy(null);
+    }
+  }
+
   async function checkTokenRequest(manual: boolean) {
     if (tokenCheckInFlightRef.current) return;
     tokenCheckInFlightRef.current = true;
@@ -219,10 +239,16 @@ export function SettingsPage() {
       if (result.status === "approved") {
         if (result.initialSync) {
           const time = new Date(result.initialSync.storedAt).toLocaleString();
-          setSyncMessage(`令牌已自动保存，并已上传首次完整备份 · ${time}`);
+          setSyncMessage(
+            result.kind === "recovery"
+              ? `历史令牌和完整云端数据已恢复 · ${time}`
+              : `令牌已自动保存，并已上传首次完整备份 · ${time}`,
+          );
         } else {
           setSyncMessage(
-            `令牌已自动保存，但首次备份失败：${result.initialSyncError ?? "未知错误"}`,
+            result.kind === "recovery"
+              ? `历史令牌已保存，但云端数据恢复失败：${result.initialSyncError ?? "未知错误"}`
+              : `令牌已自动保存，但首次备份失败：${result.initialSyncError ?? "未知错误"}`,
           );
         }
       } else if (result.status === "rejected") {
@@ -998,6 +1024,20 @@ export function SettingsPage() {
                   value={syncConfig.accessToken}
                 />
               </label>
+              <label className="cwp-sync-field">
+                <span>用户唯一 ID</span>
+                <input
+                  aria-label="同步用户唯一 ID"
+                  autoComplete="off"
+                  disabled={Boolean(syncConfig.tokenRequestId)}
+                  onChange={(event) =>
+                    setSyncConfig((current) => ({ ...current, userId: event.target.value }))
+                  }
+                  placeholder="首次发放令牌后自动保存，可用于重装恢复"
+                  type="text"
+                  value={syncConfig.userId}
+                />
+              </label>
               <div className="cwp-sync-schedule">
                 <div className="cwp-settings-row-inline">
                   <span className="cwp-settings-label">自动备份上传</span>
@@ -1057,7 +1097,8 @@ export function SettingsPage() {
               {syncConfig.tokenRequestId && !syncConfig.accessToken ? (
                 <div className="cwp-sync-request-status" role="status">
                   <span className="cwp-sync-request-dot" aria-hidden="true" />
-                  等待管理员发放令牌，客户端每 10 秒自动检查
+                  等待管理员{syncConfig.tokenRequestKind === "recovery" ? "批准恢复" : "发放令牌"}
+                  ，客户端每 10 秒自动检查
                 </div>
               ) : null}
               <div className="cwp-sync-actions">
@@ -1087,6 +1128,16 @@ export function SettingsPage() {
                         : syncConfig.tokenRequestId
                           ? "检查申请状态"
                           : "申请令牌"}
+                  </button>
+                ) : null}
+                {!syncConfig.accessToken && !syncConfig.tokenRequestId ? (
+                  <button
+                    className="cwp-metric-select"
+                    disabled={syncBusy !== null || !syncConfig.userId || !syncConfig.serverUrl}
+                    onClick={() => void handleTokenRecovery()}
+                    type="button"
+                  >
+                    {syncBusy === "recover" ? "申请恢复中…" : "恢复历史令牌"}
                   </button>
                 ) : null}
                 <button
