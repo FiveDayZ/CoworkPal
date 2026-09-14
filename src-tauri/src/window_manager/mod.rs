@@ -1,6 +1,6 @@
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 
 use crate::{
@@ -39,16 +39,12 @@ pub async fn hide_window(app: &AppHandle, label: &str) -> Result<(), String> {
     };
 
     match label {
-        "main" | "pet" | "monitor-bar" | "pet-panel" => {
-            window
-                .close()
-                .map_err(|error| format!("failed to close {label}: {error}"))
-        }
-        _ => {
-            window
-                .hide()
-                .map_err(|error| format!("failed to hide {label}: {error}"))
-        }
+        "main" | "pet" | "monitor-bar" | "pet-panel" => window
+            .close()
+            .map_err(|error| format!("failed to close {label}: {error}")),
+        _ => window
+            .hide()
+            .map_err(|error| format!("failed to hide {label}: {error}")),
     }
 }
 
@@ -75,8 +71,8 @@ pub async fn ensure_webview_window(app: &AppHandle, label: &str) -> Result<Webvi
         return Ok(window);
     }
 
-    let spec = LazyWindowSpec::for_label(label)
-        .ok_or_else(|| format!("window '{label}' not found"))?;
+    let spec =
+        LazyWindowSpec::for_label(label).ok_or_else(|| format!("window '{label}' not found"))?;
 
     let mut builder = WebviewWindowBuilder::new(app, spec.label, WebviewUrl::App(spec.url.into()))
         .title(spec.title)
@@ -131,10 +127,7 @@ pub async fn ensure_webview_window(app: &AppHandle, label: &str) -> Result<Webvi
         };
 
         if let Some((x, y)) = position {
-            let _ = window.set_position(PhysicalPosition::new(
-                x.round() as i32,
-                y.round() as i32,
-            ));
+            let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
         }
     }
 

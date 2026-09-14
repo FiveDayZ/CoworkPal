@@ -21,7 +21,6 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
 import type { AppSettingsPatch, MonitorBarMode, MonitorMetric } from "../../types/settings";
 import type { SyncConfig } from "../../types/cloudSync";
-import { defaultModuleLevels } from "../../types/workshop";
 import { useThemedIcons } from "../../ui/assets";
 import { PixelIcon } from "../../ui/PixelIcon";
 
@@ -77,7 +76,7 @@ export function SettingsPage() {
     });
   };
   const setPetStatus = usePetStore((state) => state.setPetStatus);
-  const saveWorkshopState = useWorkshopStore((store) => store.saveWorkshopState);
+  const resetWorkshop = useWorkshopStore((store) => store.resetWorkshop);
   const visibleMetrics = settings?.visibleMonitorMetrics ?? [];
   const visibleTaskbarMetrics =
     settings?.visibleTaskbarMetrics ?? settings?.visibleMonitorMetrics ?? [];
@@ -87,6 +86,8 @@ export function SettingsPage() {
   // Live system memory snapshot for the memory-release card. Refreshed every
   // 5s while the settings page is mounted. `null` until the first sample.
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null);
+  const [catNameDraft, setCatNameDraft] = useState("");
+  const [catNameMessage, setCatNameMessage] = useState("");
   // True while a manual release is in flight (UAC prompt + helper run). Keeps
   // the button from being double-clicked and gives affordance feedback.
   const [releasing, setReleasing] = useState(false);
@@ -106,6 +107,12 @@ export function SettingsPage() {
   >(null);
   const [syncMessage, setSyncMessage] = useState("");
   const tokenCheckInFlightRef = useRef(false);
+
+  useEffect(() => {
+    if (settings?.catName) {
+      setCatNameDraft(settings.catName);
+    }
+  }, [settings?.catName]);
 
   // Slider/continuous inputs are coalesced here: every drag fires many onChange
   // events, and we must not invoke updateAppSettings (a disk write + IPC round
@@ -403,20 +410,18 @@ export function SettingsPage() {
 
   const handleResetAll = async () => {
     if (window.confirm("确认要重置所有工坊状态和已获得的零件/灵感数据吗？该操作无法撤销。")) {
-      await saveWorkshopState({
-        schemaVersion: 1,
-        parts: 280.0,
-        insight: 12.0,
-        workshopLevel: 1,
-        catAffinityLevel: 1,
-        moduleLevels: defaultModuleLevels,
-        lastProductionTime: Date.now(),
-        totalOnlineSeconds: 0,
-        todayParts: 0.0,
-        todayInsight: 0.0,
-        lastDailyResetDate: new Date().toISOString().split("T")[0],
-      });
+      await resetWorkshop();
       alert("工坊状态已成功重置为初始状态！");
+    }
+  };
+
+  const handleSaveCatName = async () => {
+    setCatNameMessage("");
+    try {
+      await updateSettings({ catName: catNameDraft });
+      setCatNameMessage("名称已保存");
+    } catch (error) {
+      setCatNameMessage(typeof error === "string" ? error : "名称保存失败");
     }
   };
 
@@ -442,7 +447,7 @@ export function SettingsPage() {
               </div>
             )}
             <div className="cwp-portrait-info">
-              <div className="cwp-portrait-name">CoCat / 工程猫</div>
+              <div className="cwp-portrait-name">{settings?.catName || "CoCat"} / 工程猫</div>
               <div className="cwp-portrait-desc">您的个人硬件工坊诊断助理</div>
             </div>
           </div>
@@ -480,6 +485,34 @@ export function SettingsPage() {
             <div className="cwp-settings-card cwp-settings-card-desktop">
               <div className="cwp-settings-card-title">
                 <PixelIcon name="cat" size={14} style={{ marginRight: "6px" }} /> 桌宠设置
+              </div>
+              <div className="cwp-settings-row-inline cwp-settings-name-row">
+                <span className="cwp-settings-label">搭档名称</span>
+                <input
+                  aria-label="CoCat 名称"
+                  maxLength={12}
+                  onChange={(event) => setCatNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      void handleSaveCatName();
+                    }
+                  }}
+                  type="text"
+                  value={catNameDraft}
+                />
+                <button
+                  disabled={!catNameDraft.trim() || catNameDraft === settings?.catName}
+                  onClick={() => void handleSaveCatName()}
+                  type="button"
+                >
+                  保存
+                </button>
+              </div>
+              <div className="cwp-settings-onboarding-row">
+                <span>{catNameMessage || "首次校准可随时重新打开"}</span>
+                <button onClick={() => safeUpdate({ onboardingVersion: 0 })} type="button">
+                  重新引导
+                </button>
               </div>
               <div className="cwp-settings-row-inline">
                 <span className="cwp-settings-label">宠物大小</span>

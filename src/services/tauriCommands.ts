@@ -8,6 +8,7 @@ import type {
 import type {
   AchievementCard,
   AchievementSummary,
+  WeeklyGoals,
   TrackAchievementEventRequest,
   TrackAchievementEventResponse,
 } from "../types/achievement";
@@ -24,7 +25,13 @@ import {
 import type { NoteBook, NoteColor, NoteKind } from "../types/notes";
 import type { TodaySuggestions } from "../types/suggestions";
 import type { CloudSyncResult, SyncConfig, TokenRequestResult } from "../types/cloudSync";
-import { defaultModuleLevels, type WorkshopState } from "../types/workshop";
+import {
+  defaultModuleLevels,
+  type WorkshopModuleKey,
+  type WorkshopProductionBreakdown,
+  type WorkshopState,
+  type WorkshopUpgradeQuotes,
+} from "../types/workshop";
 
 export type CoCatInteractionAction = "pet" | "sortParts";
 
@@ -33,7 +40,10 @@ function isTauriRuntime() {
 }
 
 const browserSettings: AppSettings = {
-  schemaVersion: 4,
+  schemaVersion: 6,
+  catName: "CoCat",
+  onboardingVersion: 0,
+  primaryMetric: "Cpu",
   launchAtStartup: false,
   isCatVisible: true,
   isMonitorBarVisible: false,
@@ -72,7 +82,7 @@ const browserSettings: AppSettings = {
 };
 
 const browserWorkshop: WorkshopState = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   parts: 280,
   insight: 12,
   workshopLevel: 1,
@@ -83,6 +93,34 @@ const browserWorkshop: WorkshopState = {
   todayParts: 0,
   todayInsight: 0,
   lastDailyResetDate: "1970-01-01",
+  affinityExperience: 42,
+  completedOrderCount: 3,
+  activeOrders: [
+    {
+      id: "preview:standard",
+      kind: "standard",
+      title: "基础校准单",
+      description: "交付常规零件与灵感，完成今日基础维护。",
+      requiredParts: 80,
+      requiredInsight: 5,
+      rewardAffinity: 18,
+      createdAt: Date.now(),
+      expiresAt: null,
+    },
+    {
+      id: "preview:timed",
+      kind: "timed",
+      title: "限时加急工单",
+      description: "在有效期内完成加急装配，获得更多亲密度。",
+      requiredParts: 120,
+      requiredInsight: 9,
+      rewardAffinity: 32,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 8 * 60 * 60 * 1000,
+    },
+  ],
+  completedOrderIds: [],
+  lastOrderRefreshDate: "1970-01-01",
 };
 
 const browserSnapshot: HardwareSnapshot = {
@@ -315,6 +353,15 @@ const browserAchievementSummary: AchievementSummary = {
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function browserIsoWeekKey(date = new Date()) {
+  const thursday = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = thursday.getUTCDay() || 7;
+  thursday.setUTCDate(thursday.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+  return `${thursday.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
 function relativeDateKey(offsetDays: number) {
@@ -614,6 +661,10 @@ function createBrowserDailyWorkAssessment(date = todayKey()): DailyWorkAssessmen
             rankLabel: "长驻后台",
             summary: "长驻后台：驻留 0h 59m，活跃 0h 30m，CPU 压力约 18%，内存峰值 1.1 GB。",
             severity: "positive",
+            category: "开发工具",
+            impact: "是当天主要活跃工具",
+            recommendation: "把同类工作集中处理，可减少切换成本。",
+            evidence: "活跃 30m · CPU 18% · 峰值内存 1.1 GB · 磁盘 272 MB",
           },
           {
             name: "chrome.exe",
@@ -629,6 +680,10 @@ function createBrowserDailyWorkAssessment(date = todayKey()): DailyWorkAssessmen
             rankLabel: "内存常驻",
             summary: "内存常驻：驻留 0h 55m，活跃 0h 21m，CPU 压力约 11%，内存峰值 1.8 GB。",
             severity: "neutral",
+            category: "浏览器",
+            impact: "形成明显内存常驻",
+            recommendation: "用完后关闭闲置窗口或标签页，给主要任务保留内存余量。",
+            evidence: "活跃 21m · CPU 11% · 峰值内存 1.8 GB · 磁盘 92 MB",
           },
           {
             name: "node.exe",
@@ -644,6 +699,10 @@ function createBrowserDailyWorkAssessment(date = todayKey()): DailyWorkAssessmen
             rankLabel: "CPU 压力源",
             summary: "CPU 压力源：驻留 0h 28m，活跃 0h 15m，CPU 压力约 44%，内存峰值 520.0 MB。",
             severity: "warning",
+            category: "编译构建",
+            impact: "持续推高 CPU 压力",
+            recommendation: "非必要时暂停后台任务，或把重负载操作安排在专注时段之外。",
+            evidence: "活跃 15m · CPU 44% · 峰值内存 520 MB · 磁盘 520 MB",
           },
         ]
       : [],
@@ -864,6 +923,54 @@ export async function getAchievementSummary(): Promise<AchievementSummary> {
   return invoke<AchievementSummary>("get_achievement_summary");
 }
 
+export async function getWeeklyGoals(): Promise<WeeklyGoals> {
+  if (!isTauriRuntime()) {
+    const badgeKey = (achievementId: string) =>
+      browserAchievements.find((achievement) => achievement.achievementId === achievementId)
+        ?.badgeKey ?? "cwp_badge_daily_first_launch_entry";
+    return {
+      weekKey: browserIsoWeekKey(),
+      goals: [
+        {
+          goalId: "active-30m",
+          title: "本周陪伴 30 分钟",
+          badgeKey: badgeKey("A002"),
+          routeKey: "dashboard",
+          current: 720,
+          target: 1800,
+          percent: 40,
+          progressLabel: "12/30 分钟",
+          isComplete: false,
+        },
+        {
+          goalId: "focus-2",
+          title: "完成 2 次专注",
+          badgeKey: badgeKey("A066"),
+          routeKey: "focus",
+          current: 1,
+          target: 2,
+          percent: 50,
+          progressLabel: "1/2 次",
+          isComplete: false,
+        },
+        {
+          goalId: "workshop-2",
+          title: "查看工坊 2 次",
+          badgeKey: badgeKey("A005"),
+          routeKey: "workshop",
+          current: 2,
+          target: 2,
+          percent: 100,
+          progressLabel: "2/2 次",
+          isComplete: true,
+        },
+      ],
+    };
+  }
+
+  return invoke<WeeklyGoals>("get_weekly_goals");
+}
+
 export async function listAchievements(
   includeUnlockedHidden = true,
 ): Promise<AchievementCard[]> {
@@ -993,14 +1100,50 @@ export async function toggleProductionPaused(): Promise<AppSettings> {
   return invoke<AppSettings>("toggle_production_paused");
 }
 
-const emptyFocusBook: FocusSessionBook = { schemaVersion: 1, sessions: [] };
+let browserFocusBook: FocusSessionBook = { schemaVersion: 1, sessions: [] };
+
+function cloneFocusBook(): FocusSessionBook {
+  return {
+    ...browserFocusBook,
+    sessions: browserFocusBook.sessions.map((session) => ({ ...session })),
+  };
+}
+
+export async function getFocusSessions(): Promise<FocusSessionBook> {
+  if (!isTauriRuntime()) {
+    return cloneFocusBook();
+  }
+  return invoke<FocusSessionBook>("get_focus_sessions");
+}
 
 export async function startFocusSession(
   taskLabel: string,
   durationMinutes: number,
 ): Promise<FocusSessionBook> {
   if (!isTauriRuntime()) {
-    return { ...emptyFocusBook };
+    const task = taskLabel.trim();
+    if (!task) {
+      throw new Error("任务名称不能为空");
+    }
+    const now = Date.now();
+    browserFocusBook.sessions.forEach((session) => {
+      if (session.status === "active") {
+        session.status = "abandoned";
+        session.endedAt = now;
+      }
+    });
+    browserFocusBook.sessions.push({
+      id: `focus-preview-${now}`,
+      taskLabel: task,
+      plannedDurationSeconds: Math.min(180, Math.max(5, durationMinutes)) * 60,
+      startedAt: now,
+      endedAt: null,
+      status: "active",
+      distractionCount: 0,
+      focusQuality: 0,
+      productionMultiplier: 1.5,
+    });
+    return cloneFocusBook();
   }
   return invoke<FocusSessionBook>("start_focus_session", {
     taskLabel,
@@ -1012,7 +1155,16 @@ export async function completeFocusSession(
   sessionId: string,
 ): Promise<[FocusSessionBook, WorkshopState]> {
   if (!isTauriRuntime()) {
-    return [{ ...emptyFocusBook }, { ...browserWorkshop }];
+    const session = browserFocusBook.sessions.find(
+      (candidate) => candidate.id === sessionId && candidate.status === "active",
+    );
+    if (!session) {
+      throw new Error("未找到进行中的专注会话");
+    }
+    session.status = "completed";
+    session.endedAt = Date.now();
+    session.focusQuality = 1;
+    return [cloneFocusBook(), { ...browserWorkshop }];
   }
   return invoke<[FocusSessionBook, WorkshopState]>("complete_focus_session", {
     sessionId,
@@ -1023,7 +1175,15 @@ export async function abandonFocusSession(
   sessionId: string,
 ): Promise<FocusSessionBook> {
   if (!isTauriRuntime()) {
-    return { ...emptyFocusBook };
+    const session = browserFocusBook.sessions.find(
+      (candidate) => candidate.id === sessionId && candidate.status === "active",
+    );
+    if (!session) {
+      throw new Error("未找到进行中的专注会话");
+    }
+    session.status = "abandoned";
+    session.endedAt = Date.now();
+    return cloneFocusBook();
   }
   return invoke<FocusSessionBook>("abandon_focus_session", { sessionId });
 }
@@ -1130,6 +1290,11 @@ export async function getRhythmProfile(): Promise<RhythmProfile> {
       })),
       peakHours: [],
       summary: "浏览器预览模式下暂无节律数据。",
+      bestWorkWindow: null,
+      lowEnergyWindow: null,
+      interruptionSource: "浏览器预览模式下暂无中断数据。",
+      sampleDays: 0,
+      confidence: "低",
     };
   }
   return invoke<RhythmProfile>("get_rhythm_profile");
@@ -1266,10 +1431,100 @@ export async function exitApp(): Promise<void> {
   return invoke("exit_app");
 }
 
-export async function updateWorkshopState(
-  workshop: WorkshopState,
+export async function getWorkshopUpgradeQuotes(): Promise<WorkshopUpgradeQuotes | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+  return invoke<WorkshopUpgradeQuotes>("get_workshop_upgrade_quotes");
+}
+
+export async function getWorkshopProductionBreakdown(): Promise<WorkshopProductionBreakdown> {
+  if (!isTauriRuntime()) {
+    const level = browserWorkshop.catAffinityLevel;
+    const affinityMultiplier = 1 + Math.min(0.1, Math.max(0, level - 1) * 0.005);
+    const affinity = level >= 20
+      ? { title: "最佳拍档", tier: "bonded" as const, nextLevel: null, nextTitle: null }
+      : level >= 10
+        ? { title: "可靠拍档", tier: "partner" as const, nextLevel: 20, nextTitle: "最佳拍档" }
+        : level >= 5
+          ? { title: "默契搭档", tier: "trusted" as const, nextLevel: 10, nextTitle: "可靠拍档" }
+          : { title: "初识搭档", tier: "new" as const, nextLevel: 5, nextTitle: "默契搭档" };
+    return {
+      partsPerMinute: 2.8 * affinityMultiplier,
+      insightPerMinute: 0.24 * affinityMultiplier,
+      partsActivity: 0.56,
+      insightActivity: 0.48,
+      workshopMultiplier: 1,
+      partsModuleMultiplier: 1,
+      insightModuleMultiplier: 1,
+      stabilityMultiplier: 0.96,
+      focusMultiplier: 1,
+      affinityMultiplier,
+      affinityTitle: affinity.title,
+      affinityTier: affinity.tier,
+      nextAffinityLevel: affinity.nextLevel,
+      nextAffinityTitle: affinity.nextTitle,
+    };
+  }
+  return invoke<WorkshopProductionBreakdown>("get_workshop_production_breakdown");
+}
+
+export async function completeWorkshopOrder(orderId: string): Promise<WorkshopState> {
+  if (!isTauriRuntime()) {
+    const order = browserWorkshop.activeOrders.find((candidate) => candidate.id === orderId);
+    if (!order) throw new Error("工单不存在或已经完成");
+    if (browserWorkshop.parts < order.requiredParts || browserWorkshop.insight < order.requiredInsight) {
+      throw new Error("工坊资源不足");
+    }
+    browserWorkshop.parts -= order.requiredParts;
+    browserWorkshop.insight -= order.requiredInsight;
+    browserWorkshop.affinityExperience += order.rewardAffinity;
+    while (browserWorkshop.affinityExperience >= 100) {
+      browserWorkshop.affinityExperience -= 100;
+      browserWorkshop.catAffinityLevel += 1;
+    }
+    browserWorkshop.completedOrderCount += 1;
+    browserWorkshop.activeOrders = browserWorkshop.activeOrders.filter(
+      (order) => order.id !== orderId,
+    );
+    return { ...browserWorkshop };
+  }
+  return invoke<WorkshopState>("complete_workshop_order", { orderId });
+}
+
+export async function upgradeWorkshop(): Promise<WorkshopState> {
+  return invoke<WorkshopState>("upgrade_workshop");
+}
+
+export async function upgradeWorkshopModule(
+  moduleKey: WorkshopModuleKey,
+  track: "parts" | "process",
 ): Promise<WorkshopState> {
-  return invoke<WorkshopState>("update_workshop_state", { workshop });
+  return invoke<WorkshopState>("upgrade_workshop_module", { moduleKey, track });
+}
+
+export async function resetWorkshopState(): Promise<WorkshopState> {
+  if (!isTauriRuntime()) {
+    Object.assign(browserWorkshop, {
+      parts: 280,
+      insight: 12,
+      workshopLevel: 1,
+      catAffinityLevel: 1,
+      moduleLevels: structuredClone(defaultModuleLevels),
+      lastProductionTime: Date.now(),
+      totalOnlineSeconds: 0,
+      todayParts: 0,
+      todayInsight: 0,
+      lastDailyResetDate: new Date().toISOString().split("T")[0],
+      affinityExperience: 0,
+      completedOrderCount: 0,
+      activeOrders: [],
+      completedOrderIds: [],
+      lastOrderRefreshDate: "",
+    });
+    return { ...browserWorkshop };
+  }
+  return invoke<WorkshopState>("reset_workshop_state");
 }
 
 let browserSyncConfig: SyncConfig = {

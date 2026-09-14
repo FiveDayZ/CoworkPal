@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sysinfo::{Components, Networks, ProcessRefreshKind, System, UpdateKind};
+use sysinfo::{Components, Networks, Pid, ProcessRefreshKind, System, UpdateKind};
 
 use crate::{
     models::{
@@ -16,7 +16,9 @@ use crate::{
 use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
-use super::windows_perf::{query_primary_gpu_info, WindowsGpuInfo, WindowsPerformanceCounters};
+use super::windows_perf::{
+    query_foreground_process_id, query_primary_gpu_info, WindowsGpuInfo, WindowsPerformanceCounters,
+};
 
 use super::integrated_hardware_monitor::{
     IntegratedHardwareMonitorProbe, IntegratedHardwareMonitorSample,
@@ -129,9 +131,7 @@ impl SysinfoAdapter {
         self.cached_nvidia_sample.clone()
     }
 
-    fn sample_integrated_hardware_monitor(
-        &mut self,
-    ) -> Option<IntegratedHardwareMonitorSample> {
+    fn sample_integrated_hardware_monitor(&mut self) -> Option<IntegratedHardwareMonitorSample> {
         let now = Instant::now();
 
         // The adapter is intentionally independent of AppState, so it observes
@@ -151,7 +151,10 @@ impl SysinfoAdapter {
             .sample(self.integrated_monitor_enabled)
     }
 
-    fn sample_processes(&mut self, elapsed_seconds: f32) -> Vec<ProcessUsageSnapshot> {
+    fn sample_processes(
+        &mut self,
+        elapsed_seconds: f32,
+    ) -> (Vec<ProcessUsageSnapshot>, Option<String>) {
         self.system.refresh_processes_specifics(
             ProcessRefreshKind::new()
                 .with_cpu()
@@ -159,6 +162,16 @@ impl SysinfoAdapter {
                 .with_disk_usage()
                 .with_exe(UpdateKind::OnlyIfNotSet),
         );
+
+        #[cfg(windows)]
+        let foreground_process_name = query_foreground_process_id().and_then(|process_id| {
+            self.system
+                .process(Pid::from_u32(process_id))
+                .map(|process| process.name().trim().to_string())
+                .filter(|name| !name.is_empty())
+        });
+        #[cfg(not(windows))]
+        let foreground_process_name = None;
 
         let current_pid = std::process::id();
         let elapsed = elapsed_seconds.max(0.001);
@@ -211,7 +224,7 @@ impl SysinfoAdapter {
                 .then_with(|| right.memory_bytes.cmp(&left.memory_bytes))
         });
         processes.truncate(32);
-        processes
+        (processes, foreground_process_name)
     }
 }
 
@@ -252,7 +265,7 @@ impl HardwareSensorAdapter for SysinfoAdapter {
         let (network_download_bytes_per_second, network_upload_bytes_per_second) =
             self.sample_network_bytes_per_second(elapsed_seconds);
         let nvidia_sample = self.sample_nvidia_smi();
-        let processes = self.sample_processes(elapsed_seconds);
+        let (processes, foreground_process_name) = self.sample_processes(elapsed_seconds);
 
         #[cfg(windows)]
         let performance_sample = self
@@ -343,6 +356,7 @@ impl HardwareSensorAdapter for SysinfoAdapter {
             cpu_logical_core_count: Some(self.system.cpus().len() as u32),
             device_inventory: self.cached_device_inventory.clone(),
             processes,
+            foreground_process_name,
         }
     }
 }

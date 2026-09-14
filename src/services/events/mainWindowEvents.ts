@@ -96,6 +96,14 @@ export function registerMainWindowEvents() {
   );
 
   unlisteners.push(
+    listen("achievement:progress-updated", () => {
+      void useAchievementStore.getState().loadWeeklyGoals().catch((error) => {
+        console.error("Failed to reload weekly goals", error);
+      });
+    }),
+  );
+
+  unlisteners.push(
     listen<AppSettings>("settings:updated", (event) => {
       useSettingsStore.getState().setSettings(event.payload);
     }),

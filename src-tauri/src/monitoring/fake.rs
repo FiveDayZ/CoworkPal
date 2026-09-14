@@ -70,6 +70,7 @@ impl HardwareSensorAdapter for FakeHardwareSensorAdapter {
                     disk_write_bytes_per_second: Some(96_000.0),
                 },
             ],
+            foreground_process_name: Some("Code.exe".to_string()),
         }
     }
 }

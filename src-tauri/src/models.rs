@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,9 @@ pub struct HardwareSnapshot {
     pub cpu_temperature_source: Option<String>,
     pub device_inventory: HardwareDeviceInventory,
     pub processes: Vec<ProcessUsageSnapshot>,
+    /// Local-only foreground process signal used by focus distraction detection.
+    #[serde(skip)]
+    pub foreground_process_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +147,7 @@ impl Default for HardwareSnapshot {
             cpu_temperature_source: None,
             device_inventory: HardwareDeviceInventory::default(),
             processes: Vec::new(),
+            foreground_process_name: None,
         }
     }
 }
@@ -229,6 +233,15 @@ pub enum MonitorBarMode {
     Expanded,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PrimaryMetric {
+    #[default]
+    Cpu,
+    Memory,
+    Temperature,
+    Network,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatStateChangedEvent {
@@ -298,6 +311,9 @@ impl Default for CatRuntimeState {
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
     pub schema_version: u32,
+    pub cat_name: String,
+    pub onboarding_version: u32,
+    pub primary_metric: PrimaryMetric,
     pub launch_at_startup: bool,
     pub is_cat_visible: bool,
     pub is_monitor_bar_visible: bool,
@@ -396,12 +412,15 @@ impl Default for LastMemoryRelease {
     }
 }
 
-pub const APP_SETTINGS_SCHEMA_VERSION: u32 = 5;
+pub const APP_SETTINGS_SCHEMA_VERSION: u32 = 6;
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             schema_version: APP_SETTINGS_SCHEMA_VERSION,
+            cat_name: "CoCat".to_string(),
+            onboarding_version: 0,
+            primary_metric: PrimaryMetric::Cpu,
             launch_at_startup: false,
             is_cat_visible: true,
             is_monitor_bar_visible: false,
@@ -456,6 +475,9 @@ impl Default for AppSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettingsPatch {
+    pub cat_name: Option<String>,
+    pub onboarding_version: Option<u32>,
+    pub primary_metric: Option<PrimaryMetric>,
     pub launch_at_startup: Option<bool>,
     pub is_cat_visible: Option<bool>,
     pub is_monitor_bar_visible: Option<bool>,
@@ -529,6 +551,15 @@ impl AppSettings {
     }
 
     pub fn apply_patch(&mut self, patch: AppSettingsPatch) {
+        if let Some(value) = patch.cat_name {
+            self.cat_name = value;
+        }
+        if let Some(value) = patch.onboarding_version {
+            self.onboarding_version = value;
+        }
+        if let Some(value) = patch.primary_metric {
+            self.primary_metric = value;
+        }
         if let Some(value) = patch.launch_at_startup {
             self.launch_at_startup = value;
         }
@@ -697,12 +728,58 @@ pub struct WorkshopState {
     pub today_parts: f64,
     pub today_insight: f64,
     pub last_daily_reset_date: String,
+    pub affinity_experience: u32,
+    pub completed_order_count: u32,
+    pub active_orders: Vec<WorkshopOrder>,
+    pub completed_order_ids: BTreeSet<String>,
+    pub last_order_refresh_date: String,
+}
+
+pub const WORKSHOP_STATE_SCHEMA_VERSION: u32 = 2;
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkshopOrderKind {
+    #[default]
+    Standard,
+    Timed,
+    HardwareEvent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WorkshopOrder {
+    pub id: String,
+    pub kind: WorkshopOrderKind,
+    pub title: String,
+    pub description: String,
+    pub required_parts: u64,
+    pub required_insight: u64,
+    pub reward_affinity: u32,
+    pub created_at: i64,
+    pub expires_at: Option<i64>,
+}
+
+impl Default for WorkshopOrder {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            kind: WorkshopOrderKind::Standard,
+            title: String::new(),
+            description: String::new(),
+            required_parts: 0,
+            required_insight: 0,
+            reward_affinity: 0,
+            created_at: 0,
+            expires_at: None,
+        }
+    }
 }
 
 impl Default for WorkshopState {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: WORKSHOP_STATE_SCHEMA_VERSION,
             parts: 280.0,
             insight: 12.0,
             workshop_level: 1,
@@ -713,6 +790,11 @@ impl Default for WorkshopState {
             today_parts: 0.0,
             today_insight: 0.0,
             last_daily_reset_date: Local::now().format("%Y-%m-%d").to_string(),
+            affinity_experience: 0,
+            completed_order_count: 0,
+            active_orders: Vec::new(),
+            completed_order_ids: BTreeSet::new(),
+            last_order_refresh_date: String::new(),
         }
     }
 }
@@ -727,6 +809,14 @@ pub enum FocusSessionStatus {
     Completed,
     /// The user ended it early.
     Abandoned,
+}
+
+pub const FOCUS_PRODUCTION_MULTIPLIER_MAX: f64 = 1.5;
+pub const FOCUS_PRODUCTION_MULTIPLIER_MIN: f64 = 1.0;
+const FOCUS_PRODUCTION_DISTRACTION_PENALTY: f64 = 0.1;
+
+fn default_focus_production_multiplier() -> f64 {
+    FOCUS_PRODUCTION_MULTIPLIER_MIN
 }
 
 /// One "deliver a task to CoCat and stay focused" ritual session.
@@ -747,6 +837,9 @@ pub struct FocusSession {
     pub distraction_count: u32,
     /// 0.0..=1.0, computed on completion from distraction_count.
     pub focus_quality: f64,
+    /// Live workshop output bonus while this session remains active.
+    #[serde(default = "default_focus_production_multiplier")]
+    pub production_multiplier: f64,
 }
 
 impl Default for FocusSession {
@@ -760,7 +853,28 @@ impl Default for FocusSession {
             status: FocusSessionStatus::Active,
             distraction_count: 0,
             focus_quality: 0.0,
+            production_multiplier: default_focus_production_multiplier(),
         }
+    }
+}
+
+impl FocusSession {
+    pub fn normalized_production_multiplier(&self) -> f64 {
+        if self.production_multiplier.is_finite() {
+            self.production_multiplier.clamp(
+                FOCUS_PRODUCTION_MULTIPLIER_MIN,
+                FOCUS_PRODUCTION_MULTIPLIER_MAX,
+            )
+        } else {
+            FOCUS_PRODUCTION_MULTIPLIER_MIN
+        }
+    }
+
+    pub fn record_distraction(&mut self) {
+        self.distraction_count = self.distraction_count.saturating_add(1);
+        self.production_multiplier = (self.normalized_production_multiplier()
+            - FOCUS_PRODUCTION_DISTRACTION_PENALTY)
+            .max(FOCUS_PRODUCTION_MULTIPLIER_MIN);
     }
 }
 
@@ -771,6 +885,21 @@ impl Default for FocusSession {
 pub struct FocusSessionBook {
     pub schema_version: u32,
     pub sessions: Vec<FocusSession>,
+}
+
+impl FocusSessionBook {
+    pub fn active_session(&self) -> Option<&FocusSession> {
+        self.sessions
+            .iter()
+            .filter(|session| session.status == FocusSessionStatus::Active)
+            .max_by_key(|session| session.started_at)
+    }
+
+    pub fn active_production_multiplier(&self) -> f64 {
+        self.active_session()
+            .map(FocusSession::normalized_production_multiplier)
+            .unwrap_or(FOCUS_PRODUCTION_MULTIPLIER_MIN)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -852,10 +981,13 @@ pub struct WorkLogBook {
     pub entries: BTreeMap<String, WorkLogEntry>,
 }
 
+pub const WORK_LOG_BOOK_SCHEMA_VERSION: u32 = 2;
+pub const WORK_LOG_HOT_WINDOW_DAYS: i64 = 90;
+
 impl Default for WorkLogBook {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: WORK_LOG_BOOK_SCHEMA_VERSION,
             entries: BTreeMap::new(),
         }
     }
@@ -1312,6 +1444,10 @@ pub struct ProcessUsageInsight {
     pub rank_label: String,
     pub summary: String,
     pub severity: InsightSeverity,
+    pub category: String,
+    pub impact: String,
+    pub recommendation: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1353,6 +1489,11 @@ pub struct RhythmProfile {
     /// Hours (0-23) ranked highest by combined activity + focus, top 3.
     pub peak_hours: Vec<u8>,
     pub summary: String,
+    pub best_work_window: Option<String>,
+    pub low_energy_window: Option<String>,
+    pub interruption_source: String,
+    pub sample_days: u32,
+    pub confidence: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3336,6 +3477,44 @@ fn build_process_insights(entry: &WorkLogEntry) -> Vec<ProcessUsageInsight> {
                 cpu_pressure_percent,
                 format_bytes(usage.memory_bytes_peak)
             );
+            let category = crate::pet::process_classify::classify_process(&usage.name);
+            let category_label = match category {
+                crate::pet::process_classify::ProcessCategory::Compiler => "编译构建",
+                crate::pet::process_classify::ProcessCategory::Browser => "浏览器",
+                crate::pet::process_classify::ProcessCategory::Ide => "开发工具",
+                crate::pet::process_classify::ProcessCategory::Document => "文档办公",
+                crate::pet::process_classify::ProcessCategory::VideoCall => "沟通会议",
+                crate::pet::process_classify::ProcessCategory::Media => "媒体播放",
+                crate::pet::process_classify::ProcessCategory::Game => "游戏娱乐",
+                crate::pet::process_classify::ProcessCategory::Unknown => "其他程序",
+            };
+            let (impact, recommendation) = if cpu_pressure_percent >= 35.0 {
+                (
+                    "持续推高 CPU 压力",
+                    "非必要时暂停后台任务，或把重负载操作安排在专注时段之外。",
+                )
+            } else if usage.memory_bytes_peak >= 1024 * 1024 * 1024 {
+                (
+                    "形成明显内存常驻",
+                    "用完后关闭闲置窗口或标签页，给主要任务保留内存余量。",
+                )
+            } else if disk_total >= 512 * 1024 * 1024 {
+                (
+                    "产生较多磁盘读写",
+                    "避免与大型复制、同步或构建任务同时运行。",
+                )
+            } else if active_seconds >= 30 * 60 {
+                ("是当天主要活跃工具", "把同类工作集中处理，可减少切换成本。")
+            } else {
+                ("影响较轻", "保持当前使用方式即可，暂时不需要特别处理。")
+            };
+            let evidence = format!(
+                "活跃 {} · CPU {:.0}% · 峰值内存 {} · 磁盘 {}",
+                format_duration(active_seconds),
+                cpu_pressure_percent,
+                format_bytes(usage.memory_bytes_peak),
+                format_bytes(disk_total)
+            );
 
             ProcessUsageInsight {
                 name: usage.name.clone(),
@@ -3351,6 +3530,10 @@ fn build_process_insights(entry: &WorkLogEntry) -> Vec<ProcessUsageInsight> {
                 rank_label,
                 summary,
                 severity,
+                category: category_label.to_string(),
+                impact: impact.to_string(),
+                recommendation: recommendation.to_string(),
+                evidence,
             }
         })
         .collect::<Vec<_>>();
@@ -3764,6 +3947,7 @@ fn format_time_slice_label(timestamp: i64) -> String {
 pub fn build_rhythm_profile(
     book: &WorkLogBook,
     history: &[DailyWorkAssessmentSummary],
+    focus_sessions: &FocusSessionBook,
 ) -> RhythmProfile {
     // Build a date -> score lookup once for cheap per-slice joins.
     let score_by_date: std::collections::HashMap<&str, u32> = history
@@ -3845,15 +4029,60 @@ pub fn build_rhythm_profile(
         })
         .collect();
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    let peak_hours: Vec<u8> = ranked.iter().take(3).map(|(i, _)| *i as u8).collect();
+    let peak_hours: Vec<u8> = ranked
+        .iter()
+        .filter(|(i, _)| hours[*i].active_seconds > 0)
+        .take(3)
+        .map(|(i, _)| *i as u8)
+        .collect();
 
     let summary = build_rhythm_summary(&hours, &peak_hours);
+    let sample_days = book
+        .entries
+        .values()
+        .filter(|entry| entry.active_seconds > 0 || entry.sample_count > 0)
+        .count() as u32;
+    let best_work_window = peak_hours
+        .first()
+        .map(|hour| format!("{:02}:00-{:02}:00", hour, (hour + 1) % 24));
+    let low_energy_window = hours
+        .iter()
+        .filter(|bucket| bucket.active_seconds > 0)
+        .min_by(|left, right| {
+            left.avg_focus_score
+                .total_cmp(&right.avg_focus_score)
+                .then_with(|| left.active_seconds.cmp(&right.active_seconds))
+        })
+        .map(|bucket| format!("{:02}:00-{:02}:00", bucket.index, (bucket.index + 1) % 24));
+    let distraction_count: u32 = focus_sessions
+        .sessions
+        .iter()
+        .map(|session| session.distraction_count)
+        .sum();
+    let interruption_source = if distraction_count > 0 {
+        format!("专注会话累计记录 {distraction_count} 次中断；优先检查通知、会议和频繁切换。")
+    } else if sample_days >= 3 {
+        "暂未发现稳定中断模式；继续保持整块工作时段。".to_string()
+    } else {
+        "样本还少，暂时无法判断典型中断源。".to_string()
+    };
+    let confidence = match sample_days {
+        0..=2 => "低",
+        3..=6 => "中",
+        _ => "高",
+    }
+    .to_string();
 
     RhythmProfile {
         hour_buckets: hours.to_vec(),
         weekday_buckets: weekdays.to_vec(),
         peak_hours,
         summary,
+        best_work_window,
+        low_energy_window,
+        interruption_source,
+        sample_days,
+        confidence,
     }
 }
 
@@ -4062,6 +4291,67 @@ mod assessment_tests {
     use chrono::TimeZone;
 
     #[test]
+    fn focus_multiplier_decays_on_distraction_but_never_below_one() {
+        let mut session = FocusSession {
+            production_multiplier: FOCUS_PRODUCTION_MULTIPLIER_MAX,
+            ..Default::default()
+        };
+
+        session.record_distraction();
+        assert!((session.production_multiplier - 1.4).abs() < 1e-9);
+
+        for _ in 0..20 {
+            session.record_distraction();
+        }
+        assert_eq!(
+            session.production_multiplier,
+            FOCUS_PRODUCTION_MULTIPLIER_MIN
+        );
+        assert_eq!(session.distraction_count, 21);
+    }
+
+    #[test]
+    fn legacy_focus_session_defaults_to_no_production_bonus() {
+        let session: FocusSession = serde_json::from_value(serde_json::json!({
+            "id": "legacy-focus"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            session.production_multiplier,
+            FOCUS_PRODUCTION_MULTIPLIER_MIN
+        );
+    }
+
+    #[test]
+    fn focus_book_uses_latest_active_session_and_defaults_to_no_bonus() {
+        let mut book = FocusSessionBook::default();
+        assert_eq!(
+            book.active_production_multiplier(),
+            FOCUS_PRODUCTION_MULTIPLIER_MIN
+        );
+
+        book.sessions.push(FocusSession {
+            id: "older".to_string(),
+            started_at: 100,
+            production_multiplier: 1.2,
+            ..Default::default()
+        });
+        book.sessions.push(FocusSession {
+            id: "latest".to_string(),
+            started_at: 200,
+            production_multiplier: 1.4,
+            ..Default::default()
+        });
+
+        assert_eq!(
+            book.active_session().map(|session| session.id.as_str()),
+            Some("latest")
+        );
+        assert_eq!(book.active_production_multiplier(), 1.4);
+    }
+
+    #[test]
     fn minimal_mode_round_trip_restores_previous_settings() {
         let mut settings = AppSettings {
             is_cat_visible: true,
@@ -4192,7 +4482,7 @@ mod assessment_tests {
             entry.time_slices.push(slice);
         }
 
-        let profile = build_rhythm_profile(&book, &[]);
+        let profile = build_rhythm_profile(&book, &[], &FocusSessionBook::default());
         let hour10 = &profile.hour_buckets[10];
         assert_eq!(hour10.active_seconds, 1200);
         assert_eq!(hour10.sample_days, 1);
@@ -4202,7 +4492,7 @@ mod assessment_tests {
     #[test]
     fn rhythm_profile_handles_empty_work_log() {
         let book = WorkLogBook::default();
-        let profile = build_rhythm_profile(&book, &[]);
+        let profile = build_rhythm_profile(&book, &[], &FocusSessionBook::default());
         assert!(profile.hour_buckets.iter().all(|h| h.active_seconds == 0));
         assert!(
             profile.peak_hours.is_empty()

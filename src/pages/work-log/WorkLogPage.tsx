@@ -1143,9 +1143,14 @@ function ProcessInsightCard({
       <div className="cwp-process-card-head">
         <span>#{rank}</span>
         <strong title={process.name}>{process.name}</strong>
-        <em>{process.rankLabel}</em>
+        <em>{process.category} · {process.rankLabel}</em>
       </div>
       <p>{process.summary}</p>
+      <div className="cwp-process-attribution">
+        <strong>{process.impact}</strong>
+        <span>{process.recommendation}</span>
+        <small>{process.evidence}</small>
+      </div>
       <dl className="cwp-process-metrics">
         <div>
           <dt>驻留</dt>
@@ -1599,6 +1604,12 @@ function RhythmHeatmapPanel({ profile }: { profile: RhythmProfile | null }) {
       </div>
 
       <div className="cwp-rhythm-summary">{profile.summary}</div>
+      <div className="cwp-rhythm-attribution">
+        <div><span>最佳工作时段</span><strong>{profile.bestWorkWindow ?? "样本不足"}</strong></div>
+        <div><span>相对低谷时段</span><strong>{profile.lowEnergyWindow ?? "样本不足"}</strong></div>
+        <div><span>样本置信度</span><strong>{profile.confidence} · {profile.sampleDays} 天</strong></div>
+        <p>{profile.interruptionSource}</p>
+      </div>
     </div>
   );
 }

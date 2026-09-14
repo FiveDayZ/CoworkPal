@@ -20,6 +20,8 @@ pub enum ProcessCategory {
     Browser,
     /// Code editor or IDE.
     Ide,
+    /// Document, notes, spreadsheet, or PDF reader.
+    Document,
     /// Video conferencing / chat client.
     VideoCall,
     /// Media playback.
@@ -33,6 +35,13 @@ pub enum ProcessCategory {
 impl ProcessCategory {
     pub fn is_story_worthy(self) -> bool {
         !matches!(self, Self::Unknown)
+    }
+
+    pub fn supports_silent_focus(self) -> bool {
+        matches!(
+            self,
+            Self::Compiler | Self::Browser | Self::Ide | Self::Document | Self::VideoCall
+        )
     }
 }
 
@@ -89,11 +98,11 @@ const RULES: &[(&str, ProcessCategory)] = &[
     ("opera", ProcessCategory::Browser),
     ("vivaldi", ProcessCategory::Browser),
     // --- IDEs / editors ---
-    ("code", ProcessCategory::Ide),       // VS Code / code.exe
+    ("code", ProcessCategory::Ide), // VS Code / code.exe
     ("code-insiders", ProcessCategory::Ide),
     ("cursor", ProcessCategory::Ide),
-    ("devenv", ProcessCategory::Ide),     // Visual Studio
-    ("idea", ProcessCategory::Ide),       // IntelliJ idea64.exe
+    ("devenv", ProcessCategory::Ide), // Visual Studio
+    ("idea", ProcessCategory::Ide),   // IntelliJ idea64.exe
     ("webstorm", ProcessCategory::Ide),
     ("pycharm", ProcessCategory::Ide),
     ("clion", ProcessCategory::Ide),
@@ -103,6 +112,16 @@ const RULES: &[(&str, ProcessCategory)] = &[
     ("sublime_text", ProcessCategory::Ide),
     ("emacs", ProcessCategory::Ide),
     ("atom", ProcessCategory::Ide),
+    // --- Documents / notes ---
+    ("winword", ProcessCategory::Document),
+    ("excel", ProcessCategory::Document),
+    ("powerpnt", ProcessCategory::Document),
+    ("acrord32", ProcessCategory::Document),
+    ("acrobat", ProcessCategory::Document),
+    ("sumatrapdf", ProcessCategory::Document),
+    ("notepad", ProcessCategory::Document),
+    ("obsidian", ProcessCategory::Document),
+    ("notion", ProcessCategory::Document),
     // --- Video calls / chat ---
     ("zoom", ProcessCategory::VideoCall),
     ("teams", ProcessCategory::VideoCall),
@@ -224,6 +243,18 @@ mod tests {
         assert_eq!(classify_process("cursor.exe"), ProcessCategory::Ide);
         assert_eq!(classify_process("Zoom.exe"), ProcessCategory::VideoCall);
         assert_eq!(classify_process("Spotify.exe"), ProcessCategory::Media);
+        assert_eq!(classify_process("WINWORD.EXE"), ProcessCategory::Document);
+        assert_eq!(classify_process("Obsidian.exe"), ProcessCategory::Document);
+    }
+
+    #[test]
+    fn silent_focus_support_excludes_games_and_media() {
+        assert!(ProcessCategory::Ide.supports_silent_focus());
+        assert!(ProcessCategory::Document.supports_silent_focus());
+        assert!(ProcessCategory::VideoCall.supports_silent_focus());
+        assert!(!ProcessCategory::Game.supports_silent_focus());
+        assert!(!ProcessCategory::Media.supports_silent_focus());
+        assert!(!ProcessCategory::Unknown.supports_silent_focus());
     }
 
     #[test]
@@ -268,7 +299,10 @@ mod tests {
 
     #[test]
     fn unknown_for_unrecognized_or_empty() {
-        assert_eq!(classify_process("some-random-app.exe"), ProcessCategory::Unknown);
+        assert_eq!(
+            classify_process("some-random-app.exe"),
+            ProcessCategory::Unknown
+        );
         assert_eq!(classify_process(""), ProcessCategory::Unknown);
         assert_eq!(classify_process("explorer.exe"), ProcessCategory::Unknown);
     }

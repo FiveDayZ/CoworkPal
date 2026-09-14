@@ -286,7 +286,12 @@ pub mod full_tier {
                 continue;
             };
             let result = unsafe {
-                SetProcessWorkingSetSizeEx(handle, sentinel, sentinel, QUOTA_LIMITS_HARDWS_MIN_DISABLE)
+                SetProcessWorkingSetSizeEx(
+                    handle,
+                    sentinel,
+                    sentinel,
+                    QUOTA_LIMITS_HARDWS_MIN_DISABLE,
+                )
             };
             if result.is_ok() {
                 outcome.processes_trimmed += 1;

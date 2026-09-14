@@ -1,5 +1,6 @@
 export const mainRouteKeys = [
   "dashboard",
+  "focus",
   "workshop",
   "devices",
   "settings",

@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, BTreeSet, HashSet},
     time::{Duration, Instant},
 };
 
@@ -9,12 +9,16 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
 use crate::{
-    achievements::AchievementBook,
+    achievements::{AchievementBook, AchievementDailyRollup, ACHIEVEMENT_BOOK_SCHEMA_VERSION},
     app_state::AppState,
-    events::{FOCUS_SESSION_UPDATED, NOTES_UPDATED, SETTINGS_UPDATED, WORKSHOP_UPDATED},
+    events::{
+        ACHIEVEMENT_PROGRESS_UPDATED, FOCUS_SESSION_UPDATED, NOTES_UPDATED, SETTINGS_UPDATED,
+        WORKSHOP_UPDATED,
+    },
     models::{
-        current_timestamp_ms, AppSettings, FocusSessionBook, HardwareDeviceInventory,
-        HardwareSnapshot, LayoutState, NoteBook, WorkLogBook, WorkshopState,
+        current_timestamp_ms, AppSettings, FocusSession, FocusSessionBook, FocusSessionStatus,
+        HardwareDeviceInventory, HardwareSnapshot, LayoutState, Note, NoteBook, WorkLogBook,
+        WorkLogEntry, WorkshopState, WORK_LOG_BOOK_SCHEMA_VERSION,
     },
 };
 
@@ -597,6 +601,8 @@ async fn restore_cloud_envelope(
     let mut achievements = state.achievements.write().await;
     let mut notes = state.notes.write().await;
 
+    let mut local_work_logs = state.storage.load_all_work_logs()?;
+    merge_work_log_entries(&mut local_work_logs.entries, work_logs.entries.clone());
     let previous = UserDataSnapshot {
         schema_version: 1,
         exported_at: current_timestamp_ms(),
@@ -605,22 +611,25 @@ async fn restore_cloud_envelope(
         settings: settings.clone(),
         workshop: workshop.clone(),
         layout: layout.clone(),
-        work_logs: work_logs.clone(),
+        work_logs: local_work_logs,
         focus_sessions: focus_sessions.clone(),
         achievements: achievements.clone(),
         notes: notes.clone(),
     };
+    let merged = merge_user_data_snapshots(&previous, &envelope.data);
+    validate_snapshot(&merged)?;
     state
         .storage
-        .restore_user_data_snapshot(&envelope.data, &previous)?;
+        .restore_user_data_snapshot(&merged, &previous)?;
+    let hot_work_logs = state.storage.load_or_create_work_logs()?;
 
-    *settings = envelope.data.settings.clone();
-    *workshop = envelope.data.workshop.clone();
-    *layout = envelope.data.layout.clone();
-    *work_logs = envelope.data.work_logs.clone();
-    *focus_sessions = envelope.data.focus_sessions.clone();
-    *achievements = envelope.data.achievements.clone();
-    *notes = envelope.data.notes.clone();
+    *settings = merged.settings.clone();
+    *workshop = merged.workshop.clone();
+    *layout = merged.layout.clone();
+    *work_logs = hot_work_logs;
+    *focus_sessions = merged.focus_sessions.clone();
+    *achievements = merged.achievements.clone();
+    *notes = merged.notes.clone();
 
     let launch_at_startup = settings.launch_at_startup;
     drop(settings);
@@ -636,12 +645,12 @@ async fn restore_cloud_envelope(
             "cloud data restored but startup registration could not be updated: {error}"
         );
     }
-    emit_restored_state(app, &envelope.data);
+    emit_restored_state(app, &merged);
 
     Ok(CloudSyncResult {
         revision: envelope.revision,
         stored_at: envelope.stored_at,
-        item_count: snapshot_item_count(&envelope.data),
+        item_count: snapshot_item_count(&merged),
     })
 }
 
@@ -655,6 +664,12 @@ async fn snapshot_from_state(state: &AppState) -> UserDataSnapshot {
     let achievements = state.achievements.read().await;
     let notes = state.notes.read().await;
 
+    let mut all_work_logs = state.storage.load_all_work_logs().unwrap_or_else(|error| {
+        tracing::warn!("failed to include archived work logs in cloud backup: {error}");
+        work_logs.clone()
+    });
+    merge_work_log_entries(&mut all_work_logs.entries, work_logs.entries.clone());
+
     UserDataSnapshot {
         schema_version: 1,
         exported_at: current_timestamp_ms(),
@@ -663,10 +678,246 @@ async fn snapshot_from_state(state: &AppState) -> UserDataSnapshot {
         settings: settings.clone(),
         workshop: workshop.clone(),
         layout: layout.clone(),
-        work_logs: work_logs.clone(),
+        work_logs: all_work_logs,
         focus_sessions: focus_sessions.clone(),
         achievements: achievements.clone(),
         notes: notes.clone(),
+    }
+}
+
+fn merge_user_data_snapshots(
+    local: &UserDataSnapshot,
+    remote: &UserDataSnapshot,
+) -> UserDataSnapshot {
+    let mut settings = remote.settings.clone();
+    settings.cat_id = local.settings.cat_id.clone();
+    settings.launch_at_startup = local.settings.launch_at_startup;
+    settings.cat_window_x = local.settings.cat_window_x;
+    settings.cat_window_y = local.settings.cat_window_y;
+    settings.monitor_bar_x = local.settings.monitor_bar_x;
+    settings.monitor_bar_y = local.settings.monitor_bar_y;
+    settings.integrated_hardware_monitor_enabled =
+        local.settings.integrated_hardware_monitor_enabled;
+    settings.memory_last_release = local.settings.memory_last_release.clone();
+    settings.enforce_minimal_mode_constraints();
+
+    let workshop = if remote.workshop.last_production_time > local.workshop.last_production_time {
+        remote.workshop.clone()
+    } else {
+        local.workshop.clone()
+    };
+
+    UserDataSnapshot {
+        schema_version: 1,
+        exported_at: local.exported_at.max(remote.exported_at),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        device_profile: local.device_profile.clone(),
+        settings,
+        workshop,
+        layout: local.layout.clone(),
+        work_logs: merge_work_log_books(&local.work_logs, &remote.work_logs),
+        focus_sessions: merge_focus_sessions(&local.focus_sessions, &remote.focus_sessions),
+        achievements: merge_achievements(&local.achievements, &remote.achievements),
+        notes: merge_notes(&local.notes, &remote.notes),
+    }
+}
+
+fn merge_notes(local: &NoteBook, remote: &NoteBook) -> NoteBook {
+    let mut by_id = BTreeMap::<String, Note>::new();
+    for note in local.notes.iter().chain(&remote.notes) {
+        let replace = by_id
+            .get(&note.id)
+            .is_none_or(|current| note.updated_at > current.updated_at);
+        if replace {
+            by_id.insert(note.id.clone(), note.clone());
+        }
+    }
+    NoteBook {
+        schema_version: local.schema_version.max(remote.schema_version),
+        notes: by_id.into_values().collect(),
+    }
+}
+
+fn merge_focus_sessions(local: &FocusSessionBook, remote: &FocusSessionBook) -> FocusSessionBook {
+    let mut by_id = BTreeMap::<String, FocusSession>::new();
+    for session in local.sessions.iter().chain(&remote.sessions) {
+        let replace = by_id
+            .get(&session.id)
+            .is_none_or(|current| focus_session_rank(session) > focus_session_rank(current));
+        if replace {
+            by_id.insert(session.id.clone(), session.clone());
+        }
+    }
+    let mut sessions = by_id.into_values().collect::<Vec<_>>();
+    sessions.sort_by_key(|session| session.started_at);
+    FocusSessionBook {
+        schema_version: local.schema_version.max(remote.schema_version),
+        sessions,
+    }
+}
+
+fn focus_session_rank(session: &FocusSession) -> (u8, i64, u32) {
+    let status = match session.status {
+        FocusSessionStatus::Active => 0,
+        FocusSessionStatus::Abandoned => 1,
+        FocusSessionStatus::Completed => 2,
+    };
+    (
+        status,
+        session.ended_at.unwrap_or(session.started_at),
+        session.distraction_count,
+    )
+}
+
+fn merge_work_log_books(local: &WorkLogBook, remote: &WorkLogBook) -> WorkLogBook {
+    let mut entries = local.entries.clone();
+    merge_work_log_entries(&mut entries, remote.entries.clone());
+    WorkLogBook {
+        schema_version: WORK_LOG_BOOK_SCHEMA_VERSION,
+        entries,
+    }
+}
+
+fn merge_work_log_entries(
+    target: &mut BTreeMap<String, WorkLogEntry>,
+    incoming: BTreeMap<String, WorkLogEntry>,
+) {
+    for (date, entry) in incoming {
+        if target
+            .get(&date)
+            .is_none_or(|current| entry.updated_at > current.updated_at)
+        {
+            target.insert(date, entry);
+        }
+    }
+}
+
+fn merge_achievements(local: &AchievementBook, remote: &AchievementBook) -> AchievementBook {
+    let mut events = BTreeMap::new();
+    for event in local.events.iter().chain(&remote.events) {
+        events
+            .entry(event.idempotency_key.clone())
+            .or_insert_with(|| event.clone());
+    }
+    let mut counters = local.counters.clone();
+    for (key, value) in &remote.counters {
+        counters
+            .entry(key.clone())
+            .and_modify(|current| *current = current.max(*value))
+            .or_insert(*value);
+    }
+    let mut daily_rollups = local.daily_rollups.clone();
+    for (date, incoming) in &remote.daily_rollups {
+        daily_rollups
+            .entry(date.clone())
+            .and_modify(|current| merge_daily_rollup(current, incoming))
+            .or_insert_with(|| incoming.clone());
+    }
+    let mut distinct_values = local.distinct_values.clone();
+    for (key, values) in &remote.distinct_values {
+        distinct_values
+            .entry(key.clone())
+            .or_default()
+            .extend(values.iter().cloned());
+    }
+    let mut unlocks = local.unlocks.clone();
+    for (key, unlock) in &remote.unlocks {
+        unlocks.entry(key.clone()).or_insert_with(|| unlock.clone());
+    }
+    let mut notifications = local.notifications.clone();
+    for (key, notification) in &remote.notifications {
+        notifications
+            .entry(key.clone())
+            .and_modify(|current| {
+                if (notification.seen_at.is_some() && current.seen_at.is_none())
+                    || notification.created_at > current.created_at
+                {
+                    *current = notification.clone();
+                }
+            })
+            .or_insert_with(|| notification.clone());
+    }
+    let notification_queue = local
+        .notification_queue
+        .iter()
+        .chain(&remote.notification_queue)
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let weekly_goal_plan = match (&local.weekly_goal_plan, &remote.weekly_goal_plan) {
+        (Some(left), Some(right)) if right.generated_at > left.generated_at => Some(right.clone()),
+        (Some(left), _) => Some(left.clone()),
+        (_, Some(right)) => Some(right.clone()),
+        _ => None,
+    };
+
+    let mut events = events.into_values().collect::<Vec<_>>();
+    events.sort_by_key(|event| (event.occurred_at, event.received_at));
+    const MAX_MERGED_ACHIEVEMENT_EVENTS: usize = 2_000;
+    if events.len() > MAX_MERGED_ACHIEVEMENT_EVENTS {
+        events.drain(0..events.len() - MAX_MERGED_ACHIEVEMENT_EVENTS);
+    }
+    let idempotency_keys = events
+        .iter()
+        .map(|event| event.idempotency_key.clone())
+        .collect();
+
+    AchievementBook {
+        schema_version: ACHIEVEMENT_BOOK_SCHEMA_VERSION,
+        events,
+        counters,
+        daily_rollups,
+        distinct_values,
+        unlocks,
+        notifications,
+        notification_queue,
+        idempotency_keys,
+        weekly_goal_plan,
+    }
+}
+
+fn merge_daily_rollup(current: &mut AchievementDailyRollup, incoming: &AchievementDailyRollup) {
+    current.active_seconds = current.active_seconds.max(incoming.active_seconds);
+    current.high_load_seconds = current.high_load_seconds.max(incoming.high_load_seconds);
+    current.thermal_warning_seconds = current
+        .thermal_warning_seconds
+        .max(incoming.thermal_warning_seconds);
+    current.active_00_05_seconds = current
+        .active_00_05_seconds
+        .max(incoming.active_00_05_seconds);
+    current.low_power_mode_enabled_seconds = current
+        .low_power_mode_enabled_seconds
+        .max(incoming.low_power_mode_enabled_seconds);
+    current.report_generated |= incoming.report_generated;
+    current.report_score = max_option(current.report_score, incoming.report_score);
+    current.report_day_type = current
+        .report_day_type
+        .clone()
+        .or_else(|| incoming.report_day_type.clone());
+    current.rarity_tier = current
+        .rarity_tier
+        .clone()
+        .or_else(|| incoming.rarity_tier.clone());
+    current.rarity_rank = max_option(current.rarity_rank, incoming.rarity_rank);
+    current.rarity_score = max_option(current.rarity_score, incoming.rarity_score);
+    current.title_family = current
+        .title_family
+        .clone()
+        .or_else(|| incoming.title_family.clone());
+    current.title_level = max_option(current.title_level, incoming.title_level);
+    current.title_progress = max_option(current.title_progress, incoming.title_progress);
+    current.storage_corruption_rebuilt_count = current
+        .storage_corruption_rebuilt_count
+        .max(incoming.storage_corruption_rebuilt_count);
+}
+
+fn max_option(left: Option<f64>, right: Option<f64>) -> Option<f64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
     }
 }
 
@@ -875,6 +1126,9 @@ fn emit_restored_state(app: &AppHandle, snapshot: &UserDataSnapshot) {
             tracing::warn!("failed to emit restored cloud state: {error}");
         }
     }
+    if let Err(error) = app.emit(ACHIEVEMENT_PROGRESS_UPDATED, ()) {
+        tracing::warn!("failed to emit restored achievement state: {error}");
+    }
 }
 
 #[cfg(test)]
@@ -882,9 +1136,20 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        auto_backup_interval, automatic_backup_due, normalize_config, DeviceProfile, SyncConfig,
+        auto_backup_interval, automatic_backup_due, merge_user_data_snapshots, normalize_config,
+        DeviceProfile, SyncConfig, UserDataSnapshot,
     };
-    use crate::models::{HardwareSnapshot, ProcessUsageSnapshot};
+    use crate::{
+        achievements::{
+            ensure_weekly_goals, load_seed_definitions, AchievementBook, AchievementEventRecord,
+            WeeklyGoalPlan, ACHIEVEMENT_BOOK_SCHEMA_VERSION,
+        },
+        models::{
+            AppSettings, FocusSession, FocusSessionBook, FocusSessionStatus, HardwareSnapshot,
+            LayoutState, Note, NoteBook, ProcessUsageSnapshot, WorkLogBook, WorkLogEntry,
+            WorkshopState,
+        },
+    };
 
     #[test]
     fn remote_http_and_https_are_allowed_but_other_schemes_are_rejected() {
@@ -1018,5 +1283,132 @@ mod tests {
         assert!(!json.contains("cpuUsagePercent"));
         assert!(!json.contains("private-process"));
         assert!(!json.contains("processes"));
+    }
+
+    #[test]
+    fn cloud_restore_merges_domains_without_overwriting_newer_local_data() {
+        let mut local = test_snapshot(100);
+        let mut remote = test_snapshot(200);
+        local.settings.cat_id = "LOCAL-CAT".to_string();
+        remote.settings.cat_id = "REMOTE-CAT".to_string();
+        remote.settings.cat_name = "云端 CoCat".to_string();
+        local.notes.notes.push(Note {
+            id: "same".to_string(),
+            title: "local newer".to_string(),
+            updated_at: 300,
+            ..Default::default()
+        });
+        remote.notes.notes.push(Note {
+            id: "same".to_string(),
+            title: "remote older".to_string(),
+            updated_at: 200,
+            ..Default::default()
+        });
+        local.work_logs.entries.insert(
+            "2026-09-14".to_string(),
+            WorkLogEntry {
+                date: "2026-09-14".to_string(),
+                updated_at: 300,
+                active_seconds: 30,
+                ..Default::default()
+            },
+        );
+        remote.work_logs.entries.insert(
+            "2026-09-14".to_string(),
+            WorkLogEntry {
+                date: "2026-09-14".to_string(),
+                updated_at: 200,
+                active_seconds: 20,
+                ..Default::default()
+            },
+        );
+        local.focus_sessions.sessions.push(FocusSession {
+            id: "focus-1".to_string(),
+            started_at: 100,
+            status: FocusSessionStatus::Active,
+            ..Default::default()
+        });
+        remote.focus_sessions.sessions.push(FocusSession {
+            id: "focus-1".to_string(),
+            started_at: 100,
+            ended_at: Some(250),
+            status: FocusSessionStatus::Completed,
+            ..Default::default()
+        });
+
+        let merged = merge_user_data_snapshots(&local, &remote);
+
+        assert_eq!(merged.settings.cat_id, "LOCAL-CAT");
+        assert_eq!(merged.settings.cat_name, "云端 CoCat");
+        assert_eq!(merged.notes.notes[0].title, "local newer");
+        assert_eq!(merged.work_logs.entries["2026-09-14"].active_seconds, 30);
+        assert_eq!(
+            merged.focus_sessions.sessions[0].status,
+            FocusSessionStatus::Completed
+        );
+    }
+
+    #[test]
+    fn repeated_cloud_merge_is_idempotent_for_achievement_events() {
+        let local = test_snapshot(100);
+        let mut remote = test_snapshot(200);
+        remote.achievements.events.push(AchievementEventRecord {
+            event_id: "event-1".to_string(),
+            event_name: "app.launch".to_string(),
+            occurred_at: 1,
+            received_at: 1,
+            source: "test".to_string(),
+            idempotency_key: "launch-1".to_string(),
+            payload: serde_json::json!({}),
+            app_version: "test".to_string(),
+        });
+
+        let once = merge_user_data_snapshots(&local, &remote);
+        let twice = merge_user_data_snapshots(&once, &remote);
+
+        assert_eq!(once.achievements.events.len(), 1);
+        assert_eq!(twice.achievements.events.len(), 1);
+        assert_eq!(twice.achievements.idempotency_keys.len(), 1);
+    }
+
+    #[test]
+    fn restored_legacy_weekly_goal_plan_is_regenerated_on_next_read() {
+        let local = test_snapshot(100);
+        let mut remote = test_snapshot(200);
+        remote.achievements.schema_version = 2;
+        remote.achievements.weekly_goal_plan = Some(WeeklyGoalPlan {
+            week_key: "legacy-week".to_string(),
+            achievement_ids: vec!["A002".to_string(), "A003".to_string(), "A005".to_string()],
+            generated_at: 200,
+            ..Default::default()
+        });
+
+        let mut merged = merge_user_data_snapshots(&local, &remote).achievements;
+        let definitions = load_seed_definitions().unwrap();
+        let (goals, changed) = ensure_weekly_goals(&mut merged, &definitions, 200);
+
+        assert_eq!(merged.schema_version, ACHIEVEMENT_BOOK_SCHEMA_VERSION);
+        assert!(changed);
+        assert_eq!(goals.goals.len(), 3);
+        let plan = merged.weekly_goal_plan.unwrap();
+        assert!(plan.achievement_ids.is_empty());
+        assert_eq!(plan.goal_keys.len(), 3);
+        assert_eq!(plan.baselines.len(), 3);
+    }
+
+    fn test_snapshot(exported_at: i64) -> UserDataSnapshot {
+        UserDataSnapshot {
+            schema_version: 1,
+            exported_at,
+            app_version: "test".to_string(),
+            device_profile: Default::default(),
+            settings: AppSettings::default(),
+            workshop: WorkshopState::default(),
+            layout: LayoutState::default(),
+            work_logs: WorkLogBook::default(),
+            focus_sessions: FocusSessionBook::default(),
+            achievements: AchievementBook::default(),
+            notes: NoteBook::default(),
+        }
     }
 }

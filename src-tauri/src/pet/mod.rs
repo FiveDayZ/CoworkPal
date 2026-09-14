@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-mod process_classify;
+pub(crate) mod process_classify;
 
 const MIN_STATE_HOLD_MS: i64 = 3_000;
 const REPAIR_LIGHT_LOAD_THRESHOLD: f32 = 76.0;
@@ -30,6 +30,34 @@ const FOCUS_FATIGUE_PROGRESS_NUMERATOR: i64 = 4;
 const FOCUS_FATIGUE_PROGRESS_DENOMINATOR: i64 = 5;
 
 pub struct PetStateService;
+
+pub(crate) fn is_focus_distracted(
+    snapshot: &HardwareSnapshot,
+    now_ms: i64,
+    last_input_at: Option<i64>,
+) -> bool {
+    let silent = last_input_at
+        .map(|timestamp| now_ms.saturating_sub(timestamp) >= FOCUS_DISTRACTION_SILENCE_MS)
+        .unwrap_or(true);
+    silent && !has_meaningful_focus_activity(snapshot)
+}
+
+fn has_meaningful_focus_activity(snapshot: &HardwareSnapshot) -> bool {
+    let foreground_category = snapshot
+        .foreground_process_name
+        .as_deref()
+        .map(process_classify::classify_process)
+        .unwrap_or(process_classify::ProcessCategory::Unknown);
+    if foreground_category.supports_silent_focus() {
+        return true;
+    }
+
+    process_classify::pick_story_lead(&snapshot.processes).is_some_and(|process| {
+        process_classify::classify_process(&process.name)
+            == process_classify::ProcessCategory::Compiler
+            && process.cpu_usage_percent >= 5.0
+    })
+}
 
 impl PetStateService {
     pub async fn update_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapshot) {
@@ -172,9 +200,7 @@ fn resolve_candidate_state(
     // Focus ritual takes priority over generic wellness nudges but yields to
     // the system alerts above.
     if active_focus_session_id.is_some() {
-        let distracted = last_input_at
-            .is_some_and(|t| now_ms.saturating_sub(t) >= FOCUS_DISTRACTION_SILENCE_MS);
-        if distracted {
+        if is_focus_distracted(snapshot, now_ms, last_input_at) {
             return CatState::Distracted;
         }
 
@@ -249,8 +275,9 @@ fn is_temperature_warning(
         return true;
     }
 
-    temperature_safe_since
-        .is_some_and(|safe_since| now_ms.saturating_sub(safe_since) < TEMPERATURE_CHECK_EXIT_STABLE_MS)
+    temperature_safe_since.is_some_and(|safe_since| {
+        now_ms.saturating_sub(safe_since) < TEMPERATURE_CHECK_EXIT_STABLE_MS
+    })
 }
 
 fn is_temperature_above_enter_threshold(
@@ -402,15 +429,17 @@ fn message_for_state(state: &CatState, lead: Option<&ProcessUsageSnapshot>) -> S
         (CatState::RepairHeavy, process_classify::ProcessCategory::Browser) => {
             Some("浏览器吃掉不少资源，CoCat 挤在角落里帮它扇风。")
         }
-        (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::Game) => {
-            Some("检测到游戏在跑，CoCat 戴上耳机在旁边围观。")
-        }
+        (
+            CatState::RepairHeavy | CatState::RepairLight,
+            process_classify::ProcessCategory::Game,
+        ) => Some("检测到游戏在跑，CoCat 戴上耳机在旁边围观。"),
         (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::Ide) => {
             Some("你的编辑器正忙，CoCat 趴在键盘边盯着代码。")
         }
-        (CatState::RepairHeavy | CatState::RepairLight, process_classify::ProcessCategory::VideoCall) => {
-            Some("视频会议进行中，CoCat 安静地躲到屏幕后面。")
-        }
+        (
+            CatState::RepairHeavy | CatState::RepairLight,
+            process_classify::ProcessCategory::VideoCall,
+        ) => Some("视频会议进行中，CoCat 安静地躲到屏幕后面。"),
         (CatState::MemoryCrowded, process_classify::ProcessCategory::Browser) => {
             Some("浏览器吃掉不少内存，CoCat 被挤到了角落里蹲着。")
         }
@@ -430,7 +459,9 @@ fn message_for_state(state: &CatState, lead: Option<&ProcessUsageSnapshot>) -> S
 mod tests {
     use crate::models::{AppSettings, CatState, HardwareSnapshot, ProcessUsageSnapshot};
 
-    use super::{message_for_state, resolve_candidate_state, should_transition};
+    use super::{
+        is_focus_distracted, message_for_state, resolve_candidate_state, should_transition,
+    };
 
     fn candidate(settings: &AppSettings, snapshot: &HardwareSnapshot) -> CatState {
         resolve_candidate_state(
@@ -458,10 +489,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(
-            candidate(&settings, &snapshot),
-            CatState::Hidden
-        );
+        assert_eq!(candidate(&settings, &snapshot), CatState::Hidden);
     }
 
     #[test]
@@ -472,10 +500,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(
-            candidate(&settings, &snapshot),
-            CatState::RepairLight
-        );
+        assert_eq!(candidate(&settings, &snapshot), CatState::RepairLight);
     }
 
     #[test]
@@ -486,10 +511,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(
-            candidate(&settings, &snapshot),
-            CatState::MemoryCrowded
-        );
+        assert_eq!(candidate(&settings, &snapshot), CatState::MemoryCrowded);
     }
 
     #[test]
@@ -526,10 +548,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(
-            candidate(&settings, &snapshot),
-            CatState::TemperatureCheck
-        );
+        assert_eq!(candidate(&settings, &snapshot), CatState::TemperatureCheck);
     }
 
     #[test]
@@ -781,6 +800,41 @@ mod tests {
     }
 
     #[test]
+    fn silent_focus_in_work_apps_is_not_distracted() {
+        let now = 5 * 60 * 1000;
+        for process_name in ["Code.exe", "chrome.exe", "WINWORD.EXE", "Zoom.exe"] {
+            let snapshot = HardwareSnapshot {
+                foreground_process_name: Some(process_name.to_string()),
+                ..Default::default()
+            };
+            assert!(!is_focus_distracted(&snapshot, now, Some(now - 120_000)));
+        }
+    }
+
+    #[test]
+    fn silent_focus_in_game_is_distracted() {
+        let snapshot = HardwareSnapshot {
+            foreground_process_name: Some("steam.exe".to_string()),
+            ..Default::default()
+        };
+        assert!(is_focus_distracted(&snapshot, 300_000, Some(180_000)));
+    }
+
+    #[test]
+    fn active_compiler_work_protects_silent_focus() {
+        let snapshot = HardwareSnapshot {
+            foreground_process_name: Some("explorer.exe".to_string()),
+            processes: vec![ProcessUsageSnapshot {
+                name: "rustc.exe".to_string(),
+                cpu_usage_percent: 25.0,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!is_focus_distracted(&snapshot, 300_000, Some(180_000)));
+    }
+
+    #[test]
     fn active_focus_late_stage_becomes_fatigued() {
         let settings = AppSettings::default();
         let snapshot = HardwareSnapshot::default();
@@ -871,10 +925,7 @@ mod tests {
     #[test]
     fn message_compiler_repair_light_is_enriched() {
         let msg = message_for_state(&CatState::RepairLight, Some(&proc("node.exe")));
-        assert!(
-            msg.contains("编译"),
-            "expected compiler story, got: {msg}"
-        );
+        assert!(msg.contains("编译"), "expected compiler story, got: {msg}");
     }
 
     #[test]
@@ -904,8 +955,7 @@ mod tests {
     #[test]
     fn message_temperature_state_keeps_domain_text_even_with_lead() {
         // Temperature nudge must not be masked by a process story.
-        let msg =
-            message_for_state(&CatState::TemperatureCheck, Some(&proc("chrome.exe")));
+        let msg = message_for_state(&CatState::TemperatureCheck, Some(&proc("chrome.exe")));
         assert_eq!(msg, "温度偏高，正在关注散热状态。");
     }
 

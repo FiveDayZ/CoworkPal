@@ -65,7 +65,10 @@ pub struct ReleaseResult {
 impl ReleaseResult {
     pub(crate) fn light(released_bytes: u64) -> Self {
         let note = if released_bytes > 0 {
-            format!("已执行轻量清理，释放 {:.1} GB", released_bytes as f64 / bytes_per_gib())
+            format!(
+                "已执行轻量清理，释放 {:.1} GB",
+                released_bytes as f64 / bytes_per_gib()
+            )
         } else {
             "已执行轻量清理，当前无需释放".to_string()
         };
@@ -170,7 +173,10 @@ pub async fn run_full_clean_via_helper() -> ReleaseResult {
             result
         }
         Err(error) => {
-            tracing::warn!("memory self-restart failed ({:?}) — degrading to light tier", error);
+            tracing::warn!(
+                "memory self-restart failed ({:?}) — degrading to light tier",
+                error
+            );
             let released = run_light_clean();
             let mut result = ReleaseResult::light(released);
             result.note = format!("{}（清理助手异常，已降级）", result.note);
@@ -213,7 +219,10 @@ fn run_full_via_self_restart_blocking() -> Result<u64, HelperError> {
         "coworkpal-memory-release-{}.json",
         std::process::id()
     ));
-    let result_path_str = result_path.to_str().ok_or(HelperError::NoResult)?.to_string();
+    let result_path_str = result_path
+        .to_str()
+        .ok_or(HelperError::NoResult)?
+        .to_string();
 
     // `--memory-clean-helper` makes main.rs run the sweep & exit early;
     // `--result-file=<path>` tells it where to write the result JSON.
@@ -385,7 +394,14 @@ fn enable_elevated_privileges() {
                     Attributes: SE_PRIVILEGE_ENABLED,
                 }],
             };
-            let _ = AdjustTokenPrivileges(token, false, Some(&mut tp as *mut TOKEN_PRIVILEGES), 0, None, None);
+            let _ = AdjustTokenPrivileges(
+                token,
+                false,
+                Some(&mut tp as *mut TOKEN_PRIVILEGES),
+                0,
+                None,
+                None,
+            );
             let _ = CloseHandle(token);
         }
     }

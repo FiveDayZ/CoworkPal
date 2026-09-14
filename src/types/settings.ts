@@ -1,5 +1,6 @@
 export type MonitorMetric = "Cpu" | "Ram" | "Disk" | "Network" | "Gpu";
 export type MonitorBarMode = "Micro" | "Default" | "Expanded";
+export type PrimaryMetric = "Cpu" | "Memory" | "Temperature" | "Network";
 
 /** Last successful memory release, surfaced in the settings card. */
 export interface LastMemoryRelease {
@@ -10,6 +11,9 @@ export interface LastMemoryRelease {
 
 export interface AppSettings {
   schemaVersion: number;
+  catName: string;
+  onboardingVersion: number;
+  primaryMetric: PrimaryMetric;
   launchAtStartup: boolean;
   isCatVisible: boolean;
   isMonitorBarVisible: boolean;

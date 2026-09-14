@@ -84,3 +84,20 @@ export interface AchievementSummary {
   highestRankUnlocks: AchievementCard[];
   pendingNotificationCount: number;
 }
+
+export interface WeeklyGoals {
+  weekKey: string;
+  goals: WeeklyGoal[];
+}
+
+export interface WeeklyGoal {
+  goalId: string;
+  title: string;
+  badgeKey: string;
+  routeKey: "dashboard" | "focus" | "workLog" | "workshop";
+  current: number;
+  target: number;
+  percent: number;
+  progressLabel: string;
+  isComplete: boolean;
+}

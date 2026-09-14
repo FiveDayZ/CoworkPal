@@ -37,6 +37,7 @@ function reloadMainWindowStores() {
       void useNotesStore.getState().loadNotes();
       void useWorkshopStore.getState().loadWorkshopState();
       void useAchievementStore.getState().loadSummary();
+      void useAchievementStore.getState().loadWeeklyGoals();
     },
   );
 }

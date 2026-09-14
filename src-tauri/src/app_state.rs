@@ -3,13 +3,16 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
 use crate::{
-    achievements::{compact_achievement_book, AchievementBook},
+    achievements::{
+        compact_achievement_book, seed_definitions, validate_definitions, AchievementBook,
+    },
     memory_release::MemoryReleaseState,
     models::{
         AppSettings, CatRuntimeState, FocusSessionBook, HardwareSnapshot, LayoutState, NoteBook,
         WorkLogBook, WorkshopState,
     },
     monitoring::{create_default_adapter, HardwareSensorAdapter},
+    persistence::PersistenceCoordinator,
     storage::StorageService,
 };
 
@@ -24,17 +27,20 @@ pub struct AppState {
     pub last_snapshot: RwLock<Option<HardwareSnapshot>>,
     /// All CoCat runtime fields behind one lock so state updates are atomic.
     pub cat_runtime: RwLock<CatRuntimeState>,
-    pub storage: StorageService,
+    pub storage: Arc<StorageService>,
     /// `Arc` so the adapter can be cloned into `spawn_blocking` closures,
     /// keeping subprocess work (nvidia-smi / powershell) off the async runtime.
     pub hardware_adapter: Arc<Mutex<Box<dyn HardwareSensorAdapter>>>,
     /// Memory release watcher cooldown state (auto-trigger only).
     pub memory_release: MemoryReleaseState,
+    pub persistence: PersistenceCoordinator,
 }
 
 impl AppState {
     pub fn load() -> Result<Self, String> {
-        let storage = StorageService::new().map_err(|error| error.to_string())?;
+        let definitions = seed_definitions().map_err(|error| error.to_string())?;
+        validate_definitions(definitions).map_err(|error| error.to_string())?;
+        let storage = Arc::new(StorageService::new().map_err(|error| error.to_string())?);
         storage.apply_pending_user_data_restore()?;
 
         // Never put a default value into live state when an existing data file
@@ -67,6 +73,8 @@ impl AppState {
             .load_or_create_notes()
             .map_err(|error| format!("notes.json: {error}"))?;
 
+        let cat_runtime = restore_focus_runtime(&focus_sessions);
+
         Ok(Self {
             settings: RwLock::new(settings),
             workshop: RwLock::new(workshop),
@@ -76,10 +84,53 @@ impl AppState {
             achievements: RwLock::new(achievements),
             notes: RwLock::new(notes),
             last_snapshot: RwLock::new(None),
-            cat_runtime: RwLock::new(CatRuntimeState::default()),
+            cat_runtime: RwLock::new(cat_runtime),
             storage,
             hardware_adapter: Arc::new(Mutex::new(create_default_adapter())),
             memory_release: MemoryReleaseState::default(),
+            persistence: PersistenceCoordinator::default(),
         })
+    }
+}
+
+fn restore_focus_runtime(focus_sessions: &FocusSessionBook) -> CatRuntimeState {
+    let mut runtime = CatRuntimeState::default();
+    if let Some(session) = focus_sessions.active_session() {
+        runtime.active_focus_session_id = Some(session.id.clone());
+        runtime.active_focus_started_at = Some(session.started_at);
+        runtime.active_focus_planned_duration_ms = Some(
+            i64::try_from(session.planned_duration_seconds)
+                .unwrap_or(i64::MAX)
+                .saturating_mul(1000),
+        );
+    }
+    runtime
+}
+
+#[cfg(test)]
+mod tests {
+    use super::restore_focus_runtime;
+    use crate::models::{FocusSession, FocusSessionBook};
+
+    #[test]
+    fn active_focus_session_is_restored_into_runtime_state() {
+        let book = FocusSessionBook {
+            sessions: vec![FocusSession {
+                id: "focus-active".to_string(),
+                started_at: 1234,
+                planned_duration_seconds: 1500,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let runtime = restore_focus_runtime(&book);
+
+        assert_eq!(
+            runtime.active_focus_session_id.as_deref(),
+            Some("focus-active")
+        );
+        assert_eq!(runtime.active_focus_started_at, Some(1234));
+        assert_eq!(runtime.active_focus_planned_duration_ms, Some(1_500_000));
     }
 }

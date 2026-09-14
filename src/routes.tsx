@@ -20,6 +20,15 @@ export const mainRoutes: Array<{
     ),
   },
   {
+    key: "focus",
+    label: "Focus",
+    element: lazy(() =>
+      import("./pages/focus/FocusPage").then((module) => ({
+        default: module.FocusPage,
+      })),
+    ),
+  },
+  {
     key: "devices",
     label: "Devices",
     element: lazy(() =>

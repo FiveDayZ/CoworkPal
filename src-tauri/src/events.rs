@@ -26,6 +26,10 @@ pub const PET_STATE_CHANGED: &str = "pet:state-changed";
 /// Emitted when a new achievement unlocks.
 pub const ACHIEVEMENT_UNLOCKED: &str = "achievement:unlocked";
 
+/// Emitted after accepted achievement progress so compact goal surfaces can
+/// refresh without polling the complete achievement collection.
+pub const ACHIEVEMENT_PROGRESS_UPDATED: &str = "achievement:progress-updated";
+
 /// Emitted to ask the main window to navigate to a given route.
 pub const UI_NAVIGATE_MAIN: &str = "ui:navigate-main";
 

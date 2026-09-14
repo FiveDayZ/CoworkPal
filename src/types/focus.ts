@@ -9,6 +9,7 @@ export interface FocusSession {
   status: FocusSessionStatus;
   distractionCount: number;
   focusQuality: number;
+  productionMultiplier: number;
 }
 
 export interface FocusSessionBook {

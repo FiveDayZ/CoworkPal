@@ -1,5 +1,5 @@
-mod app_state;
 pub mod achievements;
+mod app_state;
 mod cloud_sync;
 mod commands;
 pub mod events;
@@ -7,6 +7,7 @@ mod input_activity;
 pub mod memory_release;
 mod models;
 mod monitoring;
+mod persistence;
 mod pet;
 mod process_util;
 mod storage;
@@ -19,6 +20,7 @@ mod workshop;
 use app_state::AppState;
 use input_activity::start_input_activity_pump;
 use monitoring::start_hardware_snapshot_pump;
+use persistence::start_persistence_pump;
 use tauri::Manager;
 
 pub static IS_EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -43,10 +45,7 @@ pub fn run() {
             let state = AppState::load().map_err(std::io::Error::other)?;
             app.manage(state);
             tray::setup_tray(app)?;
-            let corruption_rebuilds = app
-                .state::<AppState>()
-                .storage
-                .take_corruption_rebuilds();
+            let corruption_rebuilds = app.state::<AppState>().storage.take_corruption_rebuilds();
             let launch_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 for (index, file_name) in corruption_rebuilds.into_iter().enumerate() {
@@ -82,6 +81,7 @@ pub fn run() {
             });
             start_hardware_snapshot_pump(app.handle().clone());
             start_input_activity_pump(app.handle().clone());
+            start_persistence_pump(app.handle().clone());
             start_memory_auto_release_pump(app.handle().clone());
             cloud_sync::start_token_request_polling(app.handle().clone());
             cloud_sync::start_auto_backup_polling(app.handle().clone());
@@ -100,6 +100,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::track_achievement_event,
             commands::get_achievement_summary,
+            commands::get_weekly_goals,
             commands::list_achievements,
             commands::get_achievement_detail,
             commands::mark_achievement_notifications_seen,
@@ -107,6 +108,12 @@ pub fn run() {
             commands::get_app_settings,
             commands::update_app_settings,
             commands::get_workshop_state,
+            commands::get_workshop_upgrade_quotes,
+            commands::get_workshop_production_breakdown,
+            commands::complete_workshop_order,
+            commands::upgrade_workshop,
+            commands::upgrade_workshop_module,
+            commands::reset_workshop_state,
             commands::reward_cocat_interaction,
             commands::get_work_log_report,
             commands::get_daily_work_assessment,
@@ -126,7 +133,7 @@ pub fn run() {
             commands::toggle_pet_panel,
             commands::save_window_position,
             commands::exit_app,
-            commands::update_workshop_state,
+            commands::get_focus_sessions,
             commands::start_focus_session,
             commands::complete_focus_session,
             commands::abandon_focus_session,

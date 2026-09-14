@@ -441,7 +441,7 @@ CREATE TABLE achievement_admin_grants (
 | A053 | 任务效率类 | CPU 推进 10 小时 | 20 | 否 | `cwp_badge_task_cpu_50_10h_skilled` | `lifetime.cpu_over_50_seconds >= 36000`。 |
 | A054 | 任务效率类 | 内存仓库 5 小时 | 20 | 否 | `cwp_badge_task_ram_70_5h_skilled` | `lifetime.memory_over_70_seconds >= 18000`。 |
 | A055 | 任务效率类 | GPU 点亮 3 小时 | 20 | 否 | `cwp_badge_task_gpu_70_3h_skilled` | `lifetime.gpu_over_70_seconds >= 10800`。 |
-| A056 | 数据里程碑类 | 100 GiB 本地流转 | 20 | 否 | `cwp_badge_data_disk_100gib_skilled` | `lifetime.disk_bytes_total >= 107374182400`。 |
+| A056 | 硬件健康类 | 100 GiB 本地流转 | 20 | 否 | `cwp_badge_data_disk_100gib_skilled` | `lifetime.disk_bytes_total >= 107374182400`。 |
 | A057 | 数据里程碑类 | 50 GiB 网络流转 | 20 | 否 | `cwp_badge_data_network_50gib_skilled` | `lifetime.network_bytes_total >= 53687091200`。 |
 | A058 | 日常使用类 | 500 次 CoCat 互动 | 20 | 否 | `cwp_badge_daily_pet_500_skilled` | `pet.click.count + pet.panel.open.count + pet.drag_end.count >= 500`。 |
 | A059 | 功能探索类 | 设置调校师 | 20 | 否 | `cwp_badge_explore_settings_20_skilled` | `settings.update.count >= 20` 且 `distinct_count(settings.update.changedKey) >= 5`。 |

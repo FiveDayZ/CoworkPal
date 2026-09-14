@@ -153,6 +153,31 @@ pub enum AchievementOperator {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+pub enum AchievementDistinctFilter {
+    Any,
+    In { values: Vec<String> },
+    NotEqual { value: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AchievementDailyPredicate {
+    All {
+        predicates: Vec<AchievementDailyPredicate>,
+    },
+    Numeric {
+        key: String,
+        op: AchievementOperator,
+        value: f64,
+    },
+    TextEqual {
+        key: String,
+        value: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum AchievementCondition {
     All {
         conditions: Vec<AchievementCondition>,
@@ -165,15 +190,34 @@ pub enum AchievementCondition {
         op: AchievementOperator,
         value: f64,
     },
+    Sum {
+        counters: Vec<String>,
+        op: AchievementOperator,
+        value: f64,
+    },
+    Max {
+        counters: Vec<String>,
+        op: AchievementOperator,
+        value: f64,
+    },
     DistinctCount {
         key: String,
+        filter: AchievementDistinctFilter,
+        op: AchievementOperator,
+        value: u32,
+    },
+    CalendarDays {
+        predicate: AchievementDailyPredicate,
         op: AchievementOperator,
         value: u32,
     },
     ConsecutiveDays {
-        key: String,
-        min_daily_value: f64,
+        predicate: AchievementDailyPredicate,
         days: u32,
+    },
+    CalendarMonths {
+        min_report_generated_days: u32,
+        months: u32,
     },
     PerBucketMin {
         key: String,
@@ -199,6 +243,7 @@ pub struct AchievementDefinition {
     pub is_hidden: bool,
     pub repeat_policy: AchievementRepeatPolicy,
     pub condition_summary: String,
+    pub condition: AchievementCondition,
     pub enabled_from_version: String,
     pub enabled_to_version: Option<String>,
     pub definition_version: u32,
@@ -215,6 +260,7 @@ impl AchievementDefinition {
         badge_key: String,
         is_hidden: bool,
         condition_summary: String,
+        condition: AchievementCondition,
         display_order: u32,
     ) -> Self {
         let code = id.to_ascii_lowercase();
@@ -232,6 +278,7 @@ impl AchievementDefinition {
             is_hidden,
             repeat_policy: AchievementRepeatPolicy::Once,
             condition_summary,
+            condition,
             enabled_from_version: "0.1.9".to_string(),
             enabled_to_version: None,
             definition_version: 1,

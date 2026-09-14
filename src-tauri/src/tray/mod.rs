@@ -9,8 +9,7 @@ use crate::{
     app_state::AppState,
     events::{SETTINGS_UPDATED, UI_NAVIGATE_MAIN},
     models::{AppSettings, AppSettingsPatch},
-    taskbar_embed,
-    window_manager,
+    taskbar_embed, window_manager,
 };
 
 const TRAY_ID: &str = "coworkpal";
@@ -73,13 +72,8 @@ pub async fn build_shared_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry
         true,
         None::<&str>,
     )?;
-    let release_memory = MenuItem::with_id(
-        app,
-        MENU_RELEASE_MEMORY,
-        "释放内存",
-        true,
-        None::<&str>,
-    )?;
+    let release_memory =
+        MenuItem::with_id(app, MENU_RELEASE_MEMORY, "释放内存", true, None::<&str>)?;
     let open_settings = MenuItem::with_id(app, MENU_OPEN_SETTINGS, "设置", true, None::<&str>)?;
     let open_about = MenuItem::with_id(app, MENU_OPEN_ABOUT, "关于", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
@@ -244,8 +238,12 @@ fn handle_menu_action(app: &AppHandle, action: &str) {
             });
         }
         MENU_QUIT => {
-            crate::IS_EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
-            app.exit(0);
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = crate::commands::exit_app(app).await {
+                    tracing::warn!("failed to flush application data before exit: {error}");
+                }
+            });
         }
         _ => {}
     }
@@ -263,6 +261,7 @@ async fn toggle_minimal_mode(app: AppHandle) -> Result<(), String> {
         }
     }
 
+    crate::persistence::flush_before_shutdown(&app).await?;
     crate::IS_EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
     std::env::set_var("COWORKPAL_RESTART_PENDING", "1");
     app.restart()

@@ -10,4 +10,9 @@ export interface RhythmProfile {
   weekdayBuckets: RhythmBucket[];
   peakHours: number[];
   summary: string;
+  bestWorkWindow: string | null;
+  lowEnergyWindow: string | null;
+  interruptionSource: string;
+  sampleDays: number;
+  confidence: string;
 }

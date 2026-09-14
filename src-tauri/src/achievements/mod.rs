@@ -9,11 +9,13 @@ pub use definitions::{
     AchievementSortMode,
 };
 pub use runtime::{
-    compact_achievement_book, get_achievement_card, list_achievement_cards,
+    compact_achievement_book, ensure_weekly_goals, get_achievement_card, list_achievement_cards,
     mark_achievement_notifications_seen, record_achievement_event, summarize_achievements,
-    AchievementBook, AchievementCard, AchievementEventRecord, AchievementNotificationRecord,
-    AchievementNotificationState, AchievementSummary, AchievementUnlockRecord,
-    AchievementUnlockedEvent, TrackAchievementEventRequest, TrackAchievementEventResponse,
+    AchievementBook, AchievementCard, AchievementDailyRollup, AchievementEventRecord,
+    AchievementNotificationRecord, AchievementNotificationState, AchievementSummary,
+    AchievementUnlockRecord, AchievementUnlockedEvent, TrackAchievementEventRequest,
+    TrackAchievementEventResponse, WeeklyGoal, WeeklyGoalPlan, WeeklyGoals,
+    ACHIEVEMENT_BOOK_SCHEMA_VERSION,
 };
-pub use seed::{load_seed_definitions, AchievementSeedError};
+pub use seed::{load_seed_definitions, seed_definitions, AchievementSeedError};
 pub use validation::{validate_definitions, AchievementValidationError};

@@ -39,9 +39,7 @@ impl MemoryPressure {
 /// treat `None` as "no sample" and skip the cycle.
 #[cfg(windows)]
 pub fn sample_pressure() -> Option<MemoryPressure> {
-    use windows::Win32::System::SystemInformation::{
-        GlobalMemoryStatusEx, MEMORYSTATUSEX,
-    };
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
     let mut status = MEMORYSTATUSEX {
         dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,

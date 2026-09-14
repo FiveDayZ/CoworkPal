@@ -91,6 +91,10 @@ export interface ProcessUsageInsight {
   rankLabel: string;
   summary: string;
   severity: InsightSeverity;
+  category: string;
+  impact: string;
+  recommendation: string;
+  evidence: string;
 }
 
 export interface WorkCardRarity {

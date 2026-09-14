@@ -44,11 +44,11 @@ pub use sysinfo_adapter::SysinfoAdapter;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
-    commands::record_internal_achievement_event,
     app_state::AppState,
     events::{FOCUS_SESSION_UPDATED, HARDWARE_METRICS, WORKLOG_UPDATED, WORKSHOP_UPDATED},
     models::{current_timestamp_ms, FocusSessionStatus, HardwareMetricsSnapshot, HardwareSnapshot},
-    pet::{PetStateService, FOCUS_DISTRACTION_SILENCE_MS},
+    persistence::PeriodicAchievementDelta,
+    pet::{is_focus_distracted, PetStateService},
     workshop::ProductionService,
 };
 
@@ -93,8 +93,7 @@ pub fn start_hardware_snapshot_pump(app: AppHandle) {
                         const FOCUS_MAX_SAMPLING_INTERVAL_MS: u64 = 10_000;
                         let focus_interval = settings
                             .sampling_interval_ms
-                            .max(1000)
-                            .min(FOCUS_MAX_SAMPLING_INTERVAL_MS);
+                            .clamp(1000, FOCUS_MAX_SAMPLING_INTERVAL_MS);
                         if interval_ms > focus_interval {
                             interval_ms = focus_interval;
                         }
@@ -105,13 +104,11 @@ pub fn start_hardware_snapshot_pump(app: AppHandle) {
                 // that block for hundreds of ms. Run it on a blocking thread
                 // so the Tauri async runtime is not stalled on every tick.
                 let adapter = state.hardware_adapter.clone();
-                let snapshot = tokio::task::spawn_blocking(move || {
-                    match adapter.lock() {
-                        Ok(mut adapter) => adapter.sample(),
-                        Err(error) => {
-                            tracing::warn!("hardware adapter lock failed: {error}");
-                            HardwareSnapshot::default()
-                        }
+                let snapshot = tokio::task::spawn_blocking(move || match adapter.lock() {
+                    Ok(mut adapter) => adapter.sample(),
+                    Err(error) => {
+                        tracing::warn!("hardware adapter lock failed: {error}");
+                        HardwareSnapshot::default()
                     }
                 })
                 .await
@@ -128,7 +125,8 @@ pub fn start_hardware_snapshot_pump(app: AppHandle) {
                 (snapshot, interval_ms)
             };
 
-            if let Err(error) = app.emit(HARDWARE_METRICS, HardwareMetricsSnapshot::from(&snapshot)) {
+            if let Err(error) = app.emit(HARDWARE_METRICS, HardwareMetricsSnapshot::from(&snapshot))
+            {
                 tracing::warn!("failed to emit {HARDWARE_METRICS}: {error}");
             }
 
@@ -196,19 +194,23 @@ async fn update_work_log_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
     let state = app.state::<AppState>();
     let date = crate::models::date_key_from_timestamp(snapshot.timestamp);
 
-    // Returns (report, deltas). On save failure the entry is rolled back and
-    // deltas are zeroed so the achievement system isn't credited for a tick
-    // that didn't persist.
-    let (updated_report, high_load_delta, thermal_warning_delta, disk_delta, network_delta, cpu_over_50_delta, memory_over_70_delta, gpu_over_70_delta, tick_seconds) = {
+    let (
+        updated_report,
+        high_load_delta,
+        thermal_warning_delta,
+        disk_delta,
+        network_delta,
+        cpu_over_50_delta,
+        memory_over_70_delta,
+        gpu_over_70_delta,
+        tick_seconds,
+    ) = {
         let mut work_logs = state.work_logs.write().await;
         let entry = work_logs
             .entries
             .entry(date.clone())
             .or_insert_with(|| crate::models::WorkLogEntry::new(date.clone(), snapshot.timestamp));
 
-        // Snapshot the entry before mutating so we can roll back if persistence
-        // fails — otherwise the in-memory work log would diverge from disk and
-        // every subsequent tick would accumulate on top of unsaved data.
         let entry_before = entry.clone();
         entry.record_snapshot(snapshot, snapshot.timestamp);
         // Compute per-tick deltas for the achievement system. These power
@@ -216,8 +218,9 @@ async fn update_work_log_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
         // warnings, cpu/memory/gpu over-threshold seconds) that many achievements
         // depend on. Without this event, those lifetime counters stayed at 0
         // forever — the achievements were unreachable.
-        let high_load_delta =
-            entry.high_load_seconds.saturating_sub(entry_before.high_load_seconds);
+        let high_load_delta = entry
+            .high_load_seconds
+            .saturating_sub(entry_before.high_load_seconds);
         let thermal_warning_delta = entry
             .cpu_over_80c_seconds
             .saturating_sub(entry_before.cpu_over_80c_seconds);
@@ -231,44 +234,35 @@ async fn update_work_log_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
             .network_download_bytes_total
             .saturating_add(entry.network_upload_bytes_total)
             .saturating_sub(
-                entry_before.network_download_bytes_total
-                    + entry_before.network_upload_bytes_total,
+                entry_before.network_download_bytes_total + entry_before.network_upload_bytes_total,
             );
-        let cpu_over_50_delta =
-            entry.cpu_over_50_seconds.saturating_sub(entry_before.cpu_over_50_seconds);
+        let cpu_over_50_delta = entry
+            .cpu_over_50_seconds
+            .saturating_sub(entry_before.cpu_over_50_seconds);
         let memory_over_70_delta = entry
             .memory_over_70_seconds
             .saturating_sub(entry_before.memory_over_70_seconds);
-        let gpu_over_70_delta =
-            entry.gpu_over_70_seconds.saturating_sub(entry_before.gpu_over_70_seconds);
+        let gpu_over_70_delta = entry
+            .gpu_over_70_seconds
+            .saturating_sub(entry_before.gpu_over_70_seconds);
         // Tick duration in seconds — used to accrue low-power-mode enabled time
         // for the achievement system (A100 低功耗守护者). Derived from the
         // entry's updated_at delta, clamped the same way record_snapshot clamps.
-        let tick_seconds = ((entry.updated_at.saturating_sub(entry_before.updated_at)) / 1000)
-            .clamp(0, 60) as u64;
-        let report_after = crate::models::WorkLogReport::from_entry(entry.clone());
-        // The mutable borrow of `entry` (which borrows `work_logs`) ends here:
-        // its last use was the clone above, so NLL releases it before the
-        // immutable borrow in save_work_logs below. The rollback path re-acquires
-        // the entry by key if the save fails.
-
-        if let Err(error) = state.storage.save_work_logs(&work_logs) {
-            tracing::warn!("failed to save work logs: {error}");
-            // Restore the entry to its pre-tick state so memory matches disk.
-            if let Some(entry) = work_logs.entries.get_mut(&date) {
-                *entry = entry_before;
-            }
-            // Re-derive the report from the restored entry; zero the deltas so
-            // no achievement credit is given for the rolled-back tick.
-            let report = work_logs
-                .entries
-                .get(&date)
-                .map(|e| crate::models::WorkLogReport::from_entry(e.clone()))
-                .unwrap_or(report_after);
-            (report, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64)
-        } else {
-            (report_after, high_load_delta, thermal_warning_delta, disk_delta, network_delta, cpu_over_50_delta, memory_over_70_delta, gpu_over_70_delta, tick_seconds)
-        }
+        let tick_seconds =
+            ((entry.updated_at.saturating_sub(entry_before.updated_at)) / 1000).clamp(0, 60) as u64;
+        let report = crate::models::WorkLogReport::from_entry(entry.clone());
+        state.persistence.mark_work_logs_dirty();
+        (
+            report,
+            high_load_delta,
+            thermal_warning_delta,
+            disk_delta,
+            network_delta,
+            cpu_over_50_delta,
+            memory_over_70_delta,
+            gpu_over_70_delta,
+            tick_seconds,
+        )
     };
 
     if let Err(error) = app.emit(WORKLOG_UPDATED, updated_report) {
@@ -282,52 +276,34 @@ async fn update_work_log_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
     // mouse/keyboard counts — the hardware fields were missing, so achievements
     // like "1小时高负载", "10GiB数据流", "CPU推进10小时", "低功耗守护者" etc.
     // were stuck at 0.
-    let low_power_enabled = state
-        .settings
-        .read()
-        .await
-        .enable_low_power_mode;
+    let low_power_enabled = state.settings.read().await.enable_low_power_mode;
     let low_power_seconds = if low_power_enabled { tick_seconds } else { 0 };
 
-    if high_load_delta > 0
-        || disk_delta > 0
-        || network_delta > 0
-        || thermal_warning_delta > 0
-        || cpu_over_50_delta > 0
-        || memory_over_70_delta > 0
-        || gpu_over_70_delta > 0
-        || low_power_seconds > 0
-    {
-        let idempotency_key = format!("hardware.segment_rollup:{}", snapshot.timestamp);
-        if let Err(error) = record_internal_achievement_event(
-            app,
-            "hardware.segment_rollup",
-            idempotency_key,
-            serde_json::json!({
-                "highLoadSeconds": high_load_delta,
-                "thermalWarningSeconds": thermal_warning_delta,
-                "diskBytesTotal": disk_delta,
-                "networkBytesTotal": network_delta,
-                "cpuOver50Seconds": cpu_over_50_delta,
-                "memoryOver70Seconds": memory_over_70_delta,
-                "gpuOver70Seconds": gpu_over_70_delta,
-                "lowPowerModeEnabledSeconds": low_power_seconds,
-            }),
-        )
-        .await
-        {
-            tracing::warn!("failed to record hardware segment achievement event: {error}");
-        }
-    }
+    state
+        .persistence
+        .queue_periodic_achievement(PeriodicAchievementDelta {
+            occurred_at: snapshot.timestamp,
+            high_load_seconds: high_load_delta,
+            thermal_warning_seconds: thermal_warning_delta,
+            disk_bytes_total: disk_delta,
+            network_bytes_total: network_delta,
+            cpu_over_50_seconds: cpu_over_50_delta,
+            memory_over_70_seconds: memory_over_70_delta,
+            gpu_over_70_seconds: gpu_over_70_delta,
+            low_power_mode_enabled_seconds: low_power_seconds,
+            ..Default::default()
+        })
+        .await;
 
     // Focus-session distraction detection: if a session is active and input has
     // been silent past the threshold, count one distraction (deduped per
     // continuous silent stretch via last_distraction_at).
-    record_focus_distraction_if_needed(app, snapshot.timestamp).await;
+    record_focus_distraction_if_needed(app, snapshot).await;
 }
 
-async fn record_focus_distraction_if_needed(app: &AppHandle, now_ms: i64) {
+async fn record_focus_distraction_if_needed(app: &AppHandle, snapshot: &HardwareSnapshot) {
     let state = app.state::<AppState>();
+    let now_ms = snapshot.timestamp;
 
     // Step 1: under the cat_runtime lock, decide whether this tick should count
     // a distraction and capture the target session id.
@@ -336,14 +312,12 @@ async fn record_focus_distraction_if_needed(app: &AppHandle, now_ms: i64) {
         let Some(session_id) = runtime.active_focus_session_id.clone() else {
             return;
         };
-        let silent_for = runtime
-            .last_input_at
-            .map(|t| now_ms.saturating_sub(t))
-            .unwrap_or(i64::MAX);
-        let already_counted_this_stretch = runtime
-            .last_distraction_at
-            .is_some_and(|t| now_ms.saturating_sub(t) < FOCUS_DISTRACTION_SILENCE_MS);
-        if silent_for < FOCUS_DISTRACTION_SILENCE_MS || already_counted_this_stretch {
+        if !should_record_focus_distraction(
+            snapshot,
+            now_ms,
+            runtime.last_input_at,
+            runtime.last_distraction_at,
+        ) {
             return;
         }
         runtime.last_distraction_at = Some(now_ms);
@@ -358,7 +332,7 @@ async fn record_focus_distraction_if_needed(app: &AppHandle, now_ms: i64) {
             .iter_mut()
             .find(|s| s.id == session_id && s.status == FocusSessionStatus::Active)
         {
-            session.distraction_count = session.distraction_count.saturating_add(1);
+            session.record_distraction();
             if let Err(error) = state.storage.save_focus_sessions(&sessions) {
                 tracing::warn!("failed to save focus sessions on distraction: {error}");
             }
@@ -371,8 +345,22 @@ async fn record_focus_distraction_if_needed(app: &AppHandle, now_ms: i64) {
     }
 }
 
+fn should_record_focus_distraction(
+    snapshot: &HardwareSnapshot,
+    now_ms: i64,
+    last_input_at: Option<i64>,
+    last_distraction_at: Option<i64>,
+) -> bool {
+    last_distraction_at.is_none() && is_focus_distracted(snapshot, now_ms, last_input_at)
+}
+
 async fn update_workshop_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapshot) {
     let state = app.state::<AppState>();
+    let focus_multiplier = state
+        .focus_sessions
+        .read()
+        .await
+        .active_production_multiplier();
     let settings = state.settings.read().await.clone();
     let (updated_workshop, online_delta, parts_delta, insight_delta) = {
         let mut workshop = state.workshop.write().await;
@@ -390,6 +378,7 @@ async fn update_workshop_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
             &settings,
             snapshot,
             current_timestamp_ms(),
+            focus_multiplier,
         );
 
         if !changed {
@@ -422,54 +411,77 @@ async fn update_workshop_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
         let parts_delta = (workshop.parts - previous_parts).max(0.0);
         let insight_delta = (workshop.insight - previous_insight).max(0.0);
 
-        if let Err(error) = state.storage.save_workshop(&workshop) {
-            // Roll back the in-memory workshop so it does not diverge from disk.
-            // Previously this only warned, leaving the tick's production added to
-            // memory while unsaved — under a persistently unwritable disk the
-            // in-memory workshop would grow unboundedly and be lost on restart.
-            // Restoring workshop_before also zeroes the effect of this tick; we
-            // null the deltas so no achievement/reward is credited for a tick
-            // that didn't persist.
-            tracing::warn!("failed to save workshop state: {error}");
-            *workshop = workshop_before;
-            (workshop.clone(), 0u64, 0.0f64, 0.0f64)
-        } else {
-            (workshop.clone(), online_delta, parts_delta, insight_delta)
-        }
+        state.persistence.mark_workshop_dirty();
+        (workshop.clone(), online_delta, parts_delta, insight_delta)
     };
 
-    if online_delta > 0 {
-        let idempotency_key = format!("app.active_minute:{}:{online_delta}", snapshot.timestamp);
-        if let Err(error) = record_internal_achievement_event(
-            app,
-            "app.active_minute",
-            idempotency_key,
-            serde_json::json!({ "seconds": online_delta }),
-        )
-        .await
-        {
-            tracing::warn!("failed to record app.active_minute achievement event: {error}");
-        }
-    }
-
-    if parts_delta > 0.0 || insight_delta > 0.0 {
-        let idempotency_key = format!("workshop.production_tick:{}", snapshot.timestamp);
-        if let Err(error) = record_internal_achievement_event(
-            app,
-            "workshop.production_tick",
-            idempotency_key,
-            serde_json::json!({
-                "partsDelta": parts_delta,
-                "insightDelta": insight_delta,
-            }),
-        )
-        .await
-        {
-            tracing::warn!("failed to record workshop production achievement event: {error}");
-        }
-    }
+    state
+        .persistence
+        .queue_periodic_achievement(PeriodicAchievementDelta {
+            occurred_at: snapshot.timestamp,
+            online_seconds: online_delta,
+            parts_delta,
+            insight_delta,
+            ..Default::default()
+        })
+        .await;
 
     if let Err(error) = app.emit(WORKSHOP_UPDATED, updated_workshop) {
         tracing::warn!("failed to emit {WORKSHOP_UPDATED}: {error}");
+    }
+}
+
+#[cfg(test)]
+mod focus_distraction_tests {
+    use super::should_record_focus_distraction;
+    use crate::models::HardwareSnapshot;
+
+    #[test]
+    fn one_continuous_silent_stretch_is_counted_once() {
+        let snapshot = HardwareSnapshot {
+            timestamp: 300_000,
+            foreground_process_name: Some("steam.exe".to_string()),
+            ..Default::default()
+        };
+
+        assert!(should_record_focus_distraction(
+            &snapshot,
+            snapshot.timestamp,
+            Some(180_000),
+            None,
+        ));
+        assert!(!should_record_focus_distraction(
+            &snapshot,
+            snapshot.timestamp + 180_000,
+            Some(180_000),
+            Some(snapshot.timestamp),
+        ));
+    }
+
+    #[test]
+    fn recent_input_and_productive_foreground_do_not_count() {
+        let recent_input = HardwareSnapshot {
+            timestamp: 300_000,
+            foreground_process_name: Some("steam.exe".to_string()),
+            ..Default::default()
+        };
+        assert!(!should_record_focus_distraction(
+            &recent_input,
+            recent_input.timestamp,
+            Some(295_000),
+            None,
+        ));
+
+        let productive = HardwareSnapshot {
+            timestamp: 300_000,
+            foreground_process_name: Some("Code.exe".to_string()),
+            ..Default::default()
+        };
+        assert!(!should_record_focus_distraction(
+            &productive,
+            productive.timestamp,
+            Some(180_000),
+            None,
+        ));
     }
 }

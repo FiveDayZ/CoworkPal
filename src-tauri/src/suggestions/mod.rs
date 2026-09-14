@@ -37,7 +37,10 @@ impl TodaySuggestions {
         push_if(&mut suggestions, rule_memory_pressure(&recent, current));
         push_if(&mut suggestions, rule_thermal_rhythm(&recent));
         push_if(&mut suggestions, rule_streak_encouragement(&recent));
-        push_if(&mut suggestions, rule_idle_long_session(today_entry, current));
+        push_if(
+            &mut suggestions,
+            rule_idle_long_session(today_entry, current),
+        );
         push_if(&mut suggestions, rule_stability_drop(&recent));
 
         // Sort by priority desc, then truncate. Keep only the best per category
@@ -68,7 +71,9 @@ fn recent_entries(book: &WorkLogBook, days: i64) -> Vec<(String, WorkLogEntry)> 
     let today = Local::now().date_naive();
     let mut out = Vec::new();
     for offset in (0..days).rev() {
-        let key = (today - Duration::days(offset)).format("%Y-%m-%d").to_string();
+        let key = (today - Duration::days(offset))
+            .format("%Y-%m-%d")
+            .to_string();
         if let Some(entry) = book.entries.get(&key) {
             if entry_has_signal(entry) {
                 out.push((key, entry.clone()));
@@ -123,17 +128,15 @@ fn rule_focus_gap(recent: &[(String, WorkLogEntry)]) -> Option<Suggestion> {
     // Heuristic: 3+ days with >3h activity but we have no focus markers.
     // Since WorkLogEntry doesn't track focus starts, this rule keys off the
     // activity pattern: long busy days without breaks suggest no focus ritual.
-    let busy_days = recent
-        .iter()
-        .filter(|(_, e)| active_hours(e) > 3.0)
-        .count();
+    let busy_days = recent.iter().filter(|(_, e)| active_hours(e) > 3.0).count();
     if recent.len() >= 3 && busy_days >= 3 {
         Some(Suggestion {
             id: "focus_gap".to_string(),
             category: SuggestionCategory::FocusHabit,
             priority: 60,
             title: "试试专注仪式".to_string(),
-            body: "最近几天工作时长都不短，但似乎还没用过专注模式。25 分钟番茄钟能帮你保持节奏。".to_string(),
+            body: "最近几天工作时长都不短，但似乎还没用过专注模式。25 分钟番茄钟能帮你保持节奏。"
+                .to_string(),
             action_hint: "在控制台点开「专注仪式」，挑一个任务开始。".to_string(),
             severity: SuggestionSeverity::Neutral,
         })
@@ -173,7 +176,9 @@ fn rule_memory_pressure(
     current: Option<&HardwareSnapshot>,
 ) -> Option<Suggestion> {
     // Live pressure takes precedence.
-    let live_high = current.and_then(|s| s.memory_usage_percent).is_some_and(|m| m > 80.0);
+    let live_high = current
+        .and_then(|s| s.memory_usage_percent)
+        .is_some_and(|m| m > 80.0);
     let hot_days = recent
         .iter()
         .filter(|(_, e)| {
@@ -210,7 +215,10 @@ fn rule_thermal_rhythm(recent: &[(String, WorkLogEntry)]) -> Option<Suggestion> 
             category: SuggestionCategory::Thermal,
             priority: 70,
             title: "近期温度偏高".to_string(),
-            body: format!("最近 {} 天散热压力较大，长时间高温会影响硬件寿命和性能。", hot_days),
+            body: format!(
+                "最近 {} 天散热压力较大，长时间高温会影响硬件寿命和性能。",
+                hot_days
+            ),
             action_hint: "检查进风口/风扇，或在高负载时段降低环境温度。".to_string(),
             severity: SuggestionSeverity::Warning,
         })
@@ -230,7 +238,10 @@ fn rule_streak_encouragement(recent: &[(String, WorkLogEntry)]) -> Option<Sugges
             category: SuggestionCategory::Streak,
             priority: 40,
             title: "坚持得不错！".to_string(),
-            body: format!("最近一周有 {} 天和 CoCat 一起工作，保持这个节奏。", recent.len()),
+            body: format!(
+                "最近一周有 {} 天和 CoCat 一起工作，保持这个节奏。",
+                recent.len()
+            ),
             action_hint: "继续保持，连续打卡能解锁更多成就。".to_string(),
             severity: SuggestionSeverity::Positive,
         })
@@ -245,7 +256,9 @@ fn rule_idle_long_session(
     current: Option<&HardwareSnapshot>,
 ) -> Option<Suggestion> {
     // Low current input activity (CPU low) + already several hours logged today.
-    let cpu_low = current.and_then(|s| s.cpu_usage_percent).is_some_and(|c| c < 15.0);
+    let cpu_low = current
+        .and_then(|s| s.cpu_usage_percent)
+        .is_some_and(|c| c < 15.0);
     let hours_today = today_entry.map(active_hours).unwrap_or(0.0);
     if cpu_low && hours_today > 5.0 {
         Some(Suggestion {
@@ -253,7 +266,10 @@ fn rule_idle_long_session(
             category: SuggestionCategory::FocusHabit,
             priority: 50,
             title: "歇一会儿吧".to_string(),
-            body: format!("今天已经在线 {:.1} 小时，现在负载很低，适合起身活动一下。", hours_today),
+            body: format!(
+                "今天已经在线 {:.1} 小时，现在负载很低，适合起身活动一下。",
+                hours_today
+            ),
             action_hint: "离开屏幕 5 分钟，CoCat 会替你看着。".to_string(),
             severity: SuggestionSeverity::Neutral,
         })
@@ -277,10 +293,16 @@ fn rule_stability_drop(recent: &[(String, WorkLogEntry)]) -> Option<Suggestion> 
             .map(|d| d.score)
             .unwrap_or(0) as f64
     };
-    let recent_avg: f64 =
-        recent.iter().rev().take(2).map(|(_, e)| stability_of(e)).sum::<f64>() / 2.0;
+    let recent_avg: f64 = recent
+        .iter()
+        .rev()
+        .take(2)
+        .map(|(_, e)| stability_of(e))
+        .sum::<f64>()
+        / 2.0;
     let earlier: Vec<&WorkLogEntry> = recent.iter().rev().skip(2).map(|(_, e)| e).collect();
-    let earlier_avg: f64 = earlier.iter().map(|e| stability_of(e)).sum::<f64>() / earlier.len() as f64;
+    let earlier_avg: f64 =
+        earlier.iter().map(|e| stability_of(e)).sum::<f64>() / earlier.len() as f64;
     if earlier_avg - recent_avg >= 3.0 {
         Some(Suggestion {
             id: "stability_drop".to_string(),
@@ -313,7 +335,12 @@ mod tests {
     use crate::models::WorkLogBook;
     use std::collections::BTreeMap;
 
-    fn entry(active_seconds: u64, high_load_seconds: u64, samples: u64, thermal: f64) -> WorkLogEntry {
+    fn entry(
+        active_seconds: u64,
+        high_load_seconds: u64,
+        samples: u64,
+        thermal: f64,
+    ) -> WorkLogEntry {
         WorkLogEntry {
             active_seconds,
             high_load_seconds,
@@ -327,7 +354,9 @@ mod tests {
         let today = Local::now().date_naive();
         let mut entries = BTreeMap::new();
         for offset in (0..days).rev() {
-            let key = (today - Duration::days(offset)).format("%Y-%m-%d").to_string();
+            let key = (today - Duration::days(offset))
+                .format("%Y-%m-%d")
+                .to_string();
             entries.insert(key, make(offset));
         }
         WorkLogBook {
@@ -374,7 +403,10 @@ mod tests {
             ..Default::default()
         };
         let result = TodaySuggestions::from_local(&book, Some(&snapshot));
-        assert!(result.all.iter().any(|s| s.id == "memory_pressure" && s.severity == SuggestionSeverity::Warning));
+        assert!(result
+            .all
+            .iter()
+            .any(|s| s.id == "memory_pressure" && s.severity == SuggestionSeverity::Warning));
     }
 
     #[test]

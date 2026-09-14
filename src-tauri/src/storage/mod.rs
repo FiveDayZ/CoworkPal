@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -6,14 +7,15 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use chrono::{Duration, Local, NaiveDate};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    achievements::AchievementBook,
+    achievements::{AchievementBook, ACHIEVEMENT_BOOK_SCHEMA_VERSION},
     cloud_sync::{SyncConfig, UserDataSnapshot},
     models::{
         AppSettings, FocusSessionBook, LayoutState, NoteBook, WorkLogBook, WorkshopState,
-        APP_SETTINGS_SCHEMA_VERSION,
+        APP_SETTINGS_SCHEMA_VERSION, WORK_LOG_BOOK_SCHEMA_VERSION, WORK_LOG_HOT_WINDOW_DAYS,
     },
 };
 
@@ -23,6 +25,7 @@ const LAST_GOOD_BACKUP_INTERVAL: std::time::Duration = std::time::Duration::from
 pub struct StorageService {
     root: PathBuf,
     corruption_rebuilds: Arc<Mutex<Vec<String>>>,
+    write_lock: Mutex<()>,
     /// Cached SMBIOS UUID (the machine's stable hardware id). `query_smbios_uuid`
     /// spawns powershell.exe, which is slow; since the UUID does not change for
     /// the life of the process we compute it at most once per StorageService.
@@ -38,9 +41,11 @@ impl StorageService {
     pub fn new_with_root(root: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         fs::create_dir_all(root.join("logs"))?;
         fs::create_dir_all(root.join("backups"))?;
+        fs::create_dir_all(root.join("work-log-archive"))?;
         Ok(Self {
             root,
             corruption_rebuilds: Arc::new(Mutex::new(Vec::new())),
+            write_lock: Mutex::new(()),
             smbios_uuid: OnceLock::new(),
         })
     }
@@ -70,7 +75,12 @@ impl StorageService {
     }
 
     pub fn load_or_create_workshop(&self) -> Result<WorkshopState, String> {
-        self.load_or_create("save.json")
+        let mut workshop = self.load_or_create::<WorkshopState>("save.json")?;
+        if workshop.schema_version < crate::models::WORKSHOP_STATE_SCHEMA_VERSION {
+            workshop.schema_version = crate::models::WORKSHOP_STATE_SCHEMA_VERSION;
+            self.save_workshop(&workshop)?;
+        }
+        Ok(workshop)
     }
 
     pub fn save_workshop(&self, workshop: &WorkshopState) -> Result<(), String> {
@@ -129,7 +139,7 @@ impl StorageService {
         self.save_settings(&snapshot.settings)?;
         self.save_workshop(&snapshot.workshop)?;
         self.save_layout(&snapshot.layout)?;
-        self.save_work_logs(&snapshot.work_logs)?;
+        self.replace_all_work_logs(&snapshot.work_logs)?;
         self.save_focus_sessions(&snapshot.focus_sessions)?;
         self.save_achievements(&snapshot.achievements)?;
         self.save_notes(&snapshot.notes)
@@ -144,11 +154,92 @@ impl StorageService {
     }
 
     pub fn load_or_create_work_logs(&self) -> Result<WorkLogBook, String> {
-        self.load_or_create("work_logs.json")
+        let work_logs = self.load_or_create("work_logs.json")?;
+        self.archive_and_save_work_logs(&work_logs)
     }
 
     pub fn save_work_logs(&self, work_logs: &WorkLogBook) -> Result<(), String> {
-        self.write_json("work_logs.json", work_logs)
+        self.archive_and_save_work_logs(work_logs).map(|_| ())
+    }
+
+    pub fn load_all_work_logs(&self) -> Result<WorkLogBook, String> {
+        let mut all = self.load_or_create_work_logs()?;
+        let archive_root = self.root.join("work-log-archive");
+        for entry in fs::read_dir(&archive_root)
+            .map_err(|error| format!("failed to read work-log archive directory: {error}"))?
+        {
+            let path = entry
+                .map_err(|error| format!("failed to read work-log archive entry: {error}"))?
+                .path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let content = fs::read_to_string(&path)
+                .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+            let archive = serde_json::from_str::<WorkLogBook>(&content)
+                .map_err(|error| format!("failed to parse {}: {error}", path.display()))?;
+            merge_work_log_entries(&mut all.entries, archive.entries);
+        }
+        all.schema_version = WORK_LOG_BOOK_SCHEMA_VERSION;
+        Ok(all)
+    }
+
+    fn archive_and_save_work_logs(&self, work_logs: &WorkLogBook) -> Result<WorkLogBook, String> {
+        let cutoff = Local::now().date_naive() - Duration::days(WORK_LOG_HOT_WINDOW_DAYS - 1);
+        let (hot, archives) = split_work_logs(work_logs, cutoff);
+
+        for (month, entries) in archives {
+            let file_name = format!("work-log-archive/{month}.json");
+            let path = self.root.join(&file_name);
+            let mut archive = if path.exists() {
+                let content = fs::read_to_string(&path)
+                    .map_err(|error| format!("failed to read {file_name}: {error}"))?;
+                serde_json::from_str::<WorkLogBook>(&content)
+                    .map_err(|error| format!("failed to parse {file_name}: {error}"))?
+            } else {
+                WorkLogBook::default()
+            };
+            merge_work_log_entries(&mut archive.entries, entries);
+            archive.schema_version = WORK_LOG_BOOK_SCHEMA_VERSION;
+            self.write_json(&file_name, &archive)?;
+        }
+
+        self.write_json("work_logs.json", &hot)?;
+        Ok(hot)
+    }
+
+    fn replace_all_work_logs(&self, work_logs: &WorkLogBook) -> Result<(), String> {
+        let cutoff = Local::now().date_naive() - Duration::days(WORK_LOG_HOT_WINDOW_DAYS - 1);
+        let (hot, archives) = split_work_logs(work_logs, cutoff);
+        let expected = archives
+            .keys()
+            .map(|month| format!("{month}.json"))
+            .collect::<std::collections::BTreeSet<_>>();
+        for (month, entries) in archives {
+            let archive = WorkLogBook {
+                schema_version: WORK_LOG_BOOK_SCHEMA_VERSION,
+                entries,
+            };
+            self.write_json(&format!("work-log-archive/{month}.json"), &archive)?;
+        }
+        for entry in fs::read_dir(self.root.join("work-log-archive"))
+            .map_err(|error| format!("failed to read work-log archive directory: {error}"))?
+        {
+            let path = entry
+                .map_err(|error| format!("failed to read work-log archive entry: {error}"))?
+                .path();
+            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            if path.extension().and_then(|value| value.to_str()) == Some("json")
+                && !expected.contains(name)
+            {
+                fs::remove_file(&path).map_err(|error| {
+                    format!("failed to remove stale {}: {error}", path.display())
+                })?;
+            }
+        }
+        self.write_json("work_logs.json", &hot)
     }
 
     pub fn load_or_create_focus_sessions(&self) -> Result<FocusSessionBook, String> {
@@ -168,7 +259,12 @@ impl StorageService {
     }
 
     pub fn load_or_create_achievements(&self) -> Result<AchievementBook, String> {
-        self.load_or_create("achievements.json")
+        let mut achievements = self.load_or_create::<AchievementBook>("achievements.json")?;
+        if achievements.schema_version < ACHIEVEMENT_BOOK_SCHEMA_VERSION {
+            achievements.schema_version = ACHIEVEMENT_BOOK_SCHEMA_VERSION;
+            self.save_achievements(&achievements)?;
+        }
+        Ok(achievements)
     }
 
     pub fn save_achievements(&self, achievements: &AchievementBook) -> Result<(), String> {
@@ -233,6 +329,10 @@ impl StorageService {
     where
         T: Serialize,
     {
+        let _write_guard = self
+            .write_lock
+            .lock()
+            .map_err(|_| format!("failed to lock storage writer for {file_name}"))?;
         let path = self.root.join(file_name);
         // Include the PID in the temp file name so two concurrently-running
         // instances don't clobber each other's temp file before the atomic
@@ -282,6 +382,10 @@ impl StorageService {
 
     fn write_last_good_backup(&self, file_name: &str, content: &[u8]) -> Result<(), String> {
         let backup_path = self.last_good_path(file_name);
+        if let Some(parent) = backup_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("failed to create backup directory: {error}"))?;
+        }
         let temp_path = self
             .root
             .join("backups")
@@ -362,6 +466,46 @@ impl StorageService {
     fn record_corruption_rebuild(&self, file_name: &str) {
         if let Ok(mut rebuilds) = self.corruption_rebuilds.lock() {
             rebuilds.push(file_name.to_string());
+        }
+    }
+}
+
+fn split_work_logs(
+    work_logs: &WorkLogBook,
+    cutoff: NaiveDate,
+) -> (
+    WorkLogBook,
+    BTreeMap<String, BTreeMap<String, crate::models::WorkLogEntry>>,
+) {
+    let mut hot = WorkLogBook::default();
+    let mut archives = BTreeMap::<String, BTreeMap<String, crate::models::WorkLogEntry>>::new();
+    for (date, entry) in &work_logs.entries {
+        match NaiveDate::parse_from_str(date, "%Y-%m-%d") {
+            Ok(parsed) if parsed < cutoff => {
+                let month = date.get(..7).unwrap_or("unknown").to_string();
+                archives
+                    .entry(month)
+                    .or_default()
+                    .insert(date.clone(), entry.clone());
+            }
+            _ => {
+                hot.entries.insert(date.clone(), entry.clone());
+            }
+        }
+    }
+    (hot, archives)
+}
+
+fn merge_work_log_entries(
+    target: &mut BTreeMap<String, crate::models::WorkLogEntry>,
+    incoming: BTreeMap<String, crate::models::WorkLogEntry>,
+) {
+    for (date, entry) in incoming {
+        let replace = target
+            .get(&date)
+            .is_none_or(|current| entry.updated_at >= current.updated_at);
+        if replace {
+            target.insert(date, entry);
         }
     }
 }
@@ -476,7 +620,18 @@ fn migrate_settings(settings: &mut AppSettings, smbios_uuid: Option<String>) -> 
         if settings.schema_version < 5 && settings.minimal_mode_enabled {
             settings.integrated_hardware_monitor_enabled = false;
         }
+        // Onboarding is only automatic for genuinely new installations.
+        // Existing users upgrading to v6 keep their current workflow and can
+        // replay the guide from Settings when they choose.
+        if settings.schema_version < 6 {
+            settings.onboarding_version = 1;
+        }
         settings.schema_version = APP_SETTINGS_SCHEMA_VERSION;
+        changed = true;
+    }
+
+    if settings.cat_name.trim().is_empty() {
+        settings.cat_name = "CoCat".to_string();
         changed = true;
     }
 
@@ -539,9 +694,12 @@ mod tests {
         let settings_again = storage.load_or_create_settings().unwrap();
         assert_eq!(settings_again.cat_id, settings.cat_id);
 
-        assert_eq!(workshop.schema_version, 1);
+        assert_eq!(
+            workshop.schema_version,
+            crate::models::WORKSHOP_STATE_SCHEMA_VERSION
+        );
         assert_eq!(layout.schema_version, 1);
-        assert_eq!(work_logs.schema_version, 1);
+        assert_eq!(work_logs.schema_version, WORK_LOG_BOOK_SCHEMA_VERSION);
         assert!(root.join("settings.json").exists());
         assert!(root.join("save.json").exists());
         assert!(root.join("layout.json").exists());
@@ -672,6 +830,51 @@ mod tests {
     }
 
     #[test]
+    fn work_logs_keep_ninety_hot_days_and_archive_older_months_idempotently() {
+        let root = unique_test_root("work-log-archive");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        let today = Local::now().date_naive();
+        let hot_date = (today - Duration::days(89)).format("%Y-%m-%d").to_string();
+        let old_date = (today - Duration::days(90)).format("%Y-%m-%d").to_string();
+        let old_month = &old_date[..7];
+        let mut work_logs = WorkLogBook::default();
+        work_logs.entries.insert(
+            hot_date.clone(),
+            crate::models::WorkLogEntry {
+                date: hot_date.clone(),
+                updated_at: 100,
+                ..Default::default()
+            },
+        );
+        work_logs.entries.insert(
+            old_date.clone(),
+            crate::models::WorkLogEntry {
+                date: old_date.clone(),
+                updated_at: 200,
+                ..Default::default()
+            },
+        );
+
+        storage.save_work_logs(&work_logs).unwrap();
+        storage.save_work_logs(&work_logs).unwrap();
+
+        let hot = storage.load_or_create_work_logs().unwrap();
+        assert!(hot.entries.contains_key(&hot_date));
+        assert!(!hot.entries.contains_key(&old_date));
+        let archive_path = root
+            .join("work-log-archive")
+            .join(format!("{old_month}.json"));
+        let archive: WorkLogBook =
+            serde_json::from_str(&fs::read_to_string(archive_path).unwrap()).unwrap();
+        assert_eq!(archive.entries.len(), 1);
+        assert!(archive.entries.contains_key(&old_date));
+        let all = storage.load_all_work_logs().unwrap();
+        assert_eq!(all.entries.len(), 2);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn migration_repairs_legacy_minimal_mode_hardware_monitor_setting() {
         let root = unique_test_root("minimal-repair");
         let storage = StorageService::new_with_root(root.clone()).unwrap();
@@ -736,8 +939,31 @@ mod tests {
         assert_eq!(migrated.schema_version, APP_SETTINGS_SCHEMA_VERSION);
         assert!(!migrated.is_monitor_bar_visible);
         assert!(!migrated.show_monitor_data_in_taskbar);
+        assert_eq!(migrated.onboarding_version, 1);
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn new_install_requires_onboarding_but_existing_install_does_not() {
+        let new_root = unique_test_root("onboarding-new");
+        let new_storage = StorageService::new_with_root(new_root.clone()).unwrap();
+        let new_settings = new_storage.load_or_create_settings().unwrap();
+        assert_eq!(new_settings.onboarding_version, 0);
+
+        let old_root = unique_test_root("onboarding-upgrade");
+        let old_storage = StorageService::new_with_root(old_root.clone()).unwrap();
+        let legacy = AppSettings {
+            schema_version: 5,
+            onboarding_version: 0,
+            ..AppSettings::default()
+        };
+        old_storage.save_settings(&legacy).unwrap();
+        let migrated = old_storage.load_or_create_settings().unwrap();
+        assert_eq!(migrated.onboarding_version, 1);
+
+        let _ = fs::remove_dir_all(new_root);
+        let _ = fs::remove_dir_all(old_root);
     }
 
     #[test]

@@ -57,15 +57,16 @@ pub fn run_command_with_timeout(mut command: Command, timeout: Duration) -> Opti
             Ok(Some(status)) => {
                 let stdout = drain(child.stdout.take());
                 let stderr = drain(child.stderr.take());
-                return Some(Output { status, stdout, stderr });
+                return Some(Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
             }
             // Still running — check the clock, then poll again shortly.
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    tracing::warn!(
-                        "subprocess exceeded {:?} timeout, killing",
-                        timeout
-                    );
+                    tracing::warn!("subprocess exceeded {:?} timeout, killing", timeout);
                     let _ = child.kill();
                     let _ = child.wait(); // reap to avoid a zombie
                     return None;

@@ -1,12 +1,90 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{Local, NaiveDate, TimeZone, Timelike};
+use chrono::{Datelike, Local, NaiveDate, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::definitions::AchievementDefinition;
+use super::definitions::{
+    AchievementCondition, AchievementDailyPredicate, AchievementDefinition,
+    AchievementDistinctFilter, AchievementOperator,
+};
 
 const MAX_STORED_EVENTS: usize = 2_000;
+pub const ACHIEVEMENT_BOOK_SCHEMA_VERSION: u32 = 3;
+
+#[derive(Debug, Clone, Copy)]
+struct WeeklyGoalDefinition {
+    key: &'static str,
+    title: &'static str,
+    counter_key: &'static str,
+    target: f64,
+    unit: &'static str,
+    badge_achievement_id: &'static str,
+    route_key: &'static str,
+}
+
+const WEEKLY_GOAL_GROUPS: [[WeeklyGoalDefinition; 2]; 3] = [
+    [
+        WeeklyGoalDefinition {
+            key: "active-30m",
+            title: "本周陪伴 30 分钟",
+            counter_key: "lifetime.total_online_seconds",
+            target: 1_800.0,
+            unit: "分钟",
+            badge_achievement_id: "A002",
+            route_key: "dashboard",
+        },
+        WeeklyGoalDefinition {
+            key: "active-90m",
+            title: "本周陪伴 90 分钟",
+            counter_key: "lifetime.total_online_seconds",
+            target: 5_400.0,
+            unit: "分钟",
+            badge_achievement_id: "A021",
+            route_key: "dashboard",
+        },
+    ],
+    [
+        WeeklyGoalDefinition {
+            key: "report-1",
+            title: "生成 1 份工况报告",
+            counter_key: "worklog.daily_generated.count",
+            target: 1.0,
+            unit: "份",
+            badge_achievement_id: "A003",
+            route_key: "workLog",
+        },
+        WeeklyGoalDefinition {
+            key: "focus-2",
+            title: "完成 2 次专注",
+            counter_key: "focus.session.completed.count",
+            target: 2.0,
+            unit: "次",
+            badge_achievement_id: "A066",
+            route_key: "focus",
+        },
+    ],
+    [
+        WeeklyGoalDefinition {
+            key: "workshop-2",
+            title: "查看工坊 2 次",
+            counter_key: "page.view.count(pageKey='workshop')",
+            target: 2.0,
+            unit: "次",
+            badge_achievement_id: "A005",
+            route_key: "workshop",
+        },
+        WeeklyGoalDefinition {
+            key: "pet-5",
+            title: "和 CoCat 互动 5 次",
+            counter_key: "pet.click.count",
+            target: 5.0,
+            unit: "次",
+            badge_achievement_id: "A011",
+            route_key: "dashboard",
+        },
+    ],
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -20,6 +98,7 @@ pub struct AchievementBook {
     pub notifications: BTreeMap<String, AchievementNotificationRecord>,
     pub notification_queue: Vec<String>,
     pub idempotency_keys: BTreeSet<String>,
+    pub weekly_goal_plan: Option<WeeklyGoalPlan>,
 }
 
 pub fn compact_achievement_book(book: &mut AchievementBook) -> bool {
@@ -38,7 +117,7 @@ pub fn compact_achievement_book(book: &mut AchievementBook) -> bool {
 impl Default for AchievementBook {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: ACHIEVEMENT_BOOK_SCHEMA_VERSION,
             events: Vec::new(),
             counters: BTreeMap::new(),
             daily_rollups: BTreeMap::new(),
@@ -47,8 +126,41 @@ impl Default for AchievementBook {
             notifications: BTreeMap::new(),
             notification_queue: Vec::new(),
             idempotency_keys: BTreeSet::new(),
+            weekly_goal_plan: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WeeklyGoalPlan {
+    pub week_key: String,
+    pub goal_keys: Vec<String>,
+    pub baselines: BTreeMap<String, f64>,
+    // Retained only so schema-v2 plans deserialize and can be regenerated.
+    pub achievement_ids: Vec<String>,
+    pub generated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeeklyGoals {
+    pub week_key: String,
+    pub goals: Vec<WeeklyGoal>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeeklyGoal {
+    pub goal_id: String,
+    pub title: String,
+    pub badge_key: String,
+    pub route_key: String,
+    pub current: f64,
+    pub target: f64,
+    pub percent: f64,
+    pub progress_label: String,
+    pub is_complete: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -148,17 +260,12 @@ impl Default for AchievementNotificationRecord {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AchievementNotificationState {
+    #[default]
     Pending,
     Seen,
-}
-
-impl Default for AchievementNotificationState {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,6 +378,127 @@ pub struct AchievementBucketSummary {
     pub total: usize,
 }
 
+pub fn ensure_weekly_goals(
+    book: &mut AchievementBook,
+    definitions: &[AchievementDefinition],
+    now: i64,
+) -> (WeeklyGoals, bool) {
+    let (week_key, week_seed) = local_iso_week(now);
+    let plan_is_current = book.weekly_goal_plan.as_ref().is_some_and(|plan| {
+        plan.week_key == week_key
+            && plan.goal_keys.len() == WEEKLY_GOAL_GROUPS.len()
+            && plan.goal_keys.iter().all(|goal_key| {
+                weekly_goal_definition(goal_key).is_some() && plan.baselines.contains_key(goal_key)
+            })
+    });
+
+    let changed = !plan_is_current;
+    if changed {
+        let selected = select_weekly_goal_definitions(week_seed);
+        let baselines = selected
+            .iter()
+            .map(|goal| {
+                (
+                    goal.key.to_string(),
+                    counter_value_with_fallback(book, goal.counter_key),
+                )
+            })
+            .collect();
+        book.weekly_goal_plan = Some(WeeklyGoalPlan {
+            week_key: week_key.clone(),
+            goal_keys: selected.iter().map(|goal| goal.key.to_string()).collect(),
+            baselines,
+            achievement_ids: Vec::new(),
+            generated_at: now,
+        });
+    }
+
+    let goals = book
+        .weekly_goal_plan
+        .as_ref()
+        .into_iter()
+        .flat_map(|plan| {
+            plan.goal_keys.iter().filter_map(|goal_key| {
+                let goal = weekly_goal_definition(goal_key)?;
+                let baseline = plan.baselines.get(goal_key).copied().unwrap_or_default();
+                Some(build_weekly_goal(book, definitions, goal, baseline))
+            })
+        })
+        .collect();
+
+    (WeeklyGoals { week_key, goals }, changed)
+}
+
+fn select_weekly_goal_definitions(week_seed: u32) -> Vec<&'static WeeklyGoalDefinition> {
+    WEEKLY_GOAL_GROUPS
+        .iter()
+        .enumerate()
+        .map(|(index, group)| &group[(week_seed as usize + index) % group.len()])
+        .collect()
+}
+
+fn weekly_goal_definition(goal_key: &str) -> Option<&'static WeeklyGoalDefinition> {
+    WEEKLY_GOAL_GROUPS
+        .iter()
+        .flatten()
+        .find(|goal| goal.key == goal_key)
+}
+
+fn build_weekly_goal(
+    book: &AchievementBook,
+    definitions: &[AchievementDefinition],
+    goal: &WeeklyGoalDefinition,
+    baseline: f64,
+) -> WeeklyGoal {
+    let current_raw = (counter_value_with_fallback(book, goal.counter_key) - baseline).max(0.0);
+    let current = current_raw.min(goal.target);
+    let is_complete = current_raw >= goal.target;
+    let percent = ((current / goal.target) * 100.0).round();
+    let display_current = if goal.unit == "分钟" {
+        (current / 60.0).floor()
+    } else {
+        current.floor()
+    };
+    let display_target = if goal.unit == "分钟" {
+        goal.target / 60.0
+    } else {
+        goal.target
+    };
+    let badge_key = definitions
+        .iter()
+        .find(|definition| definition.id == goal.badge_achievement_id)
+        .map(|definition| definition.badge_key.clone())
+        .unwrap_or_else(|| "cwp_badge_daily_first_launch_entry".to_string());
+
+    WeeklyGoal {
+        goal_id: goal.key.to_string(),
+        title: goal.title.to_string(),
+        badge_key,
+        route_key: goal.route_key.to_string(),
+        current,
+        target: goal.target,
+        percent,
+        progress_label: format!(
+            "{}/{} {}",
+            display_current as u64, display_target as u64, goal.unit
+        ),
+        is_complete,
+    }
+}
+
+fn local_iso_week(timestamp_ms: i64) -> (String, u32) {
+    let date = Local
+        .timestamp_millis_opt(timestamp_ms)
+        .single()
+        .unwrap_or_else(Local::now)
+        .date_naive();
+    let week = date.iso_week();
+    (
+        format!("{}-W{:02}", week.year(), week.week()),
+        week.year() as u32 * 53 + week.week(),
+    )
+}
+
 pub fn record_achievement_event(
     book: &mut AchievementBook,
     definitions: &[AchievementDefinition],
@@ -286,7 +514,10 @@ pub fn record_achievement_event(
         };
     }
 
-    if !book.idempotency_keys.insert(request.idempotency_key.clone()) {
+    if !book
+        .idempotency_keys
+        .insert(request.idempotency_key.clone())
+    {
         return TrackAchievementEventResponse {
             accepted: false,
             unlocked: Vec::new(),
@@ -327,8 +558,14 @@ pub fn summarize_achievements(
 ) -> AchievementSummary {
     let mut total_points = 0_u32;
     let mut hidden_unlocked_count = 0_usize;
-    let hidden_total_count = definitions.iter().filter(|definition| definition.is_hidden).count();
-    let visible_total_count = definitions.iter().filter(|definition| !definition.is_hidden).count();
+    let hidden_total_count = definitions
+        .iter()
+        .filter(|definition| definition.is_hidden)
+        .count();
+    let visible_total_count = definitions
+        .iter()
+        .filter(|definition| !definition.is_hidden)
+        .count();
     let mut by_difficulty = BTreeMap::new();
     let mut by_category = BTreeMap::new();
 
@@ -341,11 +578,7 @@ pub fn summarize_achievements(
             }
         }
 
-        increment_bucket(
-            &mut by_difficulty,
-            definition.difficulty.key(),
-            is_unlocked,
-        );
+        increment_bucket(&mut by_difficulty, definition.difficulty.key(), is_unlocked);
         increment_bucket(&mut by_category, definition.category.key(), is_unlocked);
     }
 
@@ -470,11 +703,7 @@ fn update_counters(book: &mut AchievementBook, record: &AchievementEventRecord) 
         }
         "page.view" => {
             if let Some(page_key) = payload_string(record, "pageKey") {
-                increment_counter(
-                    book,
-                    &format!("page.view.count(pageKey='{page_key}')"),
-                    1.0,
-                );
+                increment_counter(book, &format!("page.view.count(pageKey='{page_key}')"), 1.0);
                 insert_distinct_value(book, "page.view.pageKey", &page_key);
             }
         }
@@ -495,11 +724,7 @@ fn update_counters(book: &mut AchievementBook, record: &AchievementEventRecord) 
             if let Some(level) = payload_f64(record, "toLevel") {
                 set_counter_max(book, "workshop.module.max_level", level);
                 if let Some(track) = payload_string(record, "track") {
-                    set_counter_max(
-                        book,
-                        &format!("workshop.module_level.{track}"),
-                        level,
-                    );
+                    set_counter_max(book, &format!("workshop.module_level.{track}"), level);
                     if let Some(module_key) = payload_string(record, "moduleKey") {
                         set_counter_max(
                             book,
@@ -513,16 +738,16 @@ fn update_counters(book: &mut AchievementBook, record: &AchievementEventRecord) 
         "hardware.segment_rollup" => update_hardware_segment_counters(book, record),
         "worklog.daily_generated" => {
             let score = payload_f64(record, "score");
-            let rarity_tier = payload_string(record, "rarityTier")
-                .map(|tier| normalize_rarity_tier(&tier));
+            let rarity_tier =
+                payload_string(record, "rarityTier").map(|tier| normalize_rarity_tier(&tier));
             let rarity_rank_value = rarity_tier.as_deref().map(rarity_rank);
             let rarity_score = payload_f64(record, "rarityScore");
-            let title_family = payload_string(record, "titleFamily")
-                .map(|family| normalize_title_family(&family));
+            let title_family =
+                payload_string(record, "titleFamily").map(|family| normalize_title_family(&family));
             let title_level = payload_f64(record, "titleLevel");
             let title_progress = payload_f64(record, "titleProgress");
-            let day_type = payload_string(record, "dayType")
-                .map(|day_type| normalize_day_type(&day_type));
+            let day_type =
+                payload_string(record, "dayType").map(|day_type| normalize_day_type(&day_type));
 
             {
                 let rollup = daily_rollup_mut(book, record);
@@ -577,6 +802,17 @@ fn update_counters(book: &mut AchievementBook, record: &AchievementEventRecord) 
                 );
             }
         }
+        "pet.click_burst" => {
+            let clicks = payload_f64(record, "clicks").unwrap_or(0.0);
+            let window_ms = payload_f64(record, "windowMs").unwrap_or(f64::INFINITY);
+            if clicks >= 3.0 && window_ms <= 2_000.0 {
+                increment_counter(
+                    book,
+                    "pet.click_burst.count(clicks >= 3, windowMs <= 2000)",
+                    1.0,
+                );
+            }
+        }
         "storage.corruption_rebuilt" => {
             daily_rollup_mut(book, record).storage_corruption_rebuilt_count += 1.0;
         }
@@ -620,15 +856,30 @@ fn update_hardware_segment_counters(book: &mut AchievementBook, record: &Achieve
         .or_else(|| payload_f64(record, "low_power_mode_enabled_seconds"))
         .unwrap_or(0.0);
 
-    increment_payload_counter(book, record, "highLoadSeconds", "lifetime.high_load_seconds");
-    increment_payload_counter(book, record, "cpuOver50Seconds", "lifetime.cpu_over_50_seconds");
+    increment_payload_counter(
+        book,
+        record,
+        "highLoadSeconds",
+        "lifetime.high_load_seconds",
+    );
+    increment_payload_counter(
+        book,
+        record,
+        "cpuOver50Seconds",
+        "lifetime.cpu_over_50_seconds",
+    );
     increment_payload_counter(
         book,
         record,
         "memoryOver70Seconds",
         "lifetime.memory_over_70_seconds",
     );
-    increment_payload_counter(book, record, "gpuOver70Seconds", "lifetime.gpu_over_70_seconds");
+    increment_payload_counter(
+        book,
+        record,
+        "gpuOver70Seconds",
+        "lifetime.gpu_over_70_seconds",
+    );
     increment_payload_counter(
         book,
         record,
@@ -636,8 +887,18 @@ fn update_hardware_segment_counters(book: &mut AchievementBook, record: &Achieve
         "lifetime.thermal_warning_seconds",
     );
     increment_payload_counter(book, record, "diskBytesTotal", "lifetime.disk_bytes_total");
-    increment_payload_counter(book, record, "networkBytesTotal", "lifetime.network_bytes_total");
-    increment_payload_counter(book, record, "mouseClickCount", "lifetime.mouse_click_count");
+    increment_payload_counter(
+        book,
+        record,
+        "networkBytesTotal",
+        "lifetime.network_bytes_total",
+    );
+    increment_payload_counter(
+        book,
+        record,
+        "mouseClickCount",
+        "lifetime.mouse_click_count",
+    );
     increment_payload_counter(
         book,
         record,
@@ -855,9 +1116,416 @@ fn evaluate_condition(
     definitions: &[AchievementDefinition],
     definition: &AchievementDefinition,
 ) -> Option<ConditionProgress> {
+    let compiled =
+        evaluate_compiled_condition(book, definitions, definition, &definition.condition);
+
+    #[cfg(debug_assertions)]
+    {
+        let legacy = evaluate_legacy_condition(book, definitions, definition);
+        if !condition_progress_matches(compiled.as_ref(), legacy.as_ref()) {
+            tracing::error!(
+                achievement_id = definition.id,
+                compiled = ?compiled,
+                legacy = ?legacy,
+                "compiled achievement condition differs from the legacy evaluator"
+            );
+        }
+    }
+
+    compiled
+}
+
+fn evaluate_compiled_condition(
+    book: &AchievementBook,
+    definitions: &[AchievementDefinition],
+    definition: &AchievementDefinition,
+    condition: &AchievementCondition,
+) -> Option<ConditionProgress> {
+    match condition {
+        AchievementCondition::All { conditions } => select_condition_progress(
+            conditions,
+            |condition| evaluate_compiled_condition(book, definitions, definition, condition),
+            false,
+        ),
+        AchievementCondition::Any { conditions } => select_condition_progress(
+            conditions,
+            |condition| evaluate_compiled_condition(book, definitions, definition, condition),
+            true,
+        ),
+        AchievementCondition::Counter { counter, op, value } => Some(compare_compiled_progress(
+            compiled_counter_value(book, definitions, definition, counter),
+            *op,
+            *value,
+            progress_label(counter),
+        )),
+        AchievementCondition::Sum {
+            counters,
+            op,
+            value,
+        } => Some(compare_compiled_progress(
+            counters
+                .iter()
+                .map(|counter| compiled_counter_value(book, definitions, definition, counter))
+                .sum(),
+            *op,
+            *value,
+            progress_label(&counters.join(" + ")),
+        )),
+        AchievementCondition::Max {
+            counters,
+            op,
+            value,
+        } => Some(compare_compiled_progress(
+            counters
+                .iter()
+                .map(|counter| compiled_counter_value(book, definitions, definition, counter))
+                .fold(0.0, f64::max),
+            *op,
+            *value,
+            progress_label(&format!("max({})", counters.join(", "))),
+        )),
+        AchievementCondition::DistinctCount {
+            key,
+            filter,
+            op,
+            value,
+        } => {
+            let current = book
+                .distinct_values
+                .get(key)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter(|candidate| distinct_value_matches(candidate, filter))
+                        .count() as f64
+                })
+                .unwrap_or(0.0);
+            Some(compare_compiled_progress(
+                current,
+                *op,
+                *value as f64,
+                "去重数量",
+            ))
+        }
+        AchievementCondition::CalendarDays {
+            predicate,
+            op,
+            value,
+        } => Some(compare_compiled_progress(
+            book.daily_rollups
+                .values()
+                .filter(|rollup| compiled_daily_predicate_matches(rollup, predicate))
+                .count() as f64,
+            *op,
+            *value as f64,
+            "达标天数",
+        )),
+        AchievementCondition::ConsecutiveDays { predicate, days } => {
+            Some(compare_compiled_progress(
+                compiled_consecutive_day_count(book, predicate) as f64,
+                AchievementOperator::GreaterThanOrEqual,
+                *days as f64,
+                "连续天数",
+            ))
+        }
+        AchievementCondition::CalendarMonths {
+            min_report_generated_days,
+            months,
+        } => Some(compare_compiled_progress(
+            report_month_count(book, *min_report_generated_days) as f64,
+            AchievementOperator::GreaterThanOrEqual,
+            *months as f64,
+            "达标月份",
+        )),
+        AchievementCondition::PerBucketMin {
+            key,
+            bucket_count,
+            min_value,
+        } => evaluate_compiled_bucket_min(book, definitions, key, *bucket_count, *min_value),
+        AchievementCondition::ExcludeSelf { .. } => None,
+    }
+}
+
+fn select_condition_progress(
+    conditions: &[AchievementCondition],
+    evaluate: impl Fn(&AchievementCondition) -> Option<ConditionProgress>,
+    any: bool,
+) -> Option<ConditionProgress> {
+    let mut selected: Option<ConditionProgress> = None;
+    let mut is_complete = !any;
+
+    for condition in conditions {
+        let progress = evaluate(condition)?;
+        if any {
+            is_complete |= progress.is_complete;
+        } else {
+            is_complete &= progress.is_complete;
+        }
+        let should_select = selected
+            .as_ref()
+            .map(|current| {
+                if any {
+                    progress.ratio() > current.ratio()
+                } else {
+                    progress.ratio() < current.ratio()
+                }
+            })
+            .unwrap_or(true);
+        if should_select {
+            selected = Some(progress);
+        }
+    }
+
+    selected.map(|mut progress| {
+        progress.is_complete = is_complete;
+        progress
+    })
+}
+
+fn compiled_counter_value(
+    book: &AchievementBook,
+    definitions: &[AchievementDefinition],
+    definition: &AchievementDefinition,
+    key: &str,
+) -> f64 {
+    match key {
+        "achievement.unlocked.count" => definitions
+            .iter()
+            .filter(|candidate| book.unlocks.contains_key(&candidate.id))
+            .count() as f64,
+        "non_hidden_achievement.unlocked.count" => definitions
+            .iter()
+            .filter(|candidate| !candidate.is_hidden && book.unlocks.contains_key(&candidate.id))
+            .count() as f64,
+        "hidden_achievement.unlocked.count(excludeSelf=true)" => definitions
+            .iter()
+            .filter(|candidate| {
+                candidate.id != definition.id
+                    && candidate.is_hidden
+                    && book.unlocks.contains_key(&candidate.id)
+            })
+            .count() as f64,
+        _ => counter_value_with_fallback(book, key),
+    }
+}
+
+fn distinct_value_matches(value: &String, filter: &AchievementDistinctFilter) -> bool {
+    match filter {
+        AchievementDistinctFilter::Any => true,
+        AchievementDistinctFilter::In { values } => values.contains(value),
+        AchievementDistinctFilter::NotEqual { value: blocked } => value != blocked,
+    }
+}
+
+fn compiled_daily_predicate_matches(
+    rollup: &AchievementDailyRollup,
+    predicate: &AchievementDailyPredicate,
+) -> bool {
+    match predicate {
+        AchievementDailyPredicate::All { predicates } => predicates
+            .iter()
+            .all(|predicate| compiled_daily_predicate_matches(rollup, predicate)),
+        AchievementDailyPredicate::Numeric { key, op, value } => {
+            comparison_is_satisfied(daily_metric_value(rollup, key), *op, *value)
+        }
+        AchievementDailyPredicate::TextEqual { key, value } => match key.as_str() {
+            "report_day_type" => {
+                rollup.report_day_type.as_deref() == Some(normalize_day_type(value).as_str())
+            }
+            "rarity_tier" => {
+                rollup.rarity_tier.as_deref() == Some(normalize_rarity_tier(value).as_str())
+            }
+            "title_family" => {
+                rollup.title_family.as_deref() == Some(normalize_title_family(value).as_str())
+            }
+            _ => false,
+        },
+    }
+}
+
+fn compiled_consecutive_day_count(
+    book: &AchievementBook,
+    predicate: &AchievementDailyPredicate,
+) -> usize {
+    consecutive_day_count_matching(book, |rollup| {
+        compiled_daily_predicate_matches(rollup, predicate)
+    })
+}
+
+fn report_month_count(book: &AchievementBook, minimum_days: u32) -> usize {
+    let mut report_days_by_month: BTreeMap<String, u32> = BTreeMap::new();
+    for (date, rollup) in &book.daily_rollups {
+        if rollup.report_generated && date.len() >= 7 {
+            *report_days_by_month
+                .entry(date[..7].to_string())
+                .or_default() += 1;
+        }
+    }
+    report_days_by_month
+        .values()
+        .filter(|days| **days >= minimum_days)
+        .count()
+}
+
+fn evaluate_compiled_bucket_min(
+    book: &AchievementBook,
+    definitions: &[AchievementDefinition],
+    key: &str,
+    bucket_count: u32,
+    target: f64,
+) -> Option<ConditionProgress> {
+    let (values, label): (Vec<f64>, &str) = match key {
+        "workshop.parts" => (
+            workshop_module_track_keys("parts")
+                .iter()
+                .map(|key| counter_value_with_fallback(book, key))
+                .collect(),
+            "零件轨",
+        ),
+        "workshop.process" => (
+            workshop_module_track_keys("process")
+                .iter()
+                .map(|key| counter_value_with_fallback(book, key))
+                .collect(),
+            "工艺轨",
+        ),
+        "workshop.all_tracks" => (
+            workshop_track_keys()
+                .iter()
+                .map(|key| counter_value_with_fallback(book, key))
+                .collect(),
+            "模块轨道",
+        ),
+        "achievement.categories" => (
+            [
+                "daily_use",
+                "task_efficiency",
+                "long_streak",
+                "feature_exploration",
+                "data_milestone",
+                "workshop_growth",
+                "hardware_health",
+                "social_collaboration",
+                "hidden_easter",
+            ]
+            .iter()
+            .map(|category| unlocked_count_for_category(book, definitions, category) as f64)
+            .collect(),
+            "分类解锁",
+        ),
+        "achievement.difficulties" => (
+            ["entry", "normal", "skilled", "elite", "epic", "legendary"]
+                .iter()
+                .map(|difficulty| {
+                    unlocked_count_for_difficulty(book, definitions, difficulty) as f64
+                })
+                .collect(),
+            "难度解锁",
+        ),
+        "worklog.report_day_types" => (
+            report_day_types()
+                .iter()
+                .map(|day_type| {
+                    book.daily_rollups
+                        .values()
+                        .filter(|rollup| rollup.report_day_type.as_deref() == Some(*day_type))
+                        .count() as f64
+                })
+                .collect(),
+            "工作日类型",
+        ),
+        "worklog.title_families" => (
+            work_day_title_families()
+                .iter()
+                .map(|family| {
+                    counter_value_with_fallback(book, &format!("worklog.title_level.{family}"))
+                })
+                .collect(),
+            "工况职级",
+        ),
+        "cocat.animation_states" => (
+            cocat_animation_states()
+                .iter()
+                .map(|state| {
+                    counter_value_with_fallback(
+                        book,
+                        &format!("cocat.animation_seen.count(animationState='{state}')"),
+                    )
+                })
+                .collect(),
+            "动画见证",
+        ),
+        _ => return None,
+    };
+    if values.len() != bucket_count as usize {
+        return None;
+    }
+    let current = values.into_iter().fold(f64::INFINITY, f64::min);
+    Some(ConditionProgress::new(
+        if current.is_finite() { current } else { 0.0 },
+        target,
+        format!("{label}最低值"),
+        current >= target,
+    ))
+}
+
+fn compare_compiled_progress(
+    current: f64,
+    operator: AchievementOperator,
+    target: f64,
+    label: impl Into<String>,
+) -> ConditionProgress {
+    let is_complete = comparison_is_satisfied(current, operator, target);
+    let progress_current = match operator {
+        AchievementOperator::GreaterThanOrEqual | AchievementOperator::GreaterThan => current,
+        AchievementOperator::LessThanOrEqual | AchievementOperator::LessThan => {
+            if is_complete {
+                target
+            } else {
+                (target - (current - target)).max(0.0)
+            }
+        }
+        AchievementOperator::Equal => {
+            if is_complete {
+                target
+            } else {
+                current
+            }
+        }
+    };
+    ConditionProgress::new(progress_current, target, label, is_complete)
+}
+
+fn comparison_is_satisfied(current: f64, operator: AchievementOperator, target: f64) -> bool {
+    match operator {
+        AchievementOperator::GreaterThanOrEqual => current >= target,
+        AchievementOperator::LessThanOrEqual => current <= target,
+        AchievementOperator::Equal => (current - target).abs() < f64::EPSILON,
+        AchievementOperator::GreaterThan => current > target,
+        AchievementOperator::LessThan => current < target,
+    }
+}
+
+#[cfg(debug_assertions)]
+fn condition_progress_matches(
+    compiled: Option<&ConditionProgress>,
+    legacy: Option<&ConditionProgress>,
+) -> bool {
+    match (compiled, legacy) {
+        (Some(compiled), Some(legacy)) => compiled.is_complete == legacy.is_complete,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn evaluate_legacy_condition(
+    book: &AchievementBook,
+    definitions: &[AchievementDefinition],
+    definition: &AchievementDefinition,
+) -> Option<ConditionProgress> {
     let normalized = definition.condition_summary.replace('`', "");
     let parts = normalized
-        .split(" 且 ")
+        .split('且')
         .map(str::trim)
         .filter(|part| !part.is_empty());
     let mut selected: Option<ConditionProgress> = None;
@@ -937,8 +1605,7 @@ fn evaluate_text_condition(
         ));
     }
 
-    if condition.contains("任意模块任一升级轨等级")
-        || condition.contains("第一条满级轨道")
+    if condition.contains("任意模块任一升级轨等级") || condition.contains("第一条满级轨道")
     {
         return Some(compare_progress(
             counter_value(book, "workshop.module.max_level"),
@@ -974,9 +1641,9 @@ fn evaluate_text_condition(
 
     if condition.contains("6 个难度") {
         let current = ["entry", "normal", "skilled", "elite", "epic", "legendary"]
-        .iter()
-        .map(|difficulty| unlocked_count_for_difficulty(book, definitions, difficulty) as f64)
-        .fold(f64::INFINITY, f64::min);
+            .iter()
+            .map(|difficulty| unlocked_count_for_difficulty(book, definitions, difficulty) as f64)
+            .fold(f64::INFINITY, f64::min);
         let current = if current.is_finite() { current } else { 0.0 };
         return Some(ConditionProgress::new(
             current,
@@ -1006,34 +1673,22 @@ fn evaluate_text_condition(
         return Some(evaluate_track_bucket_min(book, &keys, target, "动画见证"));
     }
 
-    if condition.contains("hidden_achievement.unlocked.count") {
+    if condition.contains("hidden_achievement.unlocked.count")
+        && !condition.contains("non_hidden_achievement.unlocked.count")
+    {
         let count = definitions
             .iter()
-            .filter(|candidate| {
-                candidate.is_hidden && book.unlocks.contains_key(&candidate.id)
-            })
+            .filter(|candidate| candidate.is_hidden && book.unlocks.contains_key(&candidate.id))
             .count() as f64;
-        return Some(compare_progress(
-            count,
-            operator,
-            target,
-            "隐藏成就",
-        ));
+        return Some(compare_progress(count, operator, target, "隐藏成就"));
     }
 
     if condition.contains("non_hidden_achievement.unlocked.count") {
         let count = definitions
             .iter()
-            .filter(|candidate| {
-                !candidate.is_hidden && book.unlocks.contains_key(&candidate.id)
-            })
+            .filter(|candidate| !candidate.is_hidden && book.unlocks.contains_key(&candidate.id))
             .count() as f64;
-        return Some(compare_progress(
-            count,
-            operator,
-            target,
-            "可见成就",
-        ));
+        return Some(compare_progress(count, operator, target, "可见成就"));
     }
 
     if condition.contains("achievement.unlocked.count") {
@@ -1096,7 +1751,12 @@ fn evaluate_comparison_condition(
 ) -> Option<ConditionProgress> {
     let (left, operator, target) = split_numeric_comparison(condition)?;
     let current = expression_value(book, definition, &left);
-    Some(compare_progress(current, operator, target, progress_label(&left)))
+    Some(compare_progress(
+        current,
+        operator,
+        target,
+        progress_label(&left),
+    ))
 }
 
 fn compare_progress(
@@ -1350,6 +2010,13 @@ fn daily_metric_value(rollup: &AchievementDailyRollup, key: &str) -> f64 {
 }
 
 fn consecutive_day_count(book: &AchievementBook, predicate: &str) -> usize {
+    consecutive_day_count_matching(book, |rollup| daily_rollup_matches(rollup, predicate))
+}
+
+fn consecutive_day_count_matching(
+    book: &AchievementBook,
+    matches: impl Fn(&AchievementDailyRollup) -> bool,
+) -> usize {
     let mut dates: Vec<(NaiveDate, &AchievementDailyRollup)> = book
         .daily_rollups
         .iter()
@@ -1366,7 +2033,7 @@ fn consecutive_day_count(book: &AchievementBook, predicate: &str) -> usize {
     let mut previous_date: Option<NaiveDate> = None;
 
     for (date, rollup) in dates {
-        if daily_rollup_matches(rollup, predicate) {
+        if matches(rollup) {
             if previous_date
                 .map(|previous| date.signed_duration_since(previous).num_days() == 1)
                 .unwrap_or(false)
@@ -1424,12 +2091,7 @@ fn evaluate_track_bucket_min(
         .map(|key| counter_value_with_fallback(book, key))
         .fold(f64::INFINITY, f64::min);
     let current = if current.is_finite() { current } else { 0.0 };
-    ConditionProgress::new(
-        current,
-        target,
-        format!("{label}最低值"),
-        current >= target,
-    )
+    ConditionProgress::new(current, target, format!("{label}最低值"), current >= target)
 }
 
 fn evaluate_report_day_type_bucket(book: &AchievementBook, target: f64) -> ConditionProgress {
@@ -1467,7 +2129,8 @@ fn unlocked_count_for_difficulty(
     definitions
         .iter()
         .filter(|definition| {
-            definition.difficulty.key() == difficulty_key && book.unlocks.contains_key(&definition.id)
+            definition.difficulty.key() == difficulty_key
+                && book.unlocks.contains_key(&definition.id)
         })
         .count()
 }
@@ -1565,9 +2228,7 @@ fn normalize_day_type(day_type: &str) -> String {
         "DeepFocus" | "deep_focus" | "deepFocus" => "deepFocus".to_string(),
         "BuildBurst" | "build_burst" | "buildBurst" => "buildBurst".to_string(),
         "ArchiveFlow" | "archive_flow" | "archiveFlow" => "archiveFlow".to_string(),
-        "PressureRepair" | "pressure_repair" | "pressureRepair" => {
-            "pressureRepair".to_string()
-        }
+        "PressureRepair" | "pressure_repair" | "pressureRepair" => "pressureRepair".to_string(),
         "StableMaintenance" | "stable_maintenance" | "stableMaintenance" => {
             "stableMaintenance".to_string()
         }
@@ -1590,13 +2251,17 @@ fn progress_label(expression: &str) -> String {
         "累计零件".to_string()
     } else if expression.contains("insight_earned") {
         "累计灵感".to_string()
-    } else if expression.contains("keyboard_press_count") || expression.contains("mouse_click_count") {
+    } else if expression.contains("keyboard_press_count")
+        || expression.contains("mouse_click_count")
+    {
         "输入次数".to_string()
-    } else if expression.contains("disk_bytes_total") || expression.contains("network_bytes_total") {
+    } else if expression.contains("disk_bytes_total") || expression.contains("network_bytes_total")
+    {
         "数据流量".to_string()
     } else if expression.contains("rarity_rank") || expression.contains("worklog.rarity.max_rank") {
         "工况卡等级".to_string()
-    } else if expression.contains("rarity_score") || expression.contains("worklog.rarity.max_score") {
+    } else if expression.contains("rarity_score") || expression.contains("worklog.rarity.max_score")
+    {
         "工况卡稀有度分".to_string()
     } else if expression.contains("title_level") {
         "工况职级等级".to_string()
@@ -1715,6 +2380,164 @@ mod tests {
             idempotency_key: format!("key-{index}"),
             payload: json!({}),
             app_version: "test".to_string(),
+        }
+    }
+
+    fn populate_compiled_condition(book: &mut AchievementBook, condition: &AchievementCondition) {
+        match condition {
+            AchievementCondition::All { conditions } | AchievementCondition::Any { conditions } => {
+                for condition in conditions {
+                    populate_compiled_condition(book, condition);
+                }
+            }
+            AchievementCondition::Counter { counter, op, value } => {
+                book.counters
+                    .insert(counter.clone(), satisfying_value(*op, *value));
+            }
+            AchievementCondition::Sum {
+                counters,
+                op,
+                value,
+            }
+            | AchievementCondition::Max {
+                counters,
+                op,
+                value,
+            } => {
+                for counter in counters {
+                    book.counters
+                        .insert(counter.clone(), satisfying_value(*op, *value));
+                }
+            }
+            AchievementCondition::DistinctCount {
+                key, filter, value, ..
+            } => {
+                let values = book.distinct_values.entry(key.clone()).or_default();
+                match filter {
+                    AchievementDistinctFilter::Any => {
+                        for index in 0..*value {
+                            values.insert(format!("value-{index}"));
+                        }
+                    }
+                    AchievementDistinctFilter::In { values: allowed } => {
+                        values.extend(allowed.iter().take(*value as usize).cloned());
+                    }
+                    AchievementDistinctFilter::NotEqual { value: blocked } => {
+                        for index in 0..*value {
+                            values.insert(format!("allowed-{index}-{blocked}"));
+                        }
+                    }
+                }
+            }
+            AchievementCondition::CalendarDays { .. }
+            | AchievementCondition::ConsecutiveDays { .. }
+            | AchievementCondition::CalendarMonths { .. }
+            | AchievementCondition::PerBucketMin { .. }
+            | AchievementCondition::ExcludeSelf { .. } => {}
+        }
+    }
+
+    fn satisfying_value(operator: AchievementOperator, target: f64) -> f64 {
+        match operator {
+            AchievementOperator::GreaterThanOrEqual | AchievementOperator::Equal => target,
+            AchievementOperator::GreaterThan => target + 1.0,
+            AchievementOperator::LessThanOrEqual => target,
+            AchievementOperator::LessThan => (target - 1.0).max(0.0),
+        }
+    }
+
+    fn saturated_book(definitions: &[AchievementDefinition]) -> AchievementBook {
+        let mut book = AchievementBook::default();
+        for definition in definitions {
+            populate_compiled_condition(&mut book, &definition.condition);
+            book.unlocks.insert(
+                definition.id.clone(),
+                AchievementUnlockRecord {
+                    unlock_id: format!("unlock-{}", definition.id),
+                    achievement_id: definition.id.clone(),
+                    unlocked_at: 1,
+                    points_awarded: definition.points,
+                    source_event_id: "fixture".to_string(),
+                    progress_snapshot: BTreeMap::new(),
+                },
+            );
+        }
+
+        for key in workshop_track_keys() {
+            book.counters.insert(key, 100.0);
+        }
+        for family in work_day_title_families() {
+            book.counters
+                .insert(format!("worklog.title_level.{family}"), 5.0);
+        }
+        for state in cocat_animation_states() {
+            book.counters.insert(
+                format!("cocat.animation_seen.count(animationState='{state}')"),
+                500.0,
+            );
+        }
+
+        let start = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+        let day_types = report_day_types();
+        for offset in 0..420 {
+            let date = start + chrono::Duration::days(offset);
+            book.daily_rollups.insert(
+                date.format("%Y-%m-%d").to_string(),
+                AchievementDailyRollup {
+                    active_seconds: 10_000.0,
+                    high_load_seconds: 10_000.0,
+                    thermal_warning_seconds: 0.0,
+                    active_00_05_seconds: 4_000.0,
+                    low_power_mode_enabled_seconds: 4_000.0,
+                    report_generated: true,
+                    report_score: Some(100.0),
+                    report_day_type: Some(day_types[offset as usize % day_types.len()].to_string()),
+                    rarity_rank: Some(5.0),
+                    ..Default::default()
+                },
+            );
+        }
+        book
+    }
+
+    fn assert_compiled_matches_legacy(
+        book: &AchievementBook,
+        definitions: &[AchievementDefinition],
+    ) {
+        for definition in definitions {
+            let compiled =
+                evaluate_compiled_condition(book, definitions, definition, &definition.condition);
+            let legacy = evaluate_legacy_condition(book, definitions, definition);
+            assert_eq!(
+                compiled.as_ref().map(|progress| progress.is_complete),
+                legacy.as_ref().map(|progress| progress.is_complete),
+                "compiled mismatch for {}: {} (compiled={compiled:?}, legacy={legacy:?})",
+                definition.id,
+                definition.condition_summary
+            );
+        }
+    }
+
+    #[test]
+    fn all_seed_conditions_compile_and_match_legacy_results() {
+        let definitions = load_seed_definitions().unwrap();
+        assert_compiled_matches_legacy(&AchievementBook::default(), &definitions);
+
+        let book = saturated_book(&definitions);
+        assert_compiled_matches_legacy(&book, &definitions);
+        for definition in &definitions {
+            assert!(
+                evaluate_compiled_condition(
+                    &book,
+                    &definitions,
+                    definition,
+                    &definition.condition,
+                )
+                .is_some_and(|progress| progress.is_complete),
+                "saturated fixture did not satisfy {}: {}",
+                definition.id,
+                definition.condition_summary
+            );
         }
     }
 
@@ -1974,6 +2797,79 @@ mod tests {
     }
 
     #[test]
+    fn valid_click_bursts_unlock_a080_and_invalid_bursts_do_not_count() {
+        let definitions = load_seed_definitions().unwrap();
+        let mut book = AchievementBook::default();
+
+        for index in 0..9 {
+            let response = record_achievement_event(
+                &mut book,
+                &definitions,
+                TrackAchievementEventRequest {
+                    event_name: "pet.click_burst".to_string(),
+                    occurred_at: index + 1,
+                    idempotency_key: format!("valid-click-burst-{index}"),
+                    payload: json!({ "clicks": 3, "windowMs": 1_500 }),
+                    source: "test".to_string(),
+                },
+                index + 1,
+                "0.1.9",
+            );
+            assert!(!response
+                .unlocked
+                .iter()
+                .any(|event| event.achievement_id == "A080"));
+        }
+
+        for (index, payload) in [
+            json!({ "clicks": 2, "windowMs": 1_000 }),
+            json!({ "clicks": 3, "windowMs": 2_001 }),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            record_achievement_event(
+                &mut book,
+                &definitions,
+                TrackAchievementEventRequest {
+                    event_name: "pet.click_burst".to_string(),
+                    occurred_at: 20 + index as i64,
+                    idempotency_key: format!("invalid-click-burst-{index}"),
+                    payload,
+                    source: "test".to_string(),
+                },
+                20 + index as i64,
+                "0.1.9",
+            );
+        }
+        assert!(!book.unlocks.contains_key("A080"));
+
+        let response = record_achievement_event(
+            &mut book,
+            &definitions,
+            TrackAchievementEventRequest {
+                event_name: "pet.click_burst".to_string(),
+                occurred_at: 30,
+                idempotency_key: "valid-click-burst-10".to_string(),
+                payload: json!({ "clicks": 3, "windowMs": 1_999 }),
+                source: "test".to_string(),
+            },
+            30,
+            "0.1.9",
+        );
+
+        assert!(response
+            .unlocked
+            .iter()
+            .any(|event| event.achievement_id == "A080"));
+        assert_eq!(
+            book.counters
+                .get("pet.click_burst.count(clicks >= 3, windowMs <= 2000)"),
+            Some(&10.0),
+        );
+    }
+
+    #[test]
     fn consecutive_days_condition_unlocks_streak() {
         let definitions = load_seed_definitions().unwrap();
         let mut book = AchievementBook::default();
@@ -2077,6 +2973,96 @@ mod tests {
     }
 
     #[test]
+    fn weekly_goals_are_stable_until_the_iso_week_changes() {
+        let definitions = load_seed_definitions().unwrap();
+        let mut book = AchievementBook::default();
+        book.counters
+            .insert("lifetime.total_online_seconds".to_string(), 10_000.0);
+        book.counters
+            .insert("worklog.daily_generated.count".to_string(), 20.0);
+        book.counters
+            .insert("page.view.count(pageKey='workshop')".to_string(), 30.0);
+        let monday = Local
+            .with_ymd_and_hms(2026, 8, 31, 9, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+
+        let (first, changed) = ensure_weekly_goals(&mut book, &definitions, monday);
+        assert!(changed);
+        assert_eq!(first.goals.len(), 3);
+        let first_ids = first
+            .goals
+            .iter()
+            .map(|goal| goal.goal_id.clone())
+            .collect::<Vec<_>>();
+        assert!(first.goals.iter().all(|goal| goal.percent == 0.0));
+
+        let first_definition = weekly_goal_definition(&first_ids[0]).unwrap();
+        let baseline = book.weekly_goal_plan.as_ref().unwrap().baselines[&first_ids[0]];
+        book.counters.insert(
+            first_definition.counter_key.to_string(),
+            baseline + first_definition.target,
+        );
+        let (same_week, changed) =
+            ensure_weekly_goals(&mut book, &definitions, monday + 86_400_000);
+        assert!(!changed);
+        assert_eq!(
+            same_week
+                .goals
+                .iter()
+                .map(|goal| goal.goal_id.clone())
+                .collect::<Vec<_>>(),
+            first_ids
+        );
+        assert!(same_week.goals[0].is_complete);
+        assert_eq!(same_week.goals[0].percent, 100.0);
+
+        let (next_week, changed) =
+            ensure_weekly_goals(&mut book, &definitions, monday + 7 * 86_400_000);
+        assert!(changed);
+        assert_ne!(next_week.week_key, first.week_key);
+        assert_eq!(next_week.goals.len(), 3);
+        assert_ne!(
+            next_week
+                .goals
+                .iter()
+                .map(|goal| goal.goal_id.clone())
+                .collect::<Vec<_>>(),
+            first_ids
+        );
+        assert!(next_week.goals.iter().all(|goal| goal.percent == 0.0));
+    }
+
+    #[test]
+    fn legacy_weekly_goal_plan_is_regenerated_with_weekly_baselines() {
+        let definitions = load_seed_definitions().unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 8, 31, 9, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let mut book = AchievementBook {
+            weekly_goal_plan: Some(WeeklyGoalPlan {
+                week_key: local_iso_week(now).0,
+                achievement_ids: vec!["A002".to_string(), "A003".to_string(), "A005".to_string()],
+                generated_at: now - 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let (goals, changed) = ensure_weekly_goals(&mut book, &definitions, now);
+
+        assert!(changed);
+        assert_eq!(goals.goals.len(), 3);
+        let plan = book.weekly_goal_plan.unwrap();
+        assert!(plan.achievement_ids.is_empty());
+        assert_eq!(plan.goal_keys.len(), 3);
+        assert_eq!(plan.baselines.len(), 3);
+    }
+
+    #[test]
     fn unlock_notifications_are_persisted_and_marked_seen() {
         let definitions = load_seed_definitions().unwrap();
         let mut book = AchievementBook::default();
@@ -2099,11 +3085,8 @@ mod tests {
         assert_eq!(summary.pending_notification_count, 1);
 
         let unlock_id = response.unlocked[0].unlock_id.clone();
-        let changed = mark_achievement_notifications_seen(
-            &mut book,
-            Some(vec![unlock_id.clone()]),
-            2,
-        );
+        let changed =
+            mark_achievement_notifications_seen(&mut book, Some(vec![unlock_id.clone()]), 2);
         assert!(changed >= 1);
         assert_eq!(
             summarize_achievements(&book, &definitions).pending_notification_count,
@@ -2117,5 +3100,4 @@ mod tests {
                 && notification.state == AchievementNotificationState::Seen
                 && notification.seen_at == Some(2)));
     }
-
 }

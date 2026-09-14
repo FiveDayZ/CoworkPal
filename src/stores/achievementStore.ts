@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   getAchievementSummary,
+  getWeeklyGoals,
   listAchievements,
   markAchievementNotificationsSeen,
 } from "../services/tauriCommands";
@@ -9,14 +10,17 @@ import type {
   AchievementCard,
   AchievementSummary,
   AchievementUnlockedEvent,
+  WeeklyGoals,
 } from "../types/achievement";
 
 export interface AchievementStore {
   summary: AchievementSummary | null;
   cards: AchievementCard[];
   unlockQueue: AchievementUnlockedEvent[];
+  weeklyGoals: WeeklyGoals | null;
   loadSummary: () => Promise<AchievementSummary>;
   loadCards: () => Promise<void>;
+  loadWeeklyGoals: () => Promise<void>;
   pushUnlocked: (event: AchievementUnlockedEvent) => void;
   markNotificationsSeen: (unlockIds?: string[]) => Promise<AchievementSummary>;
   dismissUnlocked: (unlockId: string) => void;
@@ -72,6 +76,7 @@ export const useAchievementStore = create<AchievementStore>((set) => ({
   summary: null,
   cards: [],
   unlockQueue: [],
+  weeklyGoals: null,
   loadSummary: async () => {
     const summary = await getAchievementSummary();
     set({ summary });
@@ -80,6 +85,10 @@ export const useAchievementStore = create<AchievementStore>((set) => ({
   loadCards: async () => {
     const cards = await listAchievements(true);
     set({ cards });
+  },
+  loadWeeklyGoals: async () => {
+    const weeklyGoals = await getWeeklyGoals();
+    set({ weeklyGoals });
   },
   pushUnlocked: (event) =>
     set((state) => {
@@ -135,6 +144,7 @@ export const useAchievementStore = create<AchievementStore>((set) => ({
       return {
         cards,
         summary,
+        weeklyGoals: state.weeklyGoals,
         unlockQueue: [...state.unlockQueue, event],
       };
     }),

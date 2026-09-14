@@ -32,6 +32,57 @@ export interface WorkshopState {
   todayParts: number;
   todayInsight: number;
   lastDailyResetDate: string;
+  affinityExperience: number;
+  completedOrderCount: number;
+  activeOrders: WorkshopOrder[];
+  completedOrderIds: string[];
+  lastOrderRefreshDate: string;
+}
+
+export type WorkshopOrderKind = "standard" | "timed" | "hardwareEvent";
+
+export interface WorkshopOrder {
+  id: string;
+  kind: WorkshopOrderKind;
+  title: string;
+  description: string;
+  requiredParts: number;
+  requiredInsight: number;
+  rewardAffinity: number;
+  createdAt: number;
+  expiresAt: number | null;
+}
+
+export interface WorkshopProductionBreakdown {
+  partsPerMinute: number;
+  insightPerMinute: number;
+  partsActivity: number;
+  insightActivity: number;
+  workshopMultiplier: number;
+  partsModuleMultiplier: number;
+  insightModuleMultiplier: number;
+  stabilityMultiplier: number;
+  focusMultiplier: number;
+  affinityMultiplier: number;
+  affinityTitle: string;
+  affinityTier: "new" | "trusted" | "partner" | "bonded";
+  nextAffinityLevel: number | null;
+  nextAffinityTitle: string | null;
+}
+
+export interface ResourceCost {
+  parts: number;
+  insight: number;
+}
+
+export interface ModuleUpgradeCosts {
+  parts: ResourceCost | null;
+  process: ResourceCost | null;
+}
+
+export interface WorkshopUpgradeQuotes {
+  workshop: ResourceCost | null;
+  modules: Record<WorkshopModuleKey, ModuleUpgradeCosts>;
 }
 
 export const defaultModuleLevels: WorkshopModuleLevels = {

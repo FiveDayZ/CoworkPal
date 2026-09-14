@@ -9,15 +9,16 @@ pub mod updater;
 
 use crate::{
     achievements::{
-        get_achievement_card, list_achievement_cards, load_seed_definitions,
+        ensure_weekly_goals, get_achievement_card, list_achievement_cards,
         mark_achievement_notifications_seen as mark_notifications_seen_in_book,
-        record_achievement_event, summarize_achievements, AchievementCard, AchievementSummary,
-        TrackAchievementEventRequest, TrackAchievementEventResponse,
+        record_achievement_event, seed_definitions, summarize_achievements, AchievementCard,
+        AchievementSummary, TrackAchievementEventRequest, TrackAchievementEventResponse,
+        WeeklyGoals,
     },
     app_state::AppState,
     events::{
-        ACHIEVEMENT_UNLOCKED, COCAT_INTERACTION_STATE, FOCUS_SESSION_UPDATED, NOTES_UPDATED,
-        SETTINGS_UPDATED, UI_NAVIGATE_MAIN, WORKSHOP_UPDATED,
+        ACHIEVEMENT_PROGRESS_UPDATED, ACHIEVEMENT_UNLOCKED, COCAT_INTERACTION_STATE,
+        FOCUS_SESSION_UPDATED, NOTES_UPDATED, SETTINGS_UPDATED, UI_NAVIGATE_MAIN, WORKSHOP_UPDATED,
     },
     memory_release::{self, ReleaseKind, ReleaseResult},
     models::{
@@ -25,11 +26,12 @@ use crate::{
         AppSettingsPatch, CatState, DailyWorkAssessment, DailyWorkAssessmentSummary,
         DailyWorkAssessmentTrend, FocusSession, FocusSessionBook, FocusSessionStatus,
         HardwareSnapshot, HealthTrendReport, LastMemoryRelease, NoteBook, NoteColor, NoteKind,
-        RhythmProfile, TrendRange, TodaySuggestions, WorkLogEntry, WorkLogReport, WorkshopState,
+        RhythmProfile, TodaySuggestions, TrendRange, WorkLogEntry, WorkLogReport, WorkshopState,
+        FOCUS_PRODUCTION_MULTIPLIER_MAX,
     },
     pet::FOCUS_NUDGE_HOLD_MS,
-    taskbar_embed,
-    window_manager,
+    taskbar_embed, window_manager,
+    workshop::{self, WorkshopProductionBreakdown, WorkshopUpgradeQuotes},
 };
 
 #[tauri::command]
@@ -38,16 +40,32 @@ pub async fn track_achievement_event(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<TrackAchievementEventResponse, String> {
-    record_achievement_event_with_state(state.inner(), &app, request).await
+    record_achievement_event_with_state(state.inner(), &app, request, true).await
 }
 
 #[tauri::command]
 pub async fn get_achievement_summary(
     state: State<'_, AppState>,
 ) -> Result<AchievementSummary, String> {
-    let definitions = load_seed_definitions().map_err(|error| error.to_string())?;
+    let definitions = seed_definitions().map_err(|error| error.to_string())?;
     let achievements = state.achievements.read().await;
-    Ok(summarize_achievements(&achievements, &definitions))
+    Ok(summarize_achievements(&achievements, definitions))
+}
+
+#[tauri::command]
+pub async fn get_weekly_goals(state: State<'_, AppState>) -> Result<WeeklyGoals, String> {
+    let definitions = seed_definitions().map_err(|error| error.to_string())?;
+    let mut achievements = state.achievements.write().await;
+    let previous = achievements.clone();
+    let (goals, changed) =
+        ensure_weekly_goals(&mut achievements, definitions, current_timestamp_ms());
+    if changed {
+        if let Err(error) = state.storage.save_achievements(&achievements) {
+            *achievements = previous;
+            return Err(format!("failed to save weekly goals: {error}"));
+        }
+    }
+    Ok(goals)
 }
 
 #[tauri::command]
@@ -55,11 +73,11 @@ pub async fn list_achievements(
     include_unlocked_hidden: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Vec<AchievementCard>, String> {
-    let definitions = load_seed_definitions().map_err(|error| error.to_string())?;
+    let definitions = seed_definitions().map_err(|error| error.to_string())?;
     let achievements = state.achievements.read().await;
     Ok(list_achievement_cards(
         &achievements,
-        &definitions,
+        definitions,
         include_unlocked_hidden.unwrap_or(true),
     ))
 }
@@ -69,11 +87,11 @@ pub async fn get_achievement_detail(
     achievement_id: String,
     state: State<'_, AppState>,
 ) -> Result<Option<AchievementCard>, String> {
-    let definitions = load_seed_definitions().map_err(|error| error.to_string())?;
+    let definitions = seed_definitions().map_err(|error| error.to_string())?;
     let achievements = state.achievements.read().await;
     Ok(get_achievement_card(
         &achievements,
-        &definitions,
+        definitions,
         &achievement_id,
         true,
     ))
@@ -84,19 +102,17 @@ pub async fn mark_achievement_notifications_seen(
     unlock_ids: Option<Vec<String>>,
     state: State<'_, AppState>,
 ) -> Result<AchievementSummary, String> {
-    let definitions = load_seed_definitions().map_err(|error| error.to_string())?;
-    let summary = {
+    let definitions = seed_definitions().map_err(|error| error.to_string())?;
+    let (summary, changed) = {
         let mut achievements = state.achievements.write().await;
-        let changed = mark_notifications_seen_in_book(
-            &mut achievements,
-            unlock_ids,
-            current_timestamp_ms(),
-        );
-        if changed > 0 {
-            state.storage.save_achievements(&achievements)?;
-        }
-        summarize_achievements(&achievements, &definitions)
+        let changed =
+            mark_notifications_seen_in_book(&mut achievements, unlock_ids, current_timestamp_ms());
+        (summarize_achievements(&achievements, definitions), changed)
     };
+    if changed > 0 {
+        state.persistence.mark_achievements_dirty();
+        crate::persistence::flush_achievements(state.inner()).await?;
+    }
 
     Ok(summary)
 }
@@ -119,31 +135,56 @@ pub async fn record_internal_achievement_event(
         source: "backend".to_string(),
     };
 
-    record_achievement_event_with_state(state.inner(), app, request).await
+    record_achievement_event_with_state(state.inner(), app, request, true).await
+}
+
+pub(crate) async fn record_internal_achievement_event_buffered(
+    app: &AppHandle,
+    event_name: &str,
+    idempotency_key: String,
+    occurred_at: i64,
+    payload: Value,
+) -> Result<TrackAchievementEventResponse, String> {
+    let Some(state) = app.try_state::<AppState>() else {
+        return Err("app state is not available".to_string());
+    };
+    let request = TrackAchievementEventRequest {
+        event_name: event_name.to_string(),
+        occurred_at,
+        idempotency_key,
+        payload,
+        source: "backend".to_string(),
+    };
+    record_achievement_event_with_state(state.inner(), app, request, false).await
 }
 
 async fn record_achievement_event_with_state(
     state: &AppState,
     app: &AppHandle,
     request: TrackAchievementEventRequest,
+    persist_immediately: bool,
 ) -> Result<TrackAchievementEventResponse, String> {
-    let definitions = load_seed_definitions().map_err(|error| error.to_string())?;
+    let definitions = seed_definitions().map_err(|error| error.to_string())?;
     let response = {
         let mut achievements = state.achievements.write().await;
-        let response = record_achievement_event(
+        record_achievement_event(
             &mut achievements,
-            &definitions,
+            definitions,
             request,
             current_timestamp_ms(),
             env!("CARGO_PKG_VERSION"),
-        );
-
-        if response.accepted {
-            state.storage.save_achievements(&achievements)?;
-        }
-
-        response
+        )
     };
+
+    if response.accepted {
+        state.persistence.mark_achievements_dirty();
+        if persist_immediately {
+            crate::persistence::flush_achievements(state).await?;
+        }
+        if let Err(error) = app.emit(ACHIEVEMENT_PROGRESS_UPDATED, ()) {
+            tracing::warn!("failed to emit {ACHIEVEMENT_PROGRESS_UPDATED}: {error}");
+        }
+    }
 
     emit_achievement_unlocks(app, &response)?;
     Ok(response)
@@ -195,10 +236,11 @@ pub async fn get_app_settings(state: State<'_, AppState>) -> Result<AppSettings,
 
 #[tauri::command]
 pub async fn update_app_settings(
-    patch: AppSettingsPatch,
+    mut patch: AppSettingsPatch,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<AppSettings, String> {
+    normalize_app_settings_patch(&mut patch)?;
     let launch_at_startup = patch.launch_at_startup;
     let achievement_payloads = settings_patch_achievement_payloads(&patch);
 
@@ -234,19 +276,30 @@ pub async fn update_app_settings(
             .and_then(Value::as_str)
             .unwrap_or("unknown");
         let idempotency_key = format!("settings.update:{changed_key}:{}", current_timestamp_ms());
-        if let Err(error) = record_internal_achievement_event(
-            &app,
-            "settings.update",
-            idempotency_key,
-            payload,
-        )
-        .await
+        if let Err(error) =
+            record_internal_achievement_event(&app, "settings.update", idempotency_key, payload)
+                .await
         {
             tracing::warn!("failed to record settings achievement event: {error}");
         }
     }
 
     Ok(settings)
+}
+
+fn normalize_app_settings_patch(patch: &mut AppSettingsPatch) -> Result<(), String> {
+    if let Some(cat_name) = patch.cat_name.as_mut() {
+        let trimmed = cat_name.trim();
+        let length = trimmed.chars().count();
+        if length == 0 || length > 12 || trimmed.chars().any(char::is_control) {
+            return Err("CoCat 名称必须是 1 到 12 个可见字符".to_string());
+        }
+        *cat_name = trimmed.to_string();
+    }
+    if patch.onboarding_version.is_some_and(|version| version > 1) {
+        return Err("不支持的新手引导版本".to_string());
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -283,7 +336,9 @@ pub(crate) fn sync_launch_at_startup(enabled: bool) -> Result<(), String> {
         command,
         crate::process_util::DEFAULT_SUBPROCESS_TIMEOUT,
     )
-    .ok_or_else(|| "failed to update startup registry: subprocess timed out or failed".to_string())?;
+    .ok_or_else(|| {
+        "failed to update startup registry: subprocess timed out or failed".to_string()
+    })?;
 
     if output.status.success() || (!enabled && output.status.code() == Some(1)) {
         return Ok(());
@@ -335,16 +390,39 @@ pub async fn reward_cocat_interaction(
 /// How strongly distraction erodes the session's quality and reward.
 const FOCUS_DISTRACTION_PENALTY: f64 = 0.15;
 const FOCUS_MIN_QUALITY: f64 = 0.4;
-/// Base parts/insight awarded per planned minute, scaled by focus_quality.
+/// Base parts/insight awarded per completed minute, scaled by focus_quality.
 const FOCUS_PARTS_PER_MINUTE: f64 = 8.0;
 const FOCUS_INSIGHT_PER_MINUTE: f64 = 0.5;
 
 /// Pure quality score for a completed focus session, clamped to [MIN, 1.0].
 /// Extracted so it can be unit-tested independently of the command path.
 pub(crate) fn compute_focus_quality(distraction_count: u32) -> f64 {
-    (1.0 - distraction_count as f64 * FOCUS_DISTRACTION_PENALTY)
-        .max(FOCUS_MIN_QUALITY)
-        .min(1.0)
+    (1.0 - distraction_count as f64 * FOCUS_DISTRACTION_PENALTY).clamp(FOCUS_MIN_QUALITY, 1.0)
+}
+
+fn compute_focus_reward(session: &FocusSession, completed_at: i64) -> (u32, f64, u64) {
+    let elapsed_seconds = completed_at.saturating_sub(session.started_at).max(0) as u64 / 1000;
+    let actual_duration_seconds = elapsed_seconds.min(session.planned_duration_seconds);
+    let actual_minutes = actual_duration_seconds as f64 / 60.0;
+    let raw_parts = actual_minutes * FOCUS_PARTS_PER_MINUTE * session.focus_quality;
+    let raw_insight = actual_minutes * FOCUS_INSIGHT_PER_MINUTE * session.focus_quality;
+    let parts_award = if raw_parts.is_finite() && raw_parts >= 0.0 {
+        raw_parts.round() as u32
+    } else {
+        0
+    };
+    let insight_award = if raw_insight.is_finite() && raw_insight >= 0.0 {
+        raw_insight
+    } else {
+        0.0
+    };
+
+    (parts_award, insight_award, actual_duration_seconds)
+}
+
+#[tauri::command]
+pub async fn get_focus_sessions(state: State<'_, AppState>) -> Result<FocusSessionBook, String> {
+    Ok(state.focus_sessions.read().await.clone())
 }
 
 #[tauri::command]
@@ -381,6 +459,7 @@ pub async fn start_focus_session(
             status: FocusSessionStatus::Active,
             distraction_count: 0,
             focus_quality: 0.0,
+            production_multiplier: FOCUS_PRODUCTION_MULTIPLIER_MAX,
         });
         sessions.clone()
         // Lock released before the blocking fs::write below (S5: never hold the
@@ -437,7 +516,15 @@ pub async fn complete_focus_session(
         session.status = FocusSessionStatus::Completed;
         session.ended_at = Some(now);
         let snapshot = session.clone();
-        (sessions.clone(), (snapshot, previous_status, previous_ended_at, previous_quality))
+        (
+            sessions.clone(),
+            (
+                snapshot,
+                previous_status,
+                previous_ended_at,
+                previous_quality,
+            ),
+        )
         // Lock released before the blocking fs::write below (S5).
     };
     let (completed, previous_status, previous_ended_at, previous_quality) = completed;
@@ -446,11 +533,7 @@ pub async fn complete_focus_session(
     // leave the session marked Completed in memory while unsaved on disk (C1).
     if let Err(error) = state.storage.save_focus_sessions(&next_book) {
         let mut sessions = state.focus_sessions.write().await;
-        if let Some(session) = sessions
-            .sessions
-            .iter_mut()
-            .find(|s| s.id == session_id)
-        {
+        if let Some(session) = sessions.sessions.iter_mut().find(|s| s.id == session_id) {
             session.status = previous_status;
             session.ended_at = previous_ended_at;
             session.focus_quality = previous_quality;
@@ -470,24 +553,10 @@ pub async fn complete_focus_session(
         }
     }
 
-    // Land the workshop reward, scaled by focus_quality. focus_quality is
-    // clamped to [0.4, 1.0] by compute_focus_quality so it can't be NaN here,
-    // but guard defensively — a non-finite award would permanently corrupt the
-    // workshop economy (NaN propagates through all arithmetic and can't be
-    // undone except by reset). Apply the same guard to both parts and insight.
-    let planned_minutes = completed.planned_duration_seconds / 60;
-    let raw_parts = planned_minutes as f64 * FOCUS_PARTS_PER_MINUTE * completed.focus_quality;
-    let parts_award = if raw_parts.is_finite() && raw_parts >= 0.0 {
-        raw_parts.round() as u32
-    } else {
-        0
-    };
-    let raw_insight = planned_minutes as f64 * FOCUS_INSIGHT_PER_MINUTE * completed.focus_quality;
-    let insight_award = if raw_insight.is_finite() && raw_insight >= 0.0 {
-        raw_insight
-    } else {
-        0.0
-    };
+    // Reward only elapsed focus time, capped by the planned duration, so ending
+    // a newly started long session cannot grant its full planned reward.
+    let (parts_award, insight_award, actual_duration_seconds) =
+        compute_focus_reward(&completed, now);
     // Land the workshop reward. Unlike most write commands, this saves INSIDE
     // the workshop write lock (deliberately deviating from the usual "lock-free
     // IO" S5 pattern). complete_focus_session is a rare, user-initiated action,
@@ -524,6 +593,7 @@ pub async fn complete_focus_session(
                 serde_json::json!({
                     "taskLabel": completed.task_label,
                     "plannedDurationSeconds": completed.planned_duration_seconds,
+                    "actualDurationSeconds": actual_duration_seconds,
                     "distractionCount": completed.distraction_count,
                     "focusQuality": completed.focus_quality,
                 }),
@@ -532,7 +602,9 @@ pub async fn complete_focus_session(
             {
                 tracing::warn!("failed to record focus completion achievement event: {ach_error}");
             }
-            return Err(format!("failed to save workshop after focus reward: {error}"));
+            return Err(format!(
+                "failed to save workshop after focus reward: {error}"
+            ));
         }
         workshop.clone()
     };
@@ -544,6 +616,7 @@ pub async fn complete_focus_session(
         serde_json::json!({
             "taskLabel": completed.task_label,
             "plannedDurationSeconds": completed.planned_duration_seconds,
+            "actualDurationSeconds": actual_duration_seconds,
             "distractionCount": completed.distraction_count,
             "focusQuality": completed.focus_quality,
         }),
@@ -824,7 +897,11 @@ pub async fn delete_note(
 /// is Markdown source). Returns the chosen path on success, or null if the
 /// user cancelled the dialog.
 #[tauri::command]
-pub async fn export_note(id: String, state: State<'_, AppState>, app: AppHandle) -> Result<Option<String>, String> {
+pub async fn export_note(
+    id: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Option<String>, String> {
     // Read the note under a read lock, then drop it before the blocking dialog.
     let (title, body) = {
         let notes = state.notes.read().await;
@@ -860,7 +937,10 @@ pub async fn export_note(id: String, state: State<'_, AppState>, app: AppHandle)
         // User cancelled the save dialog.
         return Ok(None);
     };
-    let path = file_path.as_path().ok_or_else(|| "invalid save path".to_string())?.to_path_buf();
+    let path = file_path
+        .as_path()
+        .ok_or_else(|| "invalid save path".to_string())?
+        .to_path_buf();
 
     std::fs::write(&path, body.as_bytes())
         .map_err(|error| format!("failed to write note file: {error}"))?;
@@ -895,8 +975,8 @@ pub async fn import_note(
         .to_path_buf();
 
     // Read the file content. Markdown files are UTF-8 text.
-    let content = std::fs::read_to_string(&path)
-        .map_err(|error| format!("failed to read file: {error}"))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|error| format!("failed to read file: {error}"))?;
 
     // Derive a title: prefer the first H1 heading (`# Title`), else the file
     // stem (filename without extension). Trim and cap to keep it readable.
@@ -1026,7 +1106,10 @@ pub async fn get_daily_work_assessment_history(
     let limit = limit.unwrap_or(14).clamp(1, 31);
     let work_logs = state.work_logs.read().await;
 
-    Ok(build_calendar_assessment_summaries(&work_logs.entries, limit))
+    Ok(build_calendar_assessment_summaries(
+        &work_logs.entries,
+        limit,
+    ))
 }
 
 #[tauri::command]
@@ -1042,13 +1125,16 @@ pub async fn get_daily_work_assessment_trend(
 }
 
 #[tauri::command]
-pub async fn get_rhythm_profile(
-    state: State<'_, AppState>,
-) -> Result<RhythmProfile, String> {
+pub async fn get_rhythm_profile(state: State<'_, AppState>) -> Result<RhythmProfile, String> {
     // Aggregate over a generous window so the rhythm has enough signal.
     let work_logs = state.work_logs.read().await;
+    let focus_sessions = state.focus_sessions.read().await;
     let summaries = build_assessment_summaries(&work_logs.entries, 90);
-    Ok(build_rhythm_profile(&work_logs, &summaries))
+    Ok(build_rhythm_profile(
+        &work_logs,
+        &summaries,
+        &focus_sessions,
+    ))
 }
 
 #[tauri::command]
@@ -1058,7 +1144,10 @@ pub async fn get_health_trend(
 ) -> Result<HealthTrendReport, String> {
     let trend_range = parse_trend_range(range.as_deref());
     let work_logs = state.work_logs.read().await;
-    Ok(HealthTrendReport::from_book(&work_logs.entries, trend_range))
+    Ok(HealthTrendReport::from_book(
+        &work_logs.entries,
+        trend_range,
+    ))
 }
 
 /// Map the frontend range string ("7" | "30" | "90") to the enum, defaulting
@@ -1073,15 +1162,10 @@ fn parse_trend_range(range: Option<&str>) -> TrendRange {
 }
 
 #[tauri::command]
-pub async fn get_today_suggestions(
-    state: State<'_, AppState>,
-) -> Result<TodaySuggestions, String> {
+pub async fn get_today_suggestions(state: State<'_, AppState>) -> Result<TodaySuggestions, String> {
     let work_logs = state.work_logs.read().await;
     let current = state.last_snapshot.read().await.clone();
-    Ok(TodaySuggestions::from_local(
-        &work_logs,
-        current.as_ref(),
-    ))
+    Ok(TodaySuggestions::from_local(&work_logs, current.as_ref()))
 }
 
 fn build_assessment_summaries(
@@ -1107,13 +1191,10 @@ fn build_calendar_assessment_summaries(
     recent_calendar_dates(limit)
         .into_iter()
         .map(|date| {
-            let entry = entries
-                .get(&date)
-                .cloned()
-                .unwrap_or_else(|| WorkLogEntry {
-                    date: date.clone(),
-                    ..Default::default()
-                });
+            let entry = entries.get(&date).cloned().unwrap_or_else(|| WorkLogEntry {
+                date: date.clone(),
+                ..Default::default()
+            });
             let has_data = entry_has_assessment_signal(&entry);
             let history = build_assessment_history(entries, &date);
 
@@ -1161,6 +1242,29 @@ mod command_tests {
     use super::*;
 
     #[test]
+    fn onboarding_name_is_trimmed_and_validated() {
+        let mut patch = AppSettingsPatch {
+            cat_name: Some("  小齿轮  ".to_string()),
+            onboarding_version: Some(1),
+            ..Default::default()
+        };
+        normalize_app_settings_patch(&mut patch).unwrap();
+        assert_eq!(patch.cat_name.as_deref(), Some("小齿轮"));
+
+        patch.cat_name = Some("1234567890123".to_string());
+        assert!(normalize_app_settings_patch(&mut patch).is_err());
+    }
+
+    #[test]
+    fn unsupported_onboarding_version_is_rejected() {
+        let mut patch = AppSettingsPatch {
+            onboarding_version: Some(2),
+            ..Default::default()
+        };
+        assert!(normalize_app_settings_patch(&mut patch).is_err());
+    }
+
+    #[test]
     fn focus_quality_is_perfect_with_no_distractions() {
         assert!((compute_focus_quality(0) - 1.0).abs() < f64::EPSILON);
     }
@@ -1177,6 +1281,58 @@ mod command_tests {
         // 5+ distractions would go negative without the floor.
         assert!((compute_focus_quality(5) - FOCUS_MIN_QUALITY).abs() < 1e-9);
         assert!((compute_focus_quality(99) - FOCUS_MIN_QUALITY).abs() < 1e-9);
+    }
+
+    fn focus_session_for_reward(distraction_count: u32) -> FocusSession {
+        FocusSession {
+            planned_duration_seconds: 25 * 60,
+            started_at: 1_000,
+            focus_quality: compute_focus_quality(distraction_count),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn focus_reward_is_zero_when_completed_immediately() {
+        let session = focus_session_for_reward(0);
+
+        assert_eq!(
+            compute_focus_reward(&session, session.started_at),
+            (0, 0.0, 0)
+        );
+    }
+
+    #[test]
+    fn focus_reward_uses_full_elapsed_planned_duration() {
+        let session = focus_session_for_reward(0);
+        let completed_at = session.started_at + 25 * 60 * 1000;
+        let (parts, insight, duration_seconds) = compute_focus_reward(&session, completed_at);
+
+        assert_eq!(parts, 200);
+        assert!((insight - 12.5).abs() < 1e-9);
+        assert_eq!(duration_seconds, 25 * 60);
+    }
+
+    #[test]
+    fn focus_reward_caps_elapsed_time_at_planned_duration() {
+        let session = focus_session_for_reward(0);
+        let completed_at = session.started_at + 60 * 60 * 1000;
+        let (parts, insight, duration_seconds) = compute_focus_reward(&session, completed_at);
+
+        assert_eq!(parts, 200);
+        assert!((insight - 12.5).abs() < 1e-9);
+        assert_eq!(duration_seconds, 25 * 60);
+    }
+
+    #[test]
+    fn focus_reward_scales_with_distraction_quality() {
+        let session = focus_session_for_reward(2);
+        let completed_at = session.started_at + 25 * 60 * 1000;
+        let (parts, insight, duration_seconds) = compute_focus_reward(&session, completed_at);
+
+        assert_eq!(parts, 140);
+        assert!((insight - 8.75).abs() < 1e-9);
+        assert_eq!(duration_seconds, 25 * 60);
     }
 
     #[test]
@@ -1217,7 +1373,10 @@ mod command_tests {
         let history = build_assessment_history(&entries, "2026-06-24");
 
         assert_eq!(
-            history.iter().map(|entry| entry.date.as_str()).collect::<Vec<_>>(),
+            history
+                .iter()
+                .map(|entry| entry.date.as_str())
+                .collect::<Vec<_>>(),
             vec!["2026-06-23", "2026-06-22", "2026-06-21"]
         );
     }
@@ -1239,7 +1398,10 @@ mod command_tests {
         let history = build_assessment_history(&entries, "2026-06-23");
 
         assert_eq!(
-            history.iter().map(|entry| entry.date.as_str()).collect::<Vec<_>>(),
+            history
+                .iter()
+                .map(|entry| entry.date.as_str())
+                .collect::<Vec<_>>(),
             vec!["2026-06-22", "2026-06-21"]
         );
     }
@@ -1498,83 +1660,126 @@ pub async fn save_window_position(
 
 #[tauri::command]
 pub async fn exit_app(app: AppHandle) -> Result<(), String> {
+    crate::persistence::flush_before_shutdown(&app).await?;
     crate::IS_EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
     app.exit(0);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn update_workshop_state(
-    workshop: WorkshopState,
+pub async fn get_workshop_upgrade_quotes(
+    state: State<'_, AppState>,
+) -> Result<WorkshopUpgradeQuotes, String> {
+    let workshop = state.workshop.read().await;
+    Ok(workshop::upgrade_quotes(&workshop))
+}
+
+#[tauri::command]
+pub async fn get_workshop_production_breakdown(
+    state: State<'_, AppState>,
+) -> Result<WorkshopProductionBreakdown, String> {
+    let settings = state.settings.read().await.clone();
+    let snapshot = state.last_snapshot.read().await.clone().unwrap_or_default();
+    let workshop = state.workshop.read().await.clone();
+    let focus_multiplier = state
+        .focus_sessions
+        .read()
+        .await
+        .active_production_multiplier();
+    Ok(workshop::production_breakdown(
+        &settings,
+        &snapshot,
+        &workshop,
+        focus_multiplier,
+    ))
+}
+
+#[tauri::command]
+pub async fn complete_workshop_order(
+    order_id: String,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkshopState, String> {
-    // Reject obviously invalid state from the frontend: a non-positive level or
-    // negative/non-finite resources have no business meaning and would corrupt
-    // the economy (NaN would bypass the monitoring NaN guard since it writes
-    // directly, not via apply_tick).
-    if workshop.workshop_level < 1 {
-        return Err("invalid workshop state: level must be >= 1".to_string());
-    }
-    if !workshop.parts.is_finite()
-        || !workshop.insight.is_finite()
-        || !workshop.today_parts.is_finite()
-        || !workshop.today_insight.is_finite()
-    {
-        return Err("invalid workshop state: resources must be finite numbers".to_string());
-    }
-    if workshop.parts < 0.0
-        || workshop.insight < 0.0
-        || workshop.today_parts < 0.0
-        || workshop.today_insight < 0.0
-    {
-        return Err("invalid workshop state: resources must not be negative".to_string());
-    }
-    // Capture previous_workshop and apply the new value under the SAME write
-    // lock. Reading it separately (read lock, release, write lock) left a
-    // TOCTOU window where a concurrent writer could change workshop between
-    // the read and the write, and a failed-save rollback would then restore a
-    // stale `previous_workshop`, clobbering that concurrent write.
-    let (previous_workshop, next_workshop) = {
-        let mut w = state.workshop.write().await;
-        let previous = w.clone();
-        // MERGE instead of wholesale overwrite (*w = workshop). The frontend
-        // sends a snapshot of the workshop it last saw, but the monitoring pump
-        // updates several fields every ~2s (total_online_seconds, today_parts,
-        // today_insight, last_production_time, last_daily_reset_date). A full
-        // overwrite would clobber those with stale values from the snapshot,
-        // causing resources/on-line time to jump backwards after each upgrade —
-        // which in turn made parts hover right around a cost threshold, so the
-        // user's upgrade attempts kept failing the resource check and needed
-        // many retries. Preserve the pump-maintained fields; only accept the
-        // economy decisions the frontend legitimately owns.
-        w.parts = workshop.parts;
-        w.insight = workshop.insight;
-        w.workshop_level = workshop.workshop_level;
-        w.cat_affinity_level = workshop.cat_affinity_level;
-        w.module_levels = workshop.module_levels.clone();
-        // total_online_seconds / today_parts / today_insight /
-        // last_production_time / last_daily_reset_date stay as the pump left
-        // them. (today_parts/insight SHOULD drop when resources are spent on an
-        // upgrade, but they are cumulative "earned today" counters, not
-        // spendable balances — so keeping them is correct.)
-        (previous, w.clone())
-        // Lock released before the blocking fs::write below (S5).
-    };
+    let (previous_workshop, next_workshop) = mutate_and_save_workshop(state.inner(), |workshop| {
+        workshop::complete_order(workshop, &order_id, current_timestamp_ms())
+    })
+    .await?;
+    finish_workshop_change(&app, &previous_workshop, &next_workshop).await;
+    Ok(next_workshop)
+}
 
-    // Persist outside the lock; roll back to the prior state on failure so the
-    // in-memory workshop never diverges from disk (C1/S6).
-    if let Err(error) = state.storage.save_workshop(&next_workshop) {
-        let mut w = state.workshop.write().await;
-        *w = previous_workshop.clone();
+#[tauri::command]
+pub async fn upgrade_workshop(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<WorkshopState, String> {
+    let (previous_workshop, next_workshop) = mutate_and_save_workshop(state.inner(), |workshop| {
+        workshop::apply_workshop_upgrade(workshop).map(|_| ())
+    })
+    .await?;
+
+    finish_workshop_change(&app, &previous_workshop, &next_workshop).await;
+    Ok(next_workshop)
+}
+
+#[tauri::command]
+pub async fn upgrade_workshop_module(
+    module_key: String,
+    track: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<WorkshopState, String> {
+    let (previous_workshop, next_workshop) = mutate_and_save_workshop(state.inner(), |workshop| {
+        workshop::apply_module_upgrade(workshop, &module_key, &track).map(|_| ())
+    })
+    .await?;
+
+    finish_workshop_change(&app, &previous_workshop, &next_workshop).await;
+    Ok(next_workshop)
+}
+
+#[tauri::command]
+pub async fn reset_workshop_state(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<WorkshopState, String> {
+    let (previous_workshop, next_workshop) = mutate_and_save_workshop(state.inner(), |workshop| {
+        *workshop = WorkshopState::default();
+        Ok(())
+    })
+    .await?;
+
+    finish_workshop_change(&app, &previous_workshop, &next_workshop).await;
+    Ok(next_workshop)
+}
+
+async fn mutate_and_save_workshop(
+    state: &AppState,
+    mutate: impl FnOnce(&mut WorkshopState) -> Result<(), String>,
+) -> Result<(WorkshopState, WorkshopState), String> {
+    let mut workshop = state.workshop.write().await;
+    let previous = workshop.clone();
+    mutate(&mut workshop)?;
+    let next = workshop.clone();
+
+    // Keep the write lock through this small atomic file write so production
+    // ticks and concurrent upgrade requests cannot interleave with the debit.
+    if let Err(error) = state.storage.save_workshop(&next) {
+        *workshop = previous;
         return Err(format!("failed to save workshop: {error}"));
     }
+    Ok((previous, next))
+}
 
+async fn finish_workshop_change(
+    app: &AppHandle,
+    previous_workshop: &WorkshopState,
+    next_workshop: &WorkshopState,
+) {
     if let Err(error) = app.emit(WORKSHOP_UPDATED, next_workshop.clone()) {
         tracing::warn!("failed to emit {WORKSHOP_UPDATED}: {error}");
     }
-    record_workshop_upgrade_events(&app, &previous_workshop, &next_workshop).await;
-    Ok(next_workshop)
+    record_workshop_upgrade_events(app, previous_workshop, next_workshop).await;
 }
 
 fn settings_patch_achievement_payloads(patch: &AppSettingsPatch) -> Vec<Value> {
@@ -1724,7 +1929,10 @@ async fn record_module_upgrade_event(
     if let Err(error) = record_internal_achievement_event(
         app,
         "workshop.module_upgrade",
-        format!("workshop.module_upgrade:{module_key}:{track}:{}", current_timestamp_ms()),
+        format!(
+            "workshop.module_upgrade:{module_key}:{track}:{}",
+            current_timestamp_ms()
+        ),
         serde_json::json!({
             "moduleKey": module_key,
             "track": track,

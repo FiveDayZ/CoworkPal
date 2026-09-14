@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   formatBytes,
   formatBytesPerSecond,
@@ -8,7 +8,6 @@ import {
   formatTemperature,
   temperatureSourceLabel,
 } from "../../services/formatters";
-import { useFocusStore } from "../../stores/focusStore";
 import { useHardwareStore } from "../../stores/hardwareStore";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -16,6 +15,7 @@ import { useWorkshopStore } from "../../stores/workshopStore";
 import { useThemedIcons } from "../../ui/assets";
 import { calculateSystemStability } from "../../services/systemStability";
 import { PixelIcon } from "../../ui/PixelIcon";
+import { WeeklyGoalsCard } from "./WeeklyGoalsCard";
 
 export function DashboardPage() {
   const snapshot = useHardwareStore((state) => state.snapshot);
@@ -26,51 +26,9 @@ export function DashboardPage() {
   const catMessage = usePetStore((state) => state.catMessage);
   const setPetStatus = usePetStore((state) => state.setPetStatus);
   const icons = useThemedIcons();
-  const activeFocusSession = useFocusStore((state) => state.activeSession);
-  const isStartingFocus = useFocusStore((state) => state.isStarting);
-  const startFocus = useFocusStore((state) => state.start);
-  const completeFocus = useFocusStore((state) => state.complete);
-  const abandonFocus = useFocusStore((state) => state.abandon);
-
-  const [focusTask, setFocusTask] = useState("");
-  const [focusMinutes, setFocusMinutes] = useState(25);
-  const [focusError, setFocusError] = useState<string | null>(null);
-  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [resumeState, setResumeState] = useState<
     "idle" | "pending" | "failed"
   >("idle");
-
-  // Live countdown for an active focus session.
-  useEffect(() => {
-    if (!activeFocusSession) {
-      setRemainingSeconds(0);
-      return undefined;
-    }
-    function tick() {
-      if (!activeFocusSession) {
-        return;
-      }
-      const elapsed = Math.floor(
-        (Date.now() - activeFocusSession.startedAt) / 1000,
-      );
-      setRemainingSeconds(
-        Math.max(0, activeFocusSession.plannedDurationSeconds - elapsed),
-      );
-    }
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
-  }, [activeFocusSession]);
-
-  async function handleStartFocus() {
-    setFocusError(null);
-    try {
-      await startFocus(focusTask.trim(), focusMinutes);
-      setFocusTask("");
-    } catch (error) {
-      setFocusError(typeof error === "string" ? error : "无法开始专注会话");
-    }
-  }
 
   async function handleResumeProduction() {
     setResumeState("pending");
@@ -219,92 +177,7 @@ export function DashboardPage() {
               </div>
             </div>
 
-            {/* Focus ritual card: lives under the CoCat avatar so it does not
-                consume the metric workspace. */}
-            <div className="cwp-dashboard-focus">
-              {activeFocusSession ? (
-                <div className="cwp-dashboard-focus-active">
-                  <div className="cwp-dashboard-focus-task">
-                    <PixelIcon
-                      name="focus"
-                      size={14}
-                      className="cwp-dashboard-focus-task-icon"
-                    />
-                    <span>{activeFocusSession.taskLabel}</span>
-                  </div>
-                  <div className="cwp-dashboard-focus-timer">
-                    {String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:
-                    {String(remainingSeconds % 60).padStart(2, "0")}
-                  </div>
-                  <div className="cwp-dashboard-focus-meta">
-                    分心 {activeFocusSession.distractionCount} 次
-                  </div>
-                  <div className="cwp-dashboard-focus-actions">
-                    <button
-                      className="cwp-hero-btn"
-                      onClick={() => void completeFocus().catch((e) => console.error("complete focus failed", e))}
-                      type="button"
-                    >
-                      完成
-                    </button>
-                    <button
-                      className="cwp-hero-btn"
-                      onClick={() => void abandonFocus().catch((e) => console.error("abandon focus failed", e))}
-                      type="button"
-                    >
-                      放弃
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="cwp-dashboard-focus-setup">
-                  <div className="cwp-dashboard-focus-title">专注仪式</div>
-                  <input
-                    className="cwp-dashboard-focus-input"
-                    type="text"
-                    placeholder="向 CoCat 交付一个任务…"
-                    value={focusTask}
-                    maxLength={40}
-                    onChange={(event) => setFocusTask(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === "Enter" &&
-                        focusTask.trim() &&
-                        !isStartingFocus
-                      ) {
-                        void handleStartFocus();
-                      }
-                    }}
-                  />
-                  <div className="cwp-dashboard-focus-options">
-                    {[25, 50].map((minutes) => (
-                      <button
-                        key={minutes}
-                        type="button"
-                        className={
-                          "cwp-dashboard-focus-chip" +
-                          (focusMinutes === minutes ? " is-active" : "")
-                        }
-                        onClick={() => setFocusMinutes(minutes)}
-                      >
-                        {minutes} 分钟
-                      </button>
-                    ))}
-                  </div>
-                  {focusError ? (
-                    <div className="cwp-dashboard-focus-error">{focusError}</div>
-                  ) : null}
-                  <button
-                    className="cwp-hero-btn"
-                    onClick={() => void handleStartFocus()}
-                    type="button"
-                    disabled={!focusTask.trim() || isStartingFocus}
-                  >
-                    {isStartingFocus ? "开始中…" : "开始专注"}
-                  </button>
-                </div>
-              )}
-            </div>
+            <WeeklyGoalsCard />
           </div>
 
             {/* Right 6 Metric Cards */}

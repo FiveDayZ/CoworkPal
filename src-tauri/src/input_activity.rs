@@ -4,9 +4,9 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
     app_state::AppState,
-    commands::record_internal_achievement_event,
     events::WORKLOG_UPDATED,
     models::{current_timestamp_ms, date_key_from_timestamp, WorkLogEntry, WorkLogReport},
+    persistence::PeriodicAchievementDelta,
 };
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -72,9 +72,7 @@ async fn flush_input_activity(app: &AppHandle, delta: InputActivityDelta) {
         entry.record_input_activity_at(delta.mouse_clicks, delta.keyboard_presses, timestamp);
         let report = WorkLogReport::from_entry(entry.clone());
 
-        if let Err(error) = state.storage.save_work_logs(&work_logs) {
-            tracing::warn!("failed to save input activity to work log: {error}");
-        }
+        state.persistence.mark_work_logs_dirty();
 
         report
     };
@@ -85,25 +83,22 @@ async fn flush_input_activity(app: &AppHandle, delta: InputActivityDelta) {
     if !delta.is_empty() {
         let mut runtime = state.cat_runtime.write().await;
         runtime.last_input_at = Some(timestamp);
+        runtime.last_distraction_at = None;
     }
 
     if let Err(error) = app.emit(WORKLOG_UPDATED, updated_report) {
         tracing::warn!("failed to emit {WORKLOG_UPDATED} after input activity: {error}");
     }
 
-    if let Err(error) = record_internal_achievement_event(
-        app,
-        "hardware.segment_rollup",
-        format!("input.activity:{timestamp}"),
-        serde_json::json!({
-            "mouseClickCount": delta.mouse_clicks,
-            "keyboardPressCount": delta.keyboard_presses,
-        }),
-    )
-    .await
-    {
-        tracing::warn!("failed to record input achievement event: {error}");
-    }
+    state
+        .persistence
+        .queue_periodic_achievement(PeriodicAchievementDelta {
+            occurred_at: timestamp,
+            mouse_click_count: delta.mouse_clicks,
+            keyboard_press_count: delta.keyboard_presses,
+            ..Default::default()
+        })
+        .await;
 }
 
 #[cfg(windows)]

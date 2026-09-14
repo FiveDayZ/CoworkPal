@@ -128,6 +128,7 @@ export function PetWindow() {
   const pendingInteractionStateRef = useRef<CoCatAnimationState | null>(null);
   const interactionRequestIdRef = useRef(0);
   const errorGlitchArmedRef = useRef(true);
+  const clickBurstRef = useRef({ count: 0, startedAt: 0 });
   const reportedVisualAnimationRef = useRef<CoCatAnimationState | null>(null);
   // 自引用的动画结束处理函数（存在 ref 里以支持递归调用）
   const finishInteractionRef = useRef<(() => void) | null>(null);
@@ -634,6 +635,27 @@ export function PetWindow() {
     if (dragMovedRef.current) {
       dragMovedRef.current = false;
       return;
+    }
+
+    const occurredAt = Date.now();
+    const previousBurst = clickBurstRef.current;
+    const withinBurst = occurredAt - previousBurst.startedAt <= 2000;
+    const nextBurst = withinBurst
+      ? { count: previousBurst.count + 1, startedAt: previousBurst.startedAt }
+      : { count: 1, startedAt: occurredAt };
+    if (nextBurst.count >= 3) {
+      clickBurstRef.current = { count: 0, startedAt: 0 };
+      void trackAchievementEvent({
+        eventName: "pet.click_burst",
+        occurredAt,
+        idempotencyKey: `pet.click_burst:${occurredAt}`,
+        payload: { clicks: nextBurst.count, windowMs: occurredAt - nextBurst.startedAt },
+        source: "pet-window",
+      }).catch((error) => {
+        console.error("Failed to track pet click burst achievement event", error);
+      });
+    } else {
+      clickBurstRef.current = nextBurst;
     }
 
     if (noddingTimerRef.current != null) {

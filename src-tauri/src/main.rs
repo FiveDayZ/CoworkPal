@@ -29,9 +29,8 @@ fn try_run_memory_helper_mode() -> bool {
     }
 
     let result_file = args.iter().find_map(|a| {
-        a.strip_prefix("--result-file=").map(|rest| {
-            std::path::PathBuf::from(rest.trim_matches('"'))
-        })
+        a.strip_prefix("--result-file=")
+            .map(|rest| std::path::PathBuf::from(rest.trim_matches('"')))
     });
 
     let released = cowork_pal_lib::memory_release::run_full_clean_inplace();

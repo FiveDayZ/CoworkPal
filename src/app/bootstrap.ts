@@ -41,18 +41,22 @@ async function bootstrapWindow(label: BootstrapWindowLabel): Promise<EventCleanu
     const [
       { registerMainWindowEvents },
       { useAchievementStore },
+      { useFocusStore },
       { useNotesStore },
       { useWorkshopStore },
       { useWorkLogStore },
     ] = await Promise.all([
       import("../services/events/mainWindowEvents"),
       import("../stores/achievementStore"),
+      import("../stores/focusStore"),
       import("../stores/notesStore"),
       import("../stores/workshopStore"),
       import("../stores/workLogStore"),
     ]);
 
     void useAchievementStore.getState().loadSummary();
+    void useAchievementStore.getState().loadWeeklyGoals();
+    void useFocusStore.getState().load();
     void useNotesStore.getState().loadNotes();
     void useWorkshopStore.getState().loadWorkshopState();
     void useWorkLogStore.getState().loadWorkLogReport();
@@ -79,12 +83,15 @@ async function bootstrapWindow(label: BootstrapWindowLabel): Promise<EventCleanu
   if (label === "pet-panel") {
     const [
       { registerPetPanelWindowEvents },
+      { useFocusStore },
       { useWorkshopStore },
     ] = await Promise.all([
       import("../services/events/petPanelWindowEvents"),
+      import("../stores/focusStore"),
       import("../stores/workshopStore"),
     ]);
 
+    void useFocusStore.getState().load();
     void useWorkshopStore.getState().loadWorkshopState();
     return registerPetPanelWindowEvents();
   }

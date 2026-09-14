@@ -10,10 +10,24 @@ use windows::{
             PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_VALID_DATA, PDH_FMT_COUNTERVALUE,
             PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PDH_MORE_DATA,
         },
+        UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
     },
 };
 
 const ERROR_SUCCESS: u32 = 0;
+
+pub fn query_foreground_process_id() -> Option<u32> {
+    let window = unsafe { GetForegroundWindow() };
+    if window.0.is_null() {
+        return None;
+    }
+
+    let mut process_id = 0;
+    unsafe {
+        GetWindowThreadProcessId(window, Some(&mut process_id));
+    }
+    (process_id > 0).then_some(process_id)
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct WindowsPerformanceSample {

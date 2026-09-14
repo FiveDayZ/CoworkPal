@@ -13,17 +13,13 @@ import { useWorkshopStore } from "../../stores/workshopStore";
 import {
   normalizeModuleLevels,
   type ModuleUpgradeLevels,
+  type ResourceCost,
   type WorkshopModuleKey,
 } from "../../types/workshop";
 import { moduleAssets } from "../../ui/assets";
 import { playAudioFeedback } from "../../services/audioFeedback";
 import type { CoCatAnimationState } from "../../pet/cocat/animation/animationTypes";
 import { PixelIcon } from "../../ui/PixelIcon";
-
-interface ResourceCost {
-  parts: number;
-  insight: number;
-}
 
 interface ModuleData {
   key: WorkshopModuleKey;
@@ -42,43 +38,51 @@ interface ModuleData {
   resourceRateText: string;
 }
 
-const MAX_WORKSHOP_LEVEL = 100;
-const MAX_MODULE_SUB_LEVEL = 100;
 const BASE_PARTS_PER_MINUTE = 1.6;
 const BASE_INSIGHT_PER_MINUTE = 0.13;
-const ECONOMY_REFERENCE_PARTS_PER_HOUR = 115;
-const ECONOMY_REFERENCE_INSIGHT_PER_HOUR = 6.8;
-const MODULE_PARTS_UPGRADE_PARTS_WEIGHT = 1.15;
-const MODULE_PARTS_UPGRADE_INSIGHT_WEIGHT = 0.75;
-const MODULE_PROCESS_UPGRADE_PARTS_WEIGHT = 0.9;
-const MODULE_PROCESS_UPGRADE_INSIGHT_WEIGHT = 1.2;
 
 export function WorkshopPage() {
   const workshop = useWorkshopStore((store) => store.state);
-  const saveWorkshopState = useWorkshopStore((store) => store.saveWorkshopState);
+  const quotes = useWorkshopStore((store) => store.quotes);
+  const breakdown = useWorkshopStore((store) => store.breakdown);
+  const upgradeWorkshop = useWorkshopStore((store) => store.upgradeWorkshop);
+  const upgradeModule = useWorkshopStore((store) => store.upgradeModule);
+  const completeOrder = useWorkshopStore((store) => store.completeOrder);
+  const refreshBreakdown = useWorkshopStore((store) => store.refreshBreakdown);
   const settings = useSettingsStore((state) => state.settings);
   const snapshot = useHardwareStore((state) => state.snapshot);
   const [selectedModuleKey, setSelectedModuleKey] =
     useState<WorkshopModuleKey | null>(null);
-  // Guards upgrade actions while a saveWorkshopState round-trip is in flight.
+  // Guards upgrade actions while an authoritative Rust upgrade is in flight.
   // Without this, a double-click could fire two saves before the store
   // refreshes currentParts/currentInsight, deducting resources twice.
   const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [orderBusy, setOrderBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    void refreshBreakdown().catch((error) =>
+      console.error("Failed to refresh workshop production breakdown", error),
+    );
+  }, [
+    refreshBreakdown,
+    snapshot?.timestamp,
+    workshop?.workshopLevel,
+    workshop?.catAffinityLevel,
+  ]);
 
   const moduleLevels = normalizeModuleLevels(workshop?.moduleLevels);
   const currentLevel = workshop?.workshopLevel ?? 1;
   const currentParts = workshop?.parts ?? 0;
   const currentInsight = workshop?.insight ?? 0;
-  const nextLevel = currentLevel + 1;
-  const workshopCost = getWorkshopUpgradeCost(currentLevel);
-  const isWorkshopMaxed = currentLevel >= MAX_WORKSHOP_LEVEL;
+  const workshopCost = quotes?.workshop;
+  const isWorkshopMaxed = workshopCost === null;
   // parts/insight are f64 accumulated by the monitoring pump (small float
   // deltas), while costs are integers. A tiny epsilon avoids a resource that
   // is effectively "enough" (e.g. 99.99999999) from failing the >= check due
   // to float representation, which made upgrades flicker/require retries.
   const RESOURCE_EPSILON = 0.001;
   const canUpgradeWorkshop =
-    !isWorkshopMaxed &&
+    workshopCost != null &&
     currentParts >= workshopCost.parts - RESOURCE_EPSILON &&
     currentInsight >= workshopCost.insight - RESOURCE_EPSILON;
   const modules = buildModules(moduleLevels, snapshot, settings);
@@ -90,15 +94,7 @@ export function WorkshopPage() {
     setUpgradeBusy(true);
     playAudioFeedback("meow", settings?.enableSound ?? false);
     try {
-      await saveWorkshopState({
-        ...workshop,
-        // Clamp to 0 so a tiny float underflow (e.g. 100.0 - 100 = -1e-13) is
-        // not sent as a negative value, which the backend's validation rejects.
-        parts: Math.max(0, currentParts - workshopCost.parts),
-        insight: Math.max(0, currentInsight - workshopCost.insight),
-        workshopLevel: nextLevel,
-        moduleLevels,
-      });
+      await upgradeWorkshop();
       void triggerCoCatUpgradeAnimation("workshopUpgrade");
     } catch (error) {
       alert(`升级失败：${error instanceof Error ? error.message : String(error)}`);
@@ -110,43 +106,30 @@ export function WorkshopPage() {
   const handleSubUpgrade = async (type: "parts" | "process") => {
     if (upgradeBusy || !selectedModule || !workshop) return;
 
-    const currentSubLevel = moduleLevels[selectedModule.key][type];
-    if (currentSubLevel >= MAX_MODULE_SUB_LEVEL) {
-      alert("该模块已达升级上限！");
-      return;
-    }
-    const cost = getSubCost(currentSubLevel, type, currentLevel);
-    // Same float-epsilon tolerance as canUpgradeWorkshop above.
-    if (
-      currentParts < cost.parts - RESOURCE_EPSILON ||
-      currentInsight < cost.insight - RESOURCE_EPSILON
-    ) {
-      alert(getResourceShortageMessage(cost, currentParts, currentInsight));
-      return;
-    }
-
     playAudioFeedback("click", settings?.enableSound ?? false);
-    const nextModuleLevels = {
-      ...moduleLevels,
-      [selectedModule.key]: {
-        ...moduleLevels[selectedModule.key],
-        [type]: currentSubLevel + 1,
-      },
-    };
 
     setUpgradeBusy(true);
     try {
-      await saveWorkshopState({
-        ...workshop,
-        parts: Math.max(0, currentParts - cost.parts),
-        insight: Math.max(0, currentInsight - cost.insight),
-        moduleLevels: nextModuleLevels,
-      });
+      await upgradeModule(selectedModule.key, type);
       void triggerCoCatUpgradeAnimation("moduleUpgrade");
     } catch (error) {
       alert(`强化失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setUpgradeBusy(false);
+    }
+  };
+
+  const handleCompleteOrder = async (orderId: string) => {
+    if (orderBusy) return;
+    setOrderBusy(orderId);
+    try {
+      await completeOrder(orderId);
+      playAudioFeedback("meow", settings?.enableSound ?? false);
+      void triggerCoCatUpgradeAnimation("achievementPop");
+    } catch (error) {
+      alert(`交付失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setOrderBusy(null);
     }
   };
 
@@ -171,6 +154,7 @@ export function WorkshopPage() {
         <h2 className="page-title">迷你硬件工坊地图</h2>
       </div>
 
+      <div className="cwp-workshop-content">
       <section className="cwp-workshop-grid">
         {modules.map((module) => {
           const levels = moduleLevels[module.key];
@@ -222,15 +206,16 @@ export function WorkshopPage() {
       <div className="cwp-workshop-gains-panel">
         <div className="cwp-gains-column">
           <div className="cwp-gains-title">
-            <PixelIcon name="settings" size={14} style={{ marginRight: "6px" }} /> 零件与灵感产出规则
+            <PixelIcon name="settings" size={14} style={{ marginRight: "6px" }} /> 实时产出拆解
           </div>
           <div className="cwp-gains-list">
-            <GainItem label="CPU" value="负载驱动零件" />
-            <GainItem label="GPU" value="渲染与显存仅转化零件" />
-            <GainItem label="RAM" value="压力仅给零件" />
-            <GainItem label="NET" value="吞吐仅带来灵感" />
-            <GainItem label="TEMP" value="温度越稳惩罚越低" />
-            <GainItem label="DISK" value="读写形成归档灵感" />
+            <GainItem label="硬件→零件" value={formatFactor(breakdown?.partsActivity)} />
+            <GainItem label="吞吐→灵感" value={formatFactor(breakdown?.insightActivity)} />
+            <GainItem label="工坊等级" value={formatMultiplier(breakdown?.workshopMultiplier)} />
+            <GainItem label="零件模块" value={formatMultiplier(breakdown?.partsModuleMultiplier)} />
+            <GainItem label="灵感模块" value={formatMultiplier(breakdown?.insightModuleMultiplier)} />
+            <GainItem label="稳定/专注" value={`${formatMultiplier(breakdown?.stabilityMultiplier)} / ${formatMultiplier(breakdown?.focusMultiplier)}`} />
+            <GainItem label="亲密协作" value={formatMultiplier(breakdown?.affinityMultiplier)} />
           </div>
         </div>
         <div
@@ -241,15 +226,69 @@ export function WorkshopPage() {
           }}
         >
           <div className="cwp-gains-title">
-            <PixelIcon name="energy" size={14} style={{ marginRight: "6px" }} /> 工坊升级增益
+            <PixelIcon name="energy" size={14} style={{ marginRight: "6px" }} /> 当前产能
           </div>
           <div className="cwp-gains-desc">
-            Level <strong>{currentLevel}</strong> 提供{" "}
-            <strong>+{Math.round((currentLevel - 1) * 12)}%</strong>{" "}
-            综合产能。模块的“零件强化”偏向产出，“工艺优化”偏向灵感与稳定。
+            零件 <strong>{formatRate(breakdown?.partsPerMinute)}</strong> / 分钟<br />
+            灵感 <strong>{formatRate(breakdown?.insightPerMinute)}</strong> / 分钟
+          </div>
+          <div className={`cwp-affinity-summary is-${breakdown?.affinityTier ?? "new"}`}>
+            <div>
+              <span>亲密关系 · {breakdown?.affinityTitle ?? "初识搭档"}</span>
+              <strong>
+                LV.{workshop?.catAffinityLevel ?? 1} · 亲密度 {workshop?.affinityExperience ?? 0}/100
+              </strong>
+            </div>
+            <i>
+              <b style={{ width: `${Math.max(0, Math.min(100, workshop?.affinityExperience ?? 0))}%` }} />
+            </i>
+            <small>
+              工坊产出 +{formatBonusPercent(breakdown?.affinityMultiplier)}
+              {breakdown?.nextAffinityLevel != null
+                ? ` · LV.${breakdown.nextAffinityLevel} ${breakdown.nextAffinityTitle}`
+                : " · 关系阶段已满"}
+            </small>
           </div>
         </div>
       </div>
+
+      <section className="cwp-workshop-orders" aria-label="工坊订单">
+        <div className="cwp-orders-heading">
+          <strong>今日工单</strong>
+          <span>已完成 {workshop?.completedOrderCount ?? 0}</span>
+        </div>
+        <div className="cwp-order-grid">
+          {(workshop?.activeOrders ?? []).map((order) => {
+            const affordable = currentParts + RESOURCE_EPSILON >= order.requiredParts
+              && currentInsight + RESOURCE_EPSILON >= order.requiredInsight;
+            return (
+              <article className={`cwp-order-card is-${order.kind}`} key={order.id}>
+                <div className="cwp-order-title">
+                  <strong>{order.title}</strong>
+                  <span>{orderKindLabel(order.kind)}</span>
+                </div>
+                <p>{order.description}</p>
+                <div className="cwp-order-cost">
+                  <span>零件 {order.requiredParts}</span>
+                  <span>灵感 {order.requiredInsight}</span>
+                  {order.expiresAt != null && <span>{formatOrderExpiry(order.expiresAt)}</span>}
+                  <em>+{order.rewardAffinity} 亲密度</em>
+                </div>
+                <button
+                  type="button"
+                  disabled={!affordable || orderBusy !== null}
+                  onClick={() => void handleCompleteOrder(order.id)}
+                >
+                  {orderBusy === order.id ? "交付中…" : "交付"}
+                </button>
+              </article>
+            );
+          })}
+          {(workshop?.activeOrders.length ?? 0) === 0 && (
+            <div className="cwp-orders-empty">今日工单已完成，新的工单会在下一个工作日到达。</div>
+          )}
+        </div>
+      </section>
 
       <div className="cwp-workshop-upgrade-panel">
         <div className="cwp-upgrade-left">
@@ -260,13 +299,13 @@ export function WorkshopPage() {
           <div className="cwp-upgrade-stat">
             <span className="cwp-upgrade-stat-label">升级零件</span>
             <span className="cwp-upgrade-stat-val">
-              {formatParts(currentParts)} / {workshopCost.parts}
+              {formatParts(currentParts)} / {workshopCost?.parts ?? "—"}
             </span>
           </div>
           <div className="cwp-upgrade-stat">
             <span className="cwp-upgrade-stat-label">升级灵感</span>
             <span className="cwp-upgrade-stat-val gold">
-              {formatParts(currentInsight)} / {workshopCost.insight}
+              {formatParts(currentInsight)} / {workshopCost?.insight ?? "—"}
             </span>
           </div>
         </div>
@@ -277,8 +316,9 @@ export function WorkshopPage() {
           type="button"
           style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
         >
-          <PixelIcon name="energy" size={14} /> {upgradeBusy ? "升级中…" : isWorkshopMaxed ? "已达上限" : "升级工坊"}
+          <PixelIcon name="energy" size={14} /> {upgradeBusy ? "升级中…" : isWorkshopMaxed ? "已达上限" : workshopCost === undefined ? "…" : "升级工坊"}
         </button>
+      </div>
       </div>
 
       {selectedModule && (
@@ -317,11 +357,7 @@ export function WorkshopPage() {
             </div>
             <p className="cwp-module-detail-copy">{selectedModule.detail}</p>
             <SubUpgradeRow
-              cost={getSubCost(
-                moduleLevels[selectedModule.key].parts,
-                "parts",
-                currentLevel,
-              )}
+              cost={quotes?.modules[selectedModule.key]?.parts}
               currentInsight={currentInsight}
               currentParts={currentParts}
               level={moduleLevels[selectedModule.key].parts}
@@ -331,11 +367,7 @@ export function WorkshopPage() {
               busy={upgradeBusy}
             />
             <SubUpgradeRow
-              cost={getSubCost(
-                moduleLevels[selectedModule.key].process,
-                "process",
-                currentLevel,
-              )}
+              cost={quotes?.modules[selectedModule.key]?.process}
               currentInsight={currentInsight}
               currentParts={currentParts}
               level={moduleLevels[selectedModule.key].process}
@@ -375,6 +407,35 @@ function GainItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+function formatFactor(value: number | null | undefined) {
+  return value == null ? "—" : `${Math.round(value * 100)}%`;
+}
+
+function formatMultiplier(value: number | null | undefined) {
+  return value == null ? "—" : `×${value.toFixed(2)}`;
+}
+
+function formatBonusPercent(value: number | null | undefined) {
+  return value == null ? "—" : `${Math.max(0, (value - 1) * 100).toFixed(1)}%`;
+}
+
+function formatRate(value: number | null | undefined) {
+  return value == null ? "—" : value.toFixed(value >= 10 ? 1 : 2);
+}
+
+function orderKindLabel(kind: "standard" | "timed" | "hardwareEvent") {
+  if (kind === "timed") return "限时";
+  if (kind === "hardwareEvent") return "硬件事件";
+  return "普通";
+}
+
+function formatOrderExpiry(expiresAt: number) {
+  return `截止 ${new Date(expiresAt).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
 function SubUpgradeRow({
   cost,
   currentInsight,
@@ -385,7 +446,7 @@ function SubUpgradeRow({
   rule,
   busy,
 }: {
-  cost: ResourceCost;
+  cost: ResourceCost | null | undefined;
   currentInsight: number;
   currentParts: number;
   level: number;
@@ -394,12 +455,15 @@ function SubUpgradeRow({
   rule: string;
   busy: boolean;
 }) {
-  const isMaxed = level >= MAX_MODULE_SUB_LEVEL;
+  const isMaxed = cost === null;
   // Float-epsilon tolerance (matches the upgrade handlers): resources
   // accumulated as f64 may be 0.0001 short of an integer cost due to rounding.
   const EPS = 0.001;
   const disabled =
-    busy || isMaxed || currentParts < cost.parts - EPS || currentInsight < cost.insight - EPS;
+    busy ||
+    cost == null ||
+    currentParts < cost.parts - EPS ||
+    currentInsight < cost.insight - EPS;
   return (
     <div className="cwp-sub-upgrade-row">
       <div className="cwp-sub-upgrade-info">
@@ -415,7 +479,7 @@ function SubUpgradeRow({
         onClick={onUpgrade}
         type="button"
       >
-        {isMaxed ? "已达上限" : busy ? "升级中…" : formatCost(cost)}
+        {isMaxed ? "已达上限" : busy ? "升级中…" : cost ? formatCost(cost) : "…"}
       </button>
     </div>
   );
@@ -576,82 +640,6 @@ function buildModules(
   ];
 }
 
-function getWorkshopUpgradeCost(level: number): ResourceCost {
-  const safeLevel = Math.max(1, level);
-  const targetHours = getWorkshopTargetHours(safeLevel);
-
-  return {
-    parts: Math.round(ECONOMY_REFERENCE_PARTS_PER_HOUR * targetHours),
-    insight: Math.round(ECONOMY_REFERENCE_INSIGHT_PER_HOUR * targetHours),
-  };
-}
-
-function getSubCost(
-  level: number,
-  type: "parts" | "process",
-  workshopLevel: number,
-): ResourceCost {
-  const safeLevel = Math.max(1, level);
-  const safeWorkshopLevel = Math.max(1, workshopLevel);
-  const targetHours = getModuleTargetHours(safeLevel, safeWorkshopLevel);
-
-  if (type === "parts") {
-    return {
-      parts: Math.round(
-        ECONOMY_REFERENCE_PARTS_PER_HOUR *
-          targetHours *
-          MODULE_PARTS_UPGRADE_PARTS_WEIGHT,
-      ),
-      insight: Math.max(
-        1,
-        Math.round(
-          ECONOMY_REFERENCE_INSIGHT_PER_HOUR *
-            targetHours *
-            MODULE_PARTS_UPGRADE_INSIGHT_WEIGHT,
-        ),
-      ),
-    };
-  }
-
-  return {
-    parts: Math.round(
-      ECONOMY_REFERENCE_PARTS_PER_HOUR *
-        targetHours *
-        MODULE_PROCESS_UPGRADE_PARTS_WEIGHT,
-    ),
-    insight: Math.max(
-      1,
-      Math.round(
-        ECONOMY_REFERENCE_INSIGHT_PER_HOUR *
-          targetHours *
-          MODULE_PROCESS_UPGRADE_INSIGHT_WEIGHT,
-      ),
-    ),
-  };
-}
-
-function getWorkshopTargetHours(level: number) {
-  const baseHours = 0.85 + level * 0.45 + Math.pow(level, 1.55) * 0.42;
-  return baseHours * getLateGameCostMultiplier(level);
-}
-
-function getModuleTargetHours(level: number, workshopLevel: number) {
-  const baseHours =
-    0.35 +
-    level * 0.28 +
-    Math.pow(level, 1.42) * 0.18 +
-    workshopLevel * 0.06;
-  return baseHours * getLateGameCostMultiplier(Math.max(level, workshopLevel));
-}
-
-function getLateGameCostMultiplier(level: number) {
-  if (level <= 30) {
-    return 1;
-  }
-
-  return 1 + Math.min(0.55, (level - 30) * 0.008);
-}
-
 function getModuleDisplayLevel(levels: ModuleUpgradeLevels) {
   return Math.max(1, Math.floor((levels.parts + levels.process) / 2));
 }
@@ -679,22 +667,6 @@ function formatCost(cost: ResourceCost): React.ReactNode {
       {cost.parts}
     </span>
   );
-}
-
-function getResourceShortageMessage(
-  cost: ResourceCost,
-  currentParts: number,
-  currentInsight: number,
-) {
-  const shortages: string[] = [];
-  if (currentParts < cost.parts) {
-    shortages.push(`零件不足：当前 ${formatParts(currentParts)} / 需要 ${cost.parts}`);
-  }
-  if (currentInsight < cost.insight) {
-    shortages.push(`灵感不足：当前 ${formatParts(currentInsight)} / 需要 ${cost.insight}`);
-  }
-
-  return shortages.join("\n");
 }
 
 function formatMemoryMetric(

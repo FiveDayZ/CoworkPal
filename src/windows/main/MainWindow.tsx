@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useState } from "react";
 import { AchievementUnlockToast } from "../../components/AchievementUnlockToast";
+import { OnboardingFlow } from "../../components/onboarding/OnboardingFlow";
 import { ErrorBoundary } from "../../components/ErrorBoundary";
 import { mainRoutes, type MainRoute } from "../../routes";
 import { formatParts } from "../../services/formatters";
@@ -28,6 +29,7 @@ import { PixelIcon, type PixelIconName } from "../../ui/PixelIcon";
 
 const routeLabels: Record<MainRoute, { icon: PixelIconName; text: string }> = {
   dashboard: { icon: "dashboard", text: "控制台" },
+  focus: { icon: "focus", text: "专注" },
   devices: { icon: "devices", text: "设备" },
   workshop: { icon: "tools", text: "工坊" },
   settings: { icon: "settings", text: "设置" },
@@ -54,6 +56,7 @@ function reloadPageStores() {
       void useNotesStore.getState().loadNotes();
       void useWorkshopStore.getState().loadWorkshopState();
       void useAchievementStore.getState().loadSummary();
+      void useAchievementStore.getState().loadWeeklyGoals();
       void useSettingsStore.getState().loadSettings();
     },
   );
@@ -187,7 +190,7 @@ export function MainWindow() {
                   <PetAvatar />
                   <div className="cwp-sidebar-status-info">
                     <span className="cwp-sidebar-status-name">
-                      CoCat
+                      {settings?.catName || "CoCat"}
                     </span>
                     <span className="cwp-sidebar-status-online">
                       ● 陪伴中
@@ -246,6 +249,7 @@ export function MainWindow() {
         </div>
         <AchievementUnlockToast />
       </GlassPanel>
+      {settings && settings.onboardingVersion < 1 ? <OnboardingFlow /> : null}
     </main>
   );
 }

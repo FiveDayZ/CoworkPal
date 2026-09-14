@@ -1,9 +1,9 @@
-use std::fs::{self, File};
-use std::io::{Read, Write};
-use std::path::PathBuf;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 
 use crate::events::UPDATE_PROGRESS;
@@ -83,7 +83,10 @@ pub async fn check_update(pat: Option<String>) -> Result<UpdateCheckResult, Stri
         .map_err(|e| format!("Failed to send check update request: {}", e))?;
 
     if response.status() == 403 {
-        return Err("GitHub API rate limit exceeded or access forbidden. Please configure a GitHub Token.".to_string());
+        return Err(
+            "GitHub API rate limit exceeded or access forbidden. Please configure a GitHub Token."
+                .to_string(),
+        );
     }
 
     if response.status() == 404 {
@@ -103,19 +106,24 @@ pub async fn check_update(pat: Option<String>) -> Result<UpdateCheckResult, Stri
         .map_err(|e| format!("Failed to parse release JSON: {}", e))?;
 
     // Version comparison
-    let current_semver = semver::Version::parse(&current_version)
-        .unwrap_or_else(|_| semver::Version::new(0, 1, 0));
-    
+    let current_semver =
+        semver::Version::parse(&current_version).unwrap_or_else(|_| semver::Version::new(0, 1, 0));
+
     let latest_tag_clean = release.tag_name.trim_start_matches('v');
-    let latest_semver = semver::Version::parse(latest_tag_clean)
-        .map_err(|e| format!("Invalid online release version format '{}': {}", latest_tag_clean, e))?;
+    let latest_semver = semver::Version::parse(latest_tag_clean).map_err(|e| {
+        format!(
+            "Invalid online release version format '{}': {}",
+            latest_tag_clean, e
+        )
+    })?;
 
     let has_update = latest_semver > current_semver;
 
     // Look for Windows installer (.exe setup, .msi, or .zip)
-    let matched_asset = release.assets.iter().find(|a| {
-        a.name.ends_with(".exe") || a.name.ends_with(".msi") || a.name.ends_with(".zip")
-    });
+    let matched_asset = release
+        .assets
+        .iter()
+        .find(|a| a.name.ends_with(".exe") || a.name.ends_with(".msi") || a.name.ends_with(".zip"));
 
     match matched_asset {
         Some(asset) => Ok(UpdateCheckResult {
@@ -128,7 +136,10 @@ pub async fn check_update(pat: Option<String>) -> Result<UpdateCheckResult, Stri
             asset_size: asset.size,
             asset_name: asset.name.clone(),
         }),
-        None => Err("No valid release assets (.exe, .msi, or .zip) found in the latest release.".to_string()),
+        None => Err(
+            "No valid release assets (.exe, .msi, or .zip) found in the latest release."
+                .to_string(),
+        ),
     }
 }
 
@@ -157,14 +168,15 @@ pub async fn download_update(
     let temp_dir = std::env::temp_dir().join("CoworkPal-Updates");
     fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create update directory: {}", e))?;
-    
+
     let part_path = temp_dir.join(format!("{}.part", asset_name));
     let final_path = temp_dir.join(&asset_name);
 
     // Get current size for range request (Breakpoint Resume)
     let start_pos = fs::metadata(&part_path).map(|m| m.len()).unwrap_or(0);
 
-    let mut request = client.get(&url)
+    let mut request = client
+        .get(&url)
         .header("Accept", "application/octet-stream");
 
     if let Some(ref token) = pat {
@@ -223,7 +235,7 @@ pub async fn download_update(
         let chunk = chunk_result.map_err(|e| format!("Error during stream chunk read: {}", e))?;
         file.write_all(&chunk)
             .map_err(|e| format!("Failed to write chunk to disk: {}", e))?;
-        
+
         downloaded += chunk.len() as u64;
 
         let percent = if total_bytes > 0 {
@@ -245,7 +257,8 @@ pub async fn download_update(
     }
 
     // Explicitly flush and close the file
-    file.sync_all().map_err(|e| format!("Failed to sync file to disk: {}", e))?;
+    file.sync_all()
+        .map_err(|e| format!("Failed to sync file to disk: {}", e))?;
     drop(file);
 
     // Rename file to final name
@@ -262,17 +275,25 @@ pub async fn download_update(
 pub async fn install_update(app: AppHandle, package_path: String) -> Result<(), String> {
     let path = PathBuf::from(&package_path);
     if !path.exists() {
-        return Err(format!("Update package not found at path: {}", package_path));
+        return Err(format!(
+            "Update package not found at path: {}",
+            package_path
+        ));
     }
 
     // Verify file integrity when a SHA256 sidecar is present next to the package.
     // The sidecar is optional today (releases may not ship one), but when it
     // exists we enforce it; when absent we log and proceed.
-    let sha256_path = path.with_extension(format!("{}.sha256", path.extension().unwrap_or_default().to_string_lossy()));
+    let sha256_path = path.with_extension(format!(
+        "{}.sha256",
+        path.extension().unwrap_or_default().to_string_lossy()
+    ));
     if sha256_path.exists() {
         let mut sha256_file = File::open(&sha256_path).map_err(|e| e.to_string())?;
         let mut expected_hash = String::new();
-        sha256_file.read_to_string(&mut expected_hash).map_err(|e| e.to_string())?;
+        sha256_file
+            .read_to_string(&mut expected_hash)
+            .map_err(|e| e.to_string())?;
         let expected_hash = expected_hash.trim().to_lowercase();
 
         let mut file = File::open(&path).map_err(|e| e.to_string())?;
@@ -289,7 +310,10 @@ pub async fn install_update(app: AppHandle, package_path: String) -> Result<(), 
         if calculated_hash != expected_hash {
             return Err("File verification failed: SHA256 checksum mismatch.".to_string());
         }
-        tracing::info!("update package passed SHA256 verification: {}", package_path);
+        tracing::info!(
+            "update package passed SHA256 verification: {}",
+            package_path
+        );
     } else {
         tracing::warn!(
             "no SHA256 sidecar found for update package {}; skipping integrity verification: {}",
@@ -304,6 +328,7 @@ pub async fn install_update(app: AppHandle, package_path: String) -> Result<(), 
         let is_installer = package_path.ends_with(".exe") || package_path.ends_with(".msi");
 
         if is_installer {
+            crate::persistence::flush_before_shutdown(&app).await?;
             // It's a setup installer. Launch it and exit the application
             // Use shell execute to handle UAC elevation automatically if installer requests it
             use std::os::windows::process::CommandExt;
@@ -313,13 +338,15 @@ pub async fn install_update(app: AppHandle, package_path: String) -> Result<(), 
             let mut command = std::process::Command::new("cmd.exe");
             command.args(["/c", "start", "", &package_path]);
             command.creation_flags(CREATE_NO_WINDOW);
-            
-            command.spawn()
+
+            command
+                .spawn()
                 .map_err(|e| format!("Failed to spawn installer process: {}", e))?;
-            
+
             // Terminate current process to let the installer replace the file.
             // Use app.exit(0) so Tauri runs its graceful shutdown (window
             // cleanup, drop handlers) instead of a hard process::exit.
+            crate::IS_EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
             app.exit(0);
         } else if package_path.ends_with(".zip") {
             // Portable Zip-based hot swap
@@ -363,7 +390,10 @@ mod tests {
             let res = check_update(None).await;
             match res {
                 Ok(val) => {
-                    println!("Anonymous check succeeded, latest version: {}", val.latest_version);
+                    println!(
+                        "Anonymous check succeeded, latest version: {}",
+                        val.latest_version
+                    );
                     assert!(!val.latest_version.is_empty());
                 }
                 Err(e) => {
