@@ -9,7 +9,7 @@ pub mod updater;
 
 use crate::{
     achievements::{
-        ensure_weekly_goals, get_achievement_card, list_achievement_cards,
+        get_achievement_card, list_achievement_cards,
         mark_achievement_notifications_seen as mark_notifications_seen_in_book,
         record_achievement_event, seed_definitions, summarize_achievements, AchievementCard,
         AchievementSummary, TrackAchievementEventRequest, TrackAchievementEventResponse,
@@ -53,19 +53,10 @@ pub async fn get_achievement_summary(
 }
 
 #[tauri::command]
-pub async fn get_weekly_goals(state: State<'_, AppState>) -> Result<WeeklyGoals, String> {
-    let definitions = seed_definitions().map_err(|error| error.to_string())?;
-    let mut achievements = state.achievements.write().await;
-    let previous = achievements.clone();
-    let (goals, changed) =
-        ensure_weekly_goals(&mut achievements, definitions, current_timestamp_ms());
-    if changed {
-        if let Err(error) = state.storage.save_achievements(&achievements) {
-            *achievements = previous;
-            return Err(format!("failed to save weekly goals: {error}"));
-        }
-    }
-    Ok(goals)
+pub async fn get_weekly_goals(
+    state: State<'_, AppState>, app: AppHandle,
+) -> Result<WeeklyGoals, String> {
+    crate::rewards::weekly_goals(state.inner(), &app, current_timestamp_ms()).await
 }
 
 #[tauri::command]
@@ -390,34 +381,10 @@ pub async fn reward_cocat_interaction(
 /// How strongly distraction erodes the session's quality and reward.
 const FOCUS_DISTRACTION_PENALTY: f64 = 0.15;
 const FOCUS_MIN_QUALITY: f64 = 0.4;
-/// Base parts/insight awarded per completed minute, scaled by focus_quality.
-const FOCUS_PARTS_PER_MINUTE: f64 = 8.0;
-const FOCUS_INSIGHT_PER_MINUTE: f64 = 0.5;
-
 /// Pure quality score for a completed focus session, clamped to [MIN, 1.0].
 /// Extracted so it can be unit-tested independently of the command path.
 pub(crate) fn compute_focus_quality(distraction_count: u32) -> f64 {
     (1.0 - distraction_count as f64 * FOCUS_DISTRACTION_PENALTY).clamp(FOCUS_MIN_QUALITY, 1.0)
-}
-
-fn compute_focus_reward(session: &FocusSession, completed_at: i64) -> (u32, f64, u64) {
-    let elapsed_seconds = completed_at.saturating_sub(session.started_at).max(0) as u64 / 1000;
-    let actual_duration_seconds = elapsed_seconds.min(session.planned_duration_seconds);
-    let actual_minutes = actual_duration_seconds as f64 / 60.0;
-    let raw_parts = actual_minutes * FOCUS_PARTS_PER_MINUTE * session.focus_quality;
-    let raw_insight = actual_minutes * FOCUS_INSIGHT_PER_MINUTE * session.focus_quality;
-    let parts_award = if raw_parts.is_finite() && raw_parts >= 0.0 {
-        raw_parts.round() as u32
-    } else {
-        0
-    };
-    let insight_award = if raw_insight.is_finite() && raw_insight >= 0.0 {
-        raw_insight
-    } else {
-        0.0
-    };
-
-    (parts_award, insight_award, actual_duration_seconds)
 }
 
 #[tauri::command]
@@ -433,9 +400,10 @@ pub async fn start_focus_session(
     app: AppHandle,
 ) -> Result<FocusSessionBook, String> {
     let trimmed = task_label.trim();
-    if trimmed.is_empty() {
-        return Err("任务名称不能为空".to_string());
+    if trimmed.is_empty() || trimmed.chars().count() > 40 || trimmed.chars().any(char::is_control) {
+        return Err("任务名称必须是 1 到 40 个可见字符".to_string());
     }
+    let _guard = state.reward_lock.lock().await;
     let duration_minutes = duration_minutes.clamp(5, 180);
     let duration_seconds = duration_minutes * 60;
     let now = current_timestamp_ms();
@@ -443,13 +411,10 @@ pub async fn start_focus_session(
 
     let next_book = {
         let mut sessions = state.focus_sessions.write().await;
-        // Only one active session at a time: abandon any prior active one.
-        for session in sessions.sessions.iter_mut() {
-            if session.status == FocusSessionStatus::Active {
-                session.status = FocusSessionStatus::Abandoned;
-                session.ended_at = Some(now);
-            }
+        if sessions.active_session().is_some() {
+            return Err("已有进行中的专注，请先完成或放弃".to_string());
         }
+        let previous = sessions.clone();
         sessions.sessions.push(FocusSession {
             id: id.clone(),
             task_label: trimmed.to_string(),
@@ -460,19 +425,16 @@ pub async fn start_focus_session(
             distraction_count: 0,
             focus_quality: 0.0,
             production_multiplier: FOCUS_PRODUCTION_MULTIPLIER_MAX,
+            reward_version: 1,
+            last_tick_at: Some(now),
+            ..Default::default()
         });
+        if let Err(error) = state.storage.save_focus_sessions(&sessions) {
+            *sessions = previous;
+            return Err(format!("专注会话尚未保存: {error}"));
+        }
         sessions.clone()
-        // Lock released before the blocking fs::write below (S5: never hold the
-        // RwLock across disk IO).
     };
-
-    // Persist outside the lock. If the write fails, roll the in-memory state
-    // back so memory and disk stay consistent, then surface the error (C1).
-    if let Err(error) = state.storage.save_focus_sessions(&next_book) {
-        let mut sessions = state.focus_sessions.write().await;
-        sessions.sessions.retain(|s| s.id != id);
-        return Err(format!("failed to save focus session: {error}"));
-    }
 
     // Mark the active session on the cat runtime so the pet state machine can
     // enter DeepWork / Distracted. Lock acquired after focus_sessions released.
@@ -499,141 +461,7 @@ pub async fn complete_focus_session(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<(FocusSessionBook, WorkshopState), String> {
-    let now = current_timestamp_ms();
-    let (next_book, completed) = {
-        let mut sessions = state.focus_sessions.write().await;
-        let session = sessions
-            .sessions
-            .iter_mut()
-            .find(|s| s.id == session_id && s.status == FocusSessionStatus::Active)
-            .ok_or_else(|| format!("no active focus session with id {session_id}"))?;
-
-        let quality = compute_focus_quality(session.distraction_count);
-        let previous_status = session.status;
-        let previous_ended_at = session.ended_at;
-        let previous_quality = session.focus_quality;
-        session.focus_quality = quality;
-        session.status = FocusSessionStatus::Completed;
-        session.ended_at = Some(now);
-        let snapshot = session.clone();
-        (
-            sessions.clone(),
-            (
-                snapshot,
-                previous_status,
-                previous_ended_at,
-                previous_quality,
-            ),
-        )
-        // Lock released before the blocking fs::write below (S5).
-    };
-    let (completed, previous_status, previous_ended_at, previous_quality) = completed;
-
-    // Persist outside the lock; roll back on failure so a failed write cannot
-    // leave the session marked Completed in memory while unsaved on disk (C1).
-    if let Err(error) = state.storage.save_focus_sessions(&next_book) {
-        let mut sessions = state.focus_sessions.write().await;
-        if let Some(session) = sessions.sessions.iter_mut().find(|s| s.id == session_id) {
-            session.status = previous_status;
-            session.ended_at = previous_ended_at;
-            session.focus_quality = previous_quality;
-        }
-        return Err(format!("failed to save focus session: {error}"));
-    }
-
-    // Clear the active marker on the cat runtime.
-    {
-        let mut runtime = state.cat_runtime.write().await;
-        if runtime.active_focus_session_id.as_deref() == Some(session_id.as_str()) {
-            runtime.active_focus_session_id = None;
-            runtime.active_focus_started_at = None;
-            runtime.active_focus_planned_duration_ms = None;
-            runtime.focus_nudge_state = Some(CatState::NeedsBreak);
-            runtime.focus_nudge_until = Some(now + FOCUS_NUDGE_HOLD_MS);
-        }
-    }
-
-    // Reward only elapsed focus time, capped by the planned duration, so ending
-    // a newly started long session cannot grant its full planned reward.
-    let (parts_award, insight_award, actual_duration_seconds) =
-        compute_focus_reward(&completed, now);
-    // Land the workshop reward. Unlike most write commands, this saves INSIDE
-    // the workshop write lock (deliberately deviating from the usual "lock-free
-    // IO" S5 pattern). complete_focus_session is a rare, user-initiated action,
-    // and the monitoring pump writes workshop every ~2s — saving the reward
-    // outside the lock let the pump's tick land between our mutate and our save,
-    // so our stale snapshot would overwrite the pump's production (or vice
-    // versa). Holding the lock across the save makes the reward atomic.
-    let next_workshop = {
-        let mut workshop = state.workshop.write().await;
-        workshop.parts += parts_award as f64;
-        workshop.insight += insight_award;
-        workshop.today_parts += parts_award as f64;
-        workshop.today_insight += insight_award;
-        if let Err(error) = state.storage.save_workshop(&workshop) {
-            // Roll back the in-memory reward so it matches the unchanged disk.
-            workshop.parts -= parts_award as f64;
-            workshop.insight -= insight_award;
-            workshop.today_parts -= parts_award as f64;
-            workshop.today_insight -= insight_award;
-            // The session was already persisted as Completed (above) and
-            // cat_runtime was already cleared, so the backend is in a consistent
-            // "session ended" state — but without this emit the frontend never
-            // learns the session ended and keeps showing it as active. Drop the
-            // workshop lock before emitting/awaiting (lock-order safety).
-            drop(workshop);
-            let _ = app.emit(FOCUS_SESSION_UPDATED, next_book.clone());
-            // The session IS completed (persisted), so record its completion
-            // achievement even though the reward failed to land — otherwise the
-            // user finishes a focus session but never gets credit toward focus.
-            if let Err(ach_error) = record_internal_achievement_event(
-                &app,
-                "focus.session.completed",
-                format!("focus.session:{}:{}", completed.id, now),
-                serde_json::json!({
-                    "taskLabel": completed.task_label,
-                    "plannedDurationSeconds": completed.planned_duration_seconds,
-                    "actualDurationSeconds": actual_duration_seconds,
-                    "distractionCount": completed.distraction_count,
-                    "focusQuality": completed.focus_quality,
-                }),
-            )
-            .await
-            {
-                tracing::warn!("failed to record focus completion achievement event: {ach_error}");
-            }
-            return Err(format!(
-                "failed to save workshop after focus reward: {error}"
-            ));
-        }
-        workshop.clone()
-    };
-
-    if let Err(error) = record_internal_achievement_event(
-        &app,
-        "focus.session.completed",
-        format!("focus.session:{}:{}", completed.id, now),
-        serde_json::json!({
-            "taskLabel": completed.task_label,
-            "plannedDurationSeconds": completed.planned_duration_seconds,
-            "actualDurationSeconds": actual_duration_seconds,
-            "distractionCount": completed.distraction_count,
-            "focusQuality": completed.focus_quality,
-        }),
-    )
-    .await
-    {
-        tracing::warn!("failed to record focus completion achievement event: {error}");
-    }
-
-    let _ = emit_cocat_interaction_state(&app, "celebrate");
-    if let Err(error) = app.emit(FOCUS_SESSION_UPDATED, next_book.clone()) {
-        tracing::warn!("failed to emit {FOCUS_SESSION_UPDATED}: {error}");
-    }
-    if let Err(error) = app.emit(WORKSHOP_UPDATED, next_workshop.clone()) {
-        tracing::warn!("failed to emit {WORKSHOP_UPDATED}: {error}");
-    }
-    Ok((next_book, next_workshop))
+    crate::rewards::complete_focus(state.inner(), &app, &session_id, current_timestamp_ms()).await
 }
 
 #[tauri::command]
@@ -642,9 +470,11 @@ pub async fn abandon_focus_session(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<FocusSessionBook, String> {
+    let _guard = state.reward_lock.lock().await;
     let now = current_timestamp_ms();
     let next_book = {
         let mut sessions = state.focus_sessions.write().await;
+        let previous = sessions.clone();
         let session = sessions
             .sessions
             .iter_mut()
@@ -652,18 +482,13 @@ pub async fn abandon_focus_session(
             .ok_or_else(|| format!("no active focus session with id {session_id}"))?;
         session.status = FocusSessionStatus::Abandoned;
         session.ended_at = Some(now);
-        sessions.clone()
-        // Lock released before the blocking fs::write below (S5).
-    };
-
-    if let Err(error) = state.storage.save_focus_sessions(&next_book) {
-        let mut sessions = state.focus_sessions.write().await;
-        if let Some(session) = sessions.sessions.iter_mut().find(|s| s.id == session_id) {
-            session.status = FocusSessionStatus::Active;
-            session.ended_at = None;
+        session.production_multiplier = 1.0;
+        if let Err(error) = state.storage.save_focus_sessions(&sessions) {
+            *sessions = previous;
+            return Err(format!("专注中止记录尚未保存: {error}"));
         }
-        return Err(format!("failed to save focus session: {error}"));
-    }
+        sessions.clone()
+    };
 
     {
         let mut runtime = state.cat_runtime.write().await;
@@ -1288,6 +1113,8 @@ mod command_tests {
             planned_duration_seconds: 25 * 60,
             started_at: 1_000,
             focus_quality: compute_focus_quality(distraction_count),
+            distraction_count,
+            reward_version: 1,
             ..Default::default()
         }
     }
@@ -1297,42 +1124,36 @@ mod command_tests {
         let session = focus_session_for_reward(0);
 
         assert_eq!(
-            compute_focus_reward(&session, session.started_at),
-            (0, 0.0, 0)
+            crate::rewards::focus_reward(&session).parts,
+            0.0
         );
     }
 
     #[test]
-    fn focus_reward_uses_full_elapsed_planned_duration() {
-        let session = focus_session_for_reward(0);
-        let completed_at = session.started_at + 25 * 60 * 1000;
-        let (parts, insight, duration_seconds) = compute_focus_reward(&session, completed_at);
-
-        assert_eq!(parts, 200);
-        assert!((insight - 12.5).abs() < 1e-9);
-        assert_eq!(duration_seconds, 25 * 60);
+    fn focus_reward_uses_credited_planned_duration() {
+        let mut session = focus_session_for_reward(0);
+        session.credited_duration_ms = 25 * 60 * 1000;
+        let reward = crate::rewards::focus_reward(&session);
+        assert_eq!(reward.parts, 200.0);
+        assert!((reward.insight - 12.5).abs() < 1e-9);
     }
 
     #[test]
     fn focus_reward_caps_elapsed_time_at_planned_duration() {
-        let session = focus_session_for_reward(0);
-        let completed_at = session.started_at + 60 * 60 * 1000;
-        let (parts, insight, duration_seconds) = compute_focus_reward(&session, completed_at);
-
-        assert_eq!(parts, 200);
-        assert!((insight - 12.5).abs() < 1e-9);
-        assert_eq!(duration_seconds, 25 * 60);
+        let mut session = focus_session_for_reward(0);
+        session.credited_duration_ms = 60 * 60 * 1000;
+        let reward = crate::rewards::focus_reward(&session);
+        assert_eq!(reward.parts, 200.0);
+        assert!((reward.insight - 12.5).abs() < 1e-9);
     }
 
     #[test]
     fn focus_reward_scales_with_distraction_quality() {
-        let session = focus_session_for_reward(2);
-        let completed_at = session.started_at + 25 * 60 * 1000;
-        let (parts, insight, duration_seconds) = compute_focus_reward(&session, completed_at);
-
-        assert_eq!(parts, 140);
-        assert!((insight - 8.75).abs() < 1e-9);
-        assert_eq!(duration_seconds, 25 * 60);
+        let mut session = focus_session_for_reward(2);
+        session.credited_duration_ms = 25 * 60 * 1000;
+        let reward = crate::rewards::focus_reward(&session);
+        assert!((reward.parts - 140.0).abs() < 1e-9);
+        assert!((reward.insight - 8.75).abs() < 1e-9);
     }
 
     #[test]
@@ -1642,7 +1463,7 @@ pub async fn toggle_pet_panel(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn emit_cocat_interaction_state(app: &AppHandle, state: &'static str) -> Result<(), String> {
+pub(crate) fn emit_cocat_interaction_state(app: &AppHandle, state: &'static str) -> Result<(), String> {
     app.emit(COCAT_INTERACTION_STATE, state)
         .map_err(|error| format!("failed to emit {COCAT_INTERACTION_STATE}: {error}"))
 }
@@ -1743,8 +1564,11 @@ pub async fn reset_workshop_state(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkshopState, String> {
+    let _guard = state.reward_lock.lock().await;
     let (previous_workshop, next_workshop) = mutate_and_save_workshop(state.inner(), |workshop| {
+        let receipts = std::mem::take(&mut workshop.reward_receipts);
         *workshop = WorkshopState::default();
+        workshop.reward_receipts = receipts;
         Ok(())
     })
     .await?;
@@ -1753,7 +1577,7 @@ pub async fn reset_workshop_state(
     Ok(next_workshop)
 }
 
-async fn mutate_and_save_workshop(
+pub(crate) async fn mutate_and_save_workshop(
     state: &AppState,
     mutate: impl FnOnce(&mut WorkshopState) -> Result<(), String>,
 ) -> Result<(WorkshopState, WorkshopState), String> {

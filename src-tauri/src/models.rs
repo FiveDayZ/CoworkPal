@@ -733,9 +733,27 @@ pub struct WorkshopState {
     pub active_orders: Vec<WorkshopOrder>,
     pub completed_order_ids: BTreeSet<String>,
     pub last_order_refresh_date: String,
+    pub reward_receipts: BTreeMap<String, RewardReceipt>,
 }
 
-pub const WORKSHOP_STATE_SCHEMA_VERSION: u32 = 2;
+pub const WORKSHOP_STATE_SCHEMA_VERSION: u32 = 3;
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RewardAmount {
+    pub parts: f64,
+    pub insight: f64,
+    pub affinity_experience: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RewardReceipt {
+    pub title: String,
+    pub reward: RewardAmount,
+    pub earned_at: i64,
+    pub paid_at: i64,
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -795,6 +813,7 @@ impl Default for WorkshopState {
             active_orders: Vec::new(),
             completed_order_ids: BTreeSet::new(),
             last_order_refresh_date: String::new(),
+            reward_receipts: BTreeMap::new(),
         }
     }
 }
@@ -840,6 +859,12 @@ pub struct FocusSession {
     /// Live workshop output bonus while this session remains active.
     #[serde(default = "default_focus_production_multiplier")]
     pub production_multiplier: f64,
+    pub reward_version: u32,
+    pub credited_duration_ms: u64,
+    pub last_tick_at: Option<i64>,
+    pub reward: Option<RewardAmount>,
+    pub reward_paid: bool,
+    pub achievement_recorded: bool,
 }
 
 impl Default for FocusSession {
@@ -854,12 +879,27 @@ impl Default for FocusSession {
             distraction_count: 0,
             focus_quality: 0.0,
             production_multiplier: default_focus_production_multiplier(),
+            reward_version: 0,
+            credited_duration_ms: 0,
+            last_tick_at: None,
+            reward: None,
+            reward_paid: false,
+            achievement_recorded: false,
         }
     }
 }
 
 impl FocusSession {
     pub fn normalized_production_multiplier(&self) -> f64 {
+        if self.reward_version > 0 {
+            return if self.status == FocusSessionStatus::Active
+                && self.credited_duration_ms < self.planned_duration_seconds.saturating_mul(1000)
+            {
+                FOCUS_PRODUCTION_MULTIPLIER_MAX
+            } else {
+                FOCUS_PRODUCTION_MULTIPLIER_MIN
+            };
+        }
         if self.production_multiplier.is_finite() {
             self.production_multiplier.clamp(
                 FOCUS_PRODUCTION_MULTIPLIER_MIN,
@@ -872,9 +912,50 @@ impl FocusSession {
 
     pub fn record_distraction(&mut self) {
         self.distraction_count = self.distraction_count.saturating_add(1);
-        self.production_multiplier = (self.normalized_production_multiplier()
-            - FOCUS_PRODUCTION_DISTRACTION_PENALTY)
-            .max(FOCUS_PRODUCTION_MULTIPLIER_MIN);
+        if self.reward_version == 0 {
+            self.production_multiplier = (self.normalized_production_multiplier()
+                - FOCUS_PRODUCTION_DISTRACTION_PENALTY)
+                .max(FOCUS_PRODUCTION_MULTIPLIER_MIN);
+        }
+    }
+
+    pub fn production_multiplier_for_tick(&self, now: i64, production_since: i64) -> f64 {
+        if self.reward_version == 0 {
+            return self.normalized_production_multiplier();
+        }
+        let elapsed = now.saturating_sub(production_since).clamp(0, 60_000);
+        let gap = self.last_tick_at.map(|last| now.saturating_sub(last)).unwrap_or(-1);
+        if self.status != FocusSessionStatus::Active || elapsed == 0 || !(0..=30_000).contains(&gap) {
+            return 1.0;
+        }
+        let remaining = self.planned_duration_seconds.saturating_mul(1000)
+            .saturating_sub(self.credited_duration_ms);
+        let boosted = (gap as u64).min(elapsed as u64).min(remaining);
+        1.0 + 0.5 * boosted as f64 / elapsed as f64
+    }
+
+    pub fn credit_tick(&mut self, now: i64) -> u64 {
+        if self.status != FocusSessionStatus::Active || self.reward_version == 0 {
+            return 0;
+        }
+        let previous = self.last_tick_at.replace(now);
+        let delta = previous.map(|last| now.saturating_sub(last)).unwrap_or(0);
+        // 采样最长 10 秒；长间隙、退出后的重启和倒拨时间不折算为专注投入。
+        if !(0..=30_000).contains(&delta) {
+            return 0;
+        }
+        let before = self.credited_duration_ms;
+        self.credited_duration_ms = before
+            .saturating_add(delta as u64)
+            .min(self.planned_duration_seconds.saturating_mul(1000));
+        self.credited_duration_ms - before
+    }
+
+    pub fn is_qualified_completion(&self) -> bool {
+        self.reward_version > 0
+            && self.status == FocusSessionStatus::Completed
+            && self.planned_duration_seconds >= 25 * 60
+            && self.credited_duration_ms >= self.planned_duration_seconds.saturating_mul(1000)
     }
 }
 

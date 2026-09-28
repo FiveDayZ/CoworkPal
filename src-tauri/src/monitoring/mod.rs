@@ -46,7 +46,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::{
     app_state::AppState,
     events::{FOCUS_SESSION_UPDATED, HARDWARE_METRICS, WORKLOG_UPDATED, WORKSHOP_UPDATED},
-    models::{current_timestamp_ms, FocusSessionStatus, HardwareMetricsSnapshot, HardwareSnapshot},
+    models::{FocusSessionStatus, HardwareMetricsSnapshot, HardwareSnapshot},
     persistence::PeriodicAchievementDelta,
     pet::{is_focus_distracted, PetStateService},
     workshop::ProductionService,
@@ -133,6 +133,7 @@ pub fn start_hardware_snapshot_pump(app: AppHandle) {
             crate::taskbar_embed::sync_taskbar_monitor(&app).await;
             update_workshop_for_snapshot(&app, &snapshot).await;
             update_work_log_for_snapshot(&app, &snapshot).await;
+            crate::rewards::tick(&app, snapshot.timestamp).await;
             PetStateService::update_for_snapshot(&app, &snapshot).await;
 
             // Sleep for the remaining time toward the target interval, so the
@@ -303,6 +304,7 @@ async fn update_work_log_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
 
 async fn record_focus_distraction_if_needed(app: &AppHandle, snapshot: &HardwareSnapshot) {
     let state = app.state::<AppState>();
+    let _guard = state.reward_lock.lock().await;
     let now_ms = snapshot.timestamp;
 
     // Step 1: under the cat_runtime lock, decide whether this tick should count
@@ -333,9 +335,7 @@ async fn record_focus_distraction_if_needed(app: &AppHandle, snapshot: &Hardware
             .find(|s| s.id == session_id && s.status == FocusSessionStatus::Active)
         {
             session.record_distraction();
-            if let Err(error) = state.storage.save_focus_sessions(&sessions) {
-                tracing::warn!("failed to save focus sessions on distraction: {error}");
-            }
+            state.persistence.mark_focus_sessions_dirty();
         }
         sessions.clone()
     };
@@ -356,11 +356,11 @@ fn should_record_focus_distraction(
 
 async fn update_workshop_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapshot) {
     let state = app.state::<AppState>();
-    let focus_multiplier = state
+    let focus_session = state
         .focus_sessions
         .read()
         .await
-        .active_production_multiplier();
+        .active_session().cloned();
     let settings = state.settings.read().await.clone();
     let (updated_workshop, online_delta, parts_delta, insight_delta) = {
         let mut workshop = state.workshop.write().await;
@@ -373,11 +373,14 @@ async fn update_workshop_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
         // and rolled back just those two, leaving today_parts/today_insight as
         // NaN in memory — which a later successful tick would then persist.
         let workshop_before = workshop.clone();
+        let focus_multiplier = focus_session.as_ref().map(|session| {
+            session.production_multiplier_for_tick(snapshot.timestamp, workshop.last_production_time)
+        }).unwrap_or(1.0);
         let changed = ProductionService::apply_tick(
             &mut workshop,
             &settings,
             snapshot,
-            current_timestamp_ms(),
+            snapshot.timestamp,
             focus_multiplier,
         );
 

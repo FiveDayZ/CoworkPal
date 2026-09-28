@@ -1,3 +1,5 @@
+import type { RewardAmount } from "./rewards";
+
 export type AchievementDifficulty =
   | "entry"
   | "normal"
@@ -88,6 +90,8 @@ export interface AchievementSummary {
 export interface WeeklyGoals {
   weekKey: string;
   goals: WeeklyGoal[];
+  bonusReward: RewardAmount;
+  bonusPaid: boolean;
 }
 
 export interface WeeklyGoal {
@@ -100,4 +104,6 @@ export interface WeeklyGoal {
   percent: number;
   progressLabel: string;
   isComplete: boolean;
+  reward: RewardAmount;
+  rewardPaid: boolean;
 }

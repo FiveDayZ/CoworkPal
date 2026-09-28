@@ -590,6 +590,7 @@ async fn restore_cloud_envelope(
     mut envelope: CloudEnvelope,
 ) -> Result<CloudSyncResult, String> {
     validate_snapshot(&envelope.data)?;
+    let _reward_guard = state.reward_lock.lock().await;
     envelope.data.settings.enforce_minimal_mode_constraints();
     let device_profile = current_device_profile(state).await;
 
@@ -616,7 +617,10 @@ async fn restore_cloud_envelope(
         achievements: achievements.clone(),
         notes: notes.clone(),
     };
-    let merged = merge_user_data_snapshots(&previous, &envelope.data);
+    let mut merged = merge_user_data_snapshots(&previous, &envelope.data);
+    for session in &mut merged.focus_sessions.sessions {
+        session.last_tick_at = None;
+    }
     validate_snapshot(&merged)?;
     state
         .storage
@@ -639,6 +643,14 @@ async fn restore_cloud_envelope(
     drop(focus_sessions);
     drop(achievements);
     drop(notes);
+    {
+        let mut runtime = state.cat_runtime.write().await;
+        runtime.active_focus_session_id = merged.focus_sessions.active_session().map(|s| s.id.clone());
+        runtime.active_focus_started_at = merged.focus_sessions.active_session().map(|s| s.started_at);
+        runtime.active_focus_planned_duration_ms = merged.focus_sessions.active_session()
+            .map(|s| s.planned_duration_seconds.saturating_mul(1000) as i64);
+        runtime.last_distraction_at = None;
+    }
 
     if let Err(error) = crate::commands::sync_launch_at_startup(launch_at_startup) {
         tracing::warn!(
@@ -655,6 +667,7 @@ async fn restore_cloud_envelope(
 }
 
 async fn snapshot_from_state(state: &AppState) -> UserDataSnapshot {
+    let _reward_guard = state.reward_lock.lock().await;
     let device_profile = current_device_profile(state).await;
     let settings = state.settings.read().await;
     let workshop = state.workshop.read().await;
@@ -701,11 +714,35 @@ fn merge_user_data_snapshots(
     settings.memory_last_release = local.settings.memory_last_release.clone();
     settings.enforce_minimal_mode_constraints();
 
-    let workshop = if remote.workshop.last_production_time > local.workshop.last_production_time {
-        remote.workshop.clone()
-    } else {
-        local.workshop.clone()
-    };
+    let economic_time = |workshop: &WorkshopState| workshop.reward_receipts.values()
+        .map(|receipt| receipt.paid_at).max().unwrap_or(0).max(workshop.last_production_time);
+    // 余额、凭证与待结算记录共用一个权威快照，不能独立合并后重放历史奖励。
+    let authority = if economic_time(&remote.workshop) > economic_time(&local.workshop) { remote } else { local };
+    let mut focus_sessions = merge_focus_sessions(&local.focus_sessions, &remote.focus_sessions);
+    let active_id = authority.focus_sessions.active_session().map(|s| s.id.as_str());
+    for session in &mut focus_sessions.sessions {
+        if let Some(original) = authority.focus_sessions.sessions.iter().find(|s| s.id == session.id) {
+            if original.reward_version > 0 {
+                *session = original.clone();
+            } else {
+                session.reward_version = 0;
+            }
+        } else {
+            session.reward_version = 0;
+            session.reward_paid = true;
+            session.achievement_recorded = true;
+        }
+        if session.status == FocusSessionStatus::Active && Some(session.id.as_str()) != active_id {
+            session.status = FocusSessionStatus::Abandoned;
+        }
+        if let Some(receipt) = authority.workshop.reward_receipts.get(&format!("focus:{}", session.id)) {
+            session.reward_paid = true;
+            session.reward = Some(receipt.reward.clone());
+        }
+    }
+    let mut achievements = merge_achievements(&local.achievements, &remote.achievements);
+    achievements.weekly_goal_plan = authority.achievements.weekly_goal_plan.clone();
+    achievements.pending_rewards = authority.achievements.pending_rewards.clone();
 
     UserDataSnapshot {
         schema_version: 1,
@@ -713,11 +750,11 @@ fn merge_user_data_snapshots(
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         device_profile: local.device_profile.clone(),
         settings,
-        workshop,
+        workshop: authority.workshop.clone(),
         layout: local.layout.clone(),
         work_logs: merge_work_log_books(&local.work_logs, &remote.work_logs),
-        focus_sessions: merge_focus_sessions(&local.focus_sessions, &remote.focus_sessions),
-        achievements: merge_achievements(&local.achievements, &remote.achievements),
+        focus_sessions,
+        achievements,
         notes: merge_notes(&local.notes, &remote.notes),
     }
 }
@@ -874,6 +911,7 @@ fn merge_achievements(local: &AchievementBook, remote: &AchievementBook) -> Achi
         notification_queue,
         idempotency_keys,
         weekly_goal_plan,
+        pending_rewards: local.pending_rewards.clone(),
     }
 }
 
@@ -1095,6 +1133,22 @@ fn validate_snapshot(snapshot: &UserDataSnapshot) -> Result<(), String> {
         || !snapshot.layout.monitor_bar_y.is_finite()
     {
         return Err("云端窗口配置无效，已停止恢复".to_string());
+    }
+    let valid_reward = |reward: &crate::models::RewardAmount| {
+        reward.parts.is_finite() && (0.0..=1440.0).contains(&reward.parts)
+            && reward.insight.is_finite() && (0.0..=90.0).contains(&reward.insight)
+            && reward.affinity_experience <= 10
+    };
+    if workshop.reward_receipts.iter().any(|(key, receipt)| {
+        key.is_empty() || !valid_reward(&receipt.reward)
+    }) || snapshot.achievements.pending_rewards.iter().any(|(key, intent)| {
+        key.is_empty() || !valid_reward(&intent.reward)
+    }) || snapshot.focus_sessions.sessions.iter().any(|session| {
+        session.reward_version > 1 || (session.reward_version > 0
+            && (!(300..=10800).contains(&session.planned_duration_seconds)
+                || session.credited_duration_ms > session.planned_duration_seconds * 1000))
+    }) {
+        return Err("云端奖励或专注数据无效，已停止恢复".to_string());
     }
     let mut note_ids = HashSet::new();
     if snapshot
@@ -1369,6 +1423,62 @@ mod tests {
         assert_eq!(once.achievements.events.len(), 1);
         assert_eq!(twice.achievements.events.len(), 1);
         assert_eq!(twice.achievements.idempotency_keys.len(), 1);
+    }
+
+    #[test]
+    fn reward_snapshot_preserves_balance_receipts_and_pending_as_one_authority() {
+        use crate::{achievements::runtime::PendingReward, models::{RewardAmount, RewardReceipt}};
+        let mut local = test_snapshot(100);
+        let mut remote = test_snapshot(200);
+        let reward = RewardAmount { parts: 200.0, insight: 12.5, affinity_experience: 5 };
+        local.workshop.parts = 900.0;
+        local.workshop.reward_receipts.insert("focus:paid".into(), RewardReceipt {
+            title: "paid".into(), reward: reward.clone(), earned_at: 250, paid_at: 300,
+        });
+        local.achievements.pending_rewards.insert("week:pending".into(), PendingReward {
+            title: "pending".into(), reward, earned_at: 300,
+        });
+        remote.workshop.parts = 100.0;
+        remote.workshop.last_production_time = 200;
+        remote.focus_sessions.sessions.push(FocusSession {
+            id: "remote-historical".into(), reward_version: 1,
+            status: FocusSessionStatus::Completed, credited_duration_ms: 1_500_000,
+            ..Default::default()
+        });
+        let merged = merge_user_data_snapshots(&local, &remote);
+        assert_eq!(merged.workshop.parts, 900.0);
+        assert!(merged.workshop.reward_receipts.contains_key("focus:paid"));
+        assert!(merged.achievements.pending_rewards.contains_key("week:pending"));
+        assert_eq!(merged.focus_sessions.sessions[0].reward_version, 0);
+        assert!(!merged.focus_sessions.sessions[0].is_qualified_completion());
+        let again = merge_user_data_snapshots(&merged, &remote);
+        assert_eq!(again.workshop.parts, 900.0);
+        assert_eq!(again.workshop.reward_receipts.len(), 1);
+    }
+
+    #[test]
+    fn cloud_focus_merge_cannot_replace_authoritative_active_credit_with_remote_completion() {
+        let mut local = test_snapshot(100);
+        let mut remote = test_snapshot(200);
+        local.workshop.last_production_time = 300;
+        remote.workshop.last_production_time = 200;
+        local.focus_sessions.sessions.push(FocusSession { id: "same".into(),
+            reward_version: 1, credited_duration_ms: 600_000, ..Default::default() });
+        remote.focus_sessions.sessions.push(FocusSession { id: "same".into(),
+            reward_version: 1, credited_duration_ms: 1_500_000,
+            status: FocusSessionStatus::Completed, ..Default::default() });
+        let merged = merge_user_data_snapshots(&local, &remote);
+        assert_eq!(merged.focus_sessions.sessions[0].status, FocusSessionStatus::Active);
+        assert_eq!(merged.focus_sessions.sessions[0].credited_duration_ms, 600_000);
+    }
+
+    #[test]
+    fn invalid_cloud_reward_credit_is_rejected() {
+        let mut snapshot = test_snapshot(100);
+        snapshot.focus_sessions.sessions.push(FocusSession {
+            reward_version: 1, credited_duration_ms: 100_000_000, ..Default::default()
+        });
+        assert!(super::validate_snapshot(&snapshot).is_err());
     }
 
     #[test]

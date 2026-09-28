@@ -96,6 +96,7 @@ pub struct PersistenceCoordinator {
     workshop_dirty: AtomicBool,
     work_logs_dirty: AtomicBool,
     achievements_dirty: AtomicBool,
+    focus_sessions_dirty: AtomicBool,
     pending_achievements: Mutex<BTreeMap<String, PeriodicAchievementDelta>>,
     flush_lock: Mutex<()>,
 }
@@ -111,6 +112,10 @@ impl PersistenceCoordinator {
 
     pub fn mark_achievements_dirty(&self) {
         self.achievements_dirty.store(true, Ordering::Release);
+    }
+
+    pub fn mark_focus_sessions_dirty(&self) {
+        self.focus_sessions_dirty.store(true, Ordering::Release);
     }
 
     pub async fn queue_periodic_achievement(&self, delta: PeriodicAchievementDelta) {
@@ -246,6 +251,18 @@ async fn record_periodic_achievement_batch(
 
 async fn flush_dirty_locked(state: &AppState) -> Result<(), String> {
     let mut errors = Vec::new();
+
+    if state.persistence.focus_sessions_dirty.swap(false, Ordering::AcqRel) {
+        let sessions = state.focus_sessions.read().await;
+        let snapshot = sessions.clone();
+        let storage = state.storage.clone();
+        let result = tokio::task::spawn_blocking(move || storage.save_focus_sessions(&snapshot)).await;
+        drop(sessions);
+        if let Err(error) = flatten_save_result(result) {
+            state.persistence.mark_focus_sessions_dirty();
+            errors.push(format!("focus_sessions.json: {error}"));
+        }
+    }
 
     if state
         .persistence

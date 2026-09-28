@@ -2,6 +2,7 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { PixelIcon } from "../../ui/PixelIcon";
+import { creditedSeconds } from "../../types/rewards";
 import {
   formatBytesPerSecond,
   formatParts,
@@ -140,7 +141,7 @@ export function PetQuickPanelWindow() {
       if (!activeFocusSession) {
         return;
       }
-      const elapsed = Math.floor((Date.now() - activeFocusSession.startedAt) / 1000);
+      const elapsed = creditedSeconds(activeFocusSession, Date.now());
       setRemainingSeconds(Math.max(0, activeFocusSession.plannedDurationSeconds - elapsed));
     }
     tick();
@@ -334,7 +335,7 @@ export function PetQuickPanelWindow() {
                 {String(remainingSeconds % 60).padStart(2, "0")}
               </div>
               <div className="cwp-panel-focus-meta">
-                分心 {activeFocusSession.distractionCount} 次
+                工坊 ×1.5 · 分心 {activeFocusSession.distractionCount} 次
               </div>
               <div className="cwp-panel-focus-actions">
                 <CompactButton
@@ -346,7 +347,7 @@ export function PetQuickPanelWindow() {
                   }
                   variant="primary"
                 >
-                  完成
+                  提前结算
                 </CompactButton>
                 <CompactButton
                   onClick={() =>

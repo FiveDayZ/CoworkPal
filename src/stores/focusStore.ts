@@ -86,8 +86,8 @@ export const useFocusStore = create<FocusStore>((set, get) => ({
       // completeFocusSession lands workshop rewards; sync the workshop store.
       useWorkshopStore.getState().setWorkshopState(workshop);
     } catch (error) {
-      // The session remains active on failure (backend rolls back), so we only
-      // log here; the caller (pet panel) keeps the user in the active session.
+      // Completion can be saved while payment remains pending for backend retry.
+      await get().load();
       console.error("Failed to complete focus session", error);
       throw error;
     } finally {

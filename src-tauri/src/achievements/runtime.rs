@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{Datelike, Local, NaiveDate, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::models::RewardAmount;
 
 use super::definitions::{
     AchievementCondition, AchievementDailyPredicate, AchievementDefinition,
@@ -10,7 +11,32 @@ use super::definitions::{
 };
 
 const MAX_STORED_EVENTS: usize = 2_000;
-pub const ACHIEVEMENT_BOOK_SCHEMA_VERSION: u32 = 3;
+pub const ACHIEVEMENT_BOOK_SCHEMA_VERSION: u32 = 4;
+
+#[derive(Debug, Clone, Default)]
+pub struct WeeklyProgress {
+    pub online_seconds: f64,
+    pub qualified_focus_count: u32,
+    pub report_days: u32,
+    pub order_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingReward {
+    pub title: String,
+    pub reward: RewardAmount,
+    pub earned_at: i64,
+}
+
+const REWARDED_WEEKLY_GOALS: [WeeklyGoalDefinition; 3] = [
+    WeeklyGoalDefinition { key: "companion-120m", title: "本周陪伴 120 分钟",
+        counter_key: "", target: 7200.0, unit: "分钟", badge_achievement_id: "A002", route_key: "dashboard" },
+    WeeklyGoalDefinition { key: "qualified-focus-2", title: "完整完成 2 次专注",
+        counter_key: "", target: 2.0, unit: "次", badge_achievement_id: "A066", route_key: "focus" },
+    WeeklyGoalDefinition { key: "weekly-action", title: "2 天报告或 1 张工单",
+        counter_key: "", target: 1.0, unit: "项", badge_achievement_id: "A003", route_key: "workLog" },
+];
 
 #[derive(Debug, Clone, Copy)]
 struct WeeklyGoalDefinition {
@@ -99,6 +125,7 @@ pub struct AchievementBook {
     pub notification_queue: Vec<String>,
     pub idempotency_keys: BTreeSet<String>,
     pub weekly_goal_plan: Option<WeeklyGoalPlan>,
+    pub pending_rewards: BTreeMap<String, PendingReward>,
 }
 
 pub fn compact_achievement_book(book: &mut AchievementBook) -> bool {
@@ -127,6 +154,7 @@ impl Default for AchievementBook {
             notification_queue: Vec::new(),
             idempotency_keys: BTreeSet::new(),
             weekly_goal_plan: None,
+            pending_rewards: BTreeMap::new(),
         }
     }
 }
@@ -147,6 +175,8 @@ pub struct WeeklyGoalPlan {
 pub struct WeeklyGoals {
     pub week_key: String,
     pub goals: Vec<WeeklyGoal>,
+    pub bonus_reward: RewardAmount,
+    pub bonus_paid: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,6 +191,8 @@ pub struct WeeklyGoal {
     pub percent: f64,
     pub progress_label: String,
     pub is_complete: bool,
+    pub reward: RewardAmount,
+    pub reward_paid: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -383,7 +415,16 @@ pub fn ensure_weekly_goals(
     definitions: &[AchievementDefinition],
     now: i64,
 ) -> (WeeklyGoals, bool) {
-    let (week_key, week_seed) = local_iso_week(now);
+    ensure_weekly_goals_with_progress(book, definitions, now, &WeeklyProgress::default())
+}
+
+pub fn ensure_weekly_goals_with_progress(
+    book: &mut AchievementBook,
+    definitions: &[AchievementDefinition],
+    now: i64,
+    progress: &WeeklyProgress,
+) -> (WeeklyGoals, bool) {
+    let (week_key, _) = local_iso_week(now);
     let plan_is_current = book.weekly_goal_plan.as_ref().is_some_and(|plan| {
         plan.week_key == week_key
             && plan.goal_keys.len() == WEEKLY_GOAL_GROUPS.len()
@@ -394,7 +435,7 @@ pub fn ensure_weekly_goals(
 
     let changed = !plan_is_current;
     if changed {
-        let selected = select_weekly_goal_definitions(week_seed);
+        let selected = REWARDED_WEEKLY_GOALS.iter().collect::<Vec<_>>();
         let baselines = selected
             .iter()
             .map(|goal| {
@@ -418,29 +459,26 @@ pub fn ensure_weekly_goals(
         .as_ref()
         .into_iter()
         .flat_map(|plan| {
-            plan.goal_keys.iter().filter_map(|goal_key| {
+            plan.goal_keys.iter().enumerate().filter_map(|(index, goal_key)| {
                 let goal = weekly_goal_definition(goal_key)?;
                 let baseline = plan.baselines.get(goal_key).copied().unwrap_or_default();
-                Some(build_weekly_goal(book, definitions, goal, baseline))
+                let mut card = build_weekly_goal(book, definitions, goal, baseline, progress);
+                card.reward = weekly_goal_reward(index);
+                Some(card)
             })
         })
         .collect();
 
-    (WeeklyGoals { week_key, goals }, changed)
-}
-
-fn select_weekly_goal_definitions(week_seed: u32) -> Vec<&'static WeeklyGoalDefinition> {
-    WEEKLY_GOAL_GROUPS
-        .iter()
-        .enumerate()
-        .map(|(index, group)| &group[(week_seed as usize + index) % group.len()])
-        .collect()
+    (WeeklyGoals { week_key, goals, bonus_reward: RewardAmount {
+        parts: 160.0, insight: 10.0, affinity_experience: 10,
+    }, bonus_paid: false }, changed)
 }
 
 fn weekly_goal_definition(goal_key: &str) -> Option<&'static WeeklyGoalDefinition> {
     WEEKLY_GOAL_GROUPS
         .iter()
         .flatten()
+        .chain(REWARDED_WEEKLY_GOALS.iter())
         .find(|goal| goal.key == goal_key)
 }
 
@@ -449,8 +487,14 @@ fn build_weekly_goal(
     definitions: &[AchievementDefinition],
     goal: &WeeklyGoalDefinition,
     baseline: f64,
+    progress: &WeeklyProgress,
 ) -> WeeklyGoal {
-    let current_raw = (counter_value_with_fallback(book, goal.counter_key) - baseline).max(0.0);
+    let current_raw = match goal.key {
+        "companion-120m" => progress.online_seconds.max(0.0),
+        "qualified-focus-2" => progress.qualified_focus_count as f64,
+        "weekly-action" => (progress.report_days as f64 / 2.0).max(progress.order_count as f64),
+        _ => (counter_value_with_fallback(book, goal.counter_key) - baseline).max(0.0),
+    };
     let current = current_raw.min(goal.target);
     let is_complete = current_raw >= goal.target;
     let percent = ((current / goal.target) * 100.0).round();
@@ -478,15 +522,27 @@ fn build_weekly_goal(
         current,
         target: goal.target,
         percent,
-        progress_label: format!(
+        progress_label: if goal.key == "weekly-action" {
+            format!("报告 {}/2 天 · 工单 {}/1 张", progress.report_days.min(2), progress.order_count.min(1))
+        } else { format!(
             "{}/{} {}",
             display_current as u64, display_target as u64, goal.unit
-        ),
+        ) },
         is_complete,
+        reward: RewardAmount::default(),
+        reward_paid: false,
     }
 }
 
-fn local_iso_week(timestamp_ms: i64) -> (String, u32) {
+pub fn weekly_goal_reward(index: usize) -> RewardAmount {
+    match index {
+        1 => RewardAmount { parts: 160.0, insight: 10.0, affinity_experience: 5 },
+        2 => RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 5 },
+        _ => RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 0 },
+    }
+}
+
+pub fn local_iso_week(timestamp_ms: i64) -> (String, u32) {
     let date = Local
         .timestamp_millis_opt(timestamp_ms)
         .single()
@@ -2998,14 +3054,9 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(first.goals.iter().all(|goal| goal.percent == 0.0));
 
-        let first_definition = weekly_goal_definition(&first_ids[0]).unwrap();
-        let baseline = book.weekly_goal_plan.as_ref().unwrap().baselines[&first_ids[0]];
-        book.counters.insert(
-            first_definition.counter_key.to_string(),
-            baseline + first_definition.target,
-        );
+        let progress = WeeklyProgress { online_seconds: 7200.0, ..Default::default() };
         let (same_week, changed) =
-            ensure_weekly_goals(&mut book, &definitions, monday + 86_400_000);
+            ensure_weekly_goals_with_progress(&mut book, &definitions, monday + 86_400_000, &progress);
         assert!(!changed);
         assert_eq!(
             same_week
@@ -3023,7 +3074,7 @@ mod tests {
         assert!(changed);
         assert_ne!(next_week.week_key, first.week_key);
         assert_eq!(next_week.goals.len(), 3);
-        assert_ne!(
+        assert_eq!(
             next_week
                 .goals
                 .iter()

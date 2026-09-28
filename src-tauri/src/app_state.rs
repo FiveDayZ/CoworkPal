@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 use crate::{
     achievements::{
@@ -34,6 +34,7 @@ pub struct AppState {
     /// Memory release watcher cooldown state (auto-trigger only).
     pub memory_release: MemoryReleaseState,
     pub persistence: PersistenceCoordinator,
+    pub reward_lock: AsyncMutex<()>,
 }
 
 impl AppState {
@@ -58,9 +59,16 @@ impl AppState {
         let work_logs = storage
             .load_or_create_work_logs()
             .map_err(|error| format!("work_logs.json: {error}"))?;
-        let focus_sessions = storage
+        let mut focus_sessions = storage
             .load_or_create_focus_sessions()
             .map_err(|error| format!("focus_sessions.json: {error}"))?;
+        for session in &mut focus_sessions.sessions {
+            if session.status == crate::models::FocusSessionStatus::Active {
+                session.reward_version = 1;
+                session.production_multiplier = 1.5;
+                session.last_tick_at = None;
+            }
+        }
         let mut achievements = storage
             .load_or_create_achievements()
             .map_err(|error| format!("achievements.json: {error}"))?;
@@ -89,6 +97,7 @@ impl AppState {
             hardware_adapter: Arc::new(Mutex::new(create_default_adapter())),
             memory_release: MemoryReleaseState::default(),
             persistence: PersistenceCoordinator::default(),
+            reward_lock: AsyncMutex::new(()),
         })
     }
 }

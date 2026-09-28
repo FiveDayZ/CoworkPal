@@ -12,11 +12,12 @@ import { useFocusStore } from "../../stores/focusStore";
 import { useHardwareStore } from "../../stores/hardwareStore";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import type { MemoryReleaseResult } from "../tauriCommands";
+import { getWorkshopState, type MemoryReleaseResult } from "../tauriCommands";
 import type { FocusSessionBook } from "../../types/focus";
 import type { HardwareMetricsSnapshot } from "../../types/hardware";
 import type { CatState } from "../../types/pet";
 import type { AppSettings } from "../../types/settings";
+import type { RewardNotice } from "../../types/rewards";
 import {
   cleanupEventListeners,
   emptyEventCleanup,
@@ -96,6 +97,14 @@ export function registerPetWindowEvents() {
   );
 
   unlisteners.push(
+    listen<RewardNotice>("reward:granted", (event) => {
+      usePetStore.getState().showReward(
+        event.payload, useSettingsStore.getState().settings?.enablePetBubble === true,
+      );
+    }),
+  );
+
+  unlisteners.push(
     listen<MemoryReleaseResult>("memory:release-completed", (event) => {
       // Surface the release result in the CoCat speech bubble. The bubble's
       // visibility is gated by `enablePetBubble` in PetWindow; updating
@@ -106,7 +115,29 @@ export function registerPetWindowEvents() {
     }),
   );
 
-  return cleanupEventListeners(unlisteners);
+  let disposed = false;
+  void Promise.all(unlisteners).then(async () => {
+    if (!useSettingsStore.getState().settings) {
+      await useSettingsStore.getState().loadSettings();
+    }
+    const workshop = await getWorkshopState();
+    if (disposed) return;
+    // 启动结算可能早于窗口监听；只补显示最近到账的凭证，不重放历史提示。
+    for (const [rewardId, receipt] of Object.entries(workshop.rewardReceipts)) {
+      const age = Date.now() - receipt.paidAt;
+      if (age >= 0 && age <= 6000) {
+        usePetStore.getState().showReward(
+          { rewardId, title: receipt.title, reward: receipt.reward },
+          useSettingsStore.getState().settings?.enablePetBubble === true,
+        );
+      }
+    }
+  }).catch((error) => console.error("Failed to load recent rewards", error));
+  const cleanup = cleanupEventListeners(unlisteners);
+  return async () => {
+    disposed = true;
+    await cleanup();
+  };
 }
 
 function applyHardwareDerivedPetFallback(snapshot: HardwareMetricsSnapshot) {

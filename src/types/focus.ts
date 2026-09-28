@@ -1,3 +1,5 @@
+import type { RewardAmount } from "./rewards";
+
 export type FocusSessionStatus = "active" | "completed" | "abandoned";
 
 export interface FocusSession {
@@ -10,6 +12,12 @@ export interface FocusSession {
   distractionCount: number;
   focusQuality: number;
   productionMultiplier: number;
+  rewardVersion: number;
+  creditedDurationMs: number;
+  lastTickAt: number | null;
+  reward: RewardAmount | null;
+  rewardPaid: boolean;
+  achievementRecorded: boolean;
 }
 
 export interface FocusSessionBook {

@@ -82,6 +82,7 @@ export function PetWindow() {
   const snapshot = useHardwareStore((state) => state.snapshot);
   const catState = usePetStore((state) => state.catState);
   const catMessage = usePetStore((state) => state.catMessage);
+  const rewardMessageUntil = usePetStore((state) => state.rewardMessageUntil);
   const markPanelOpen = usePetStore((state) => state.openPanel);
   const markPanelClosed = usePetStore((state) => state.closePanel);
   const settings = useSettingsStore((state) => state.settings);
@@ -622,9 +623,11 @@ export function PetWindow() {
     }
 
     setBubbleVisible(true);
-    const timer = window.setTimeout(() => setBubbleVisible(false), 3200);
+    const timer = window.setTimeout(
+      () => setBubbleVisible(false), Math.max(3200, rewardMessageUntil - Date.now()),
+    );
     return () => window.clearTimeout(timer);
-  }, [bubbleEnabled, catMessage, catState]);
+  }, [bubbleEnabled, catMessage, catState, rewardMessageUntil]);
 
   function handleClick() {
     if (isMenuOpen) {

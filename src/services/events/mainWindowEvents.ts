@@ -15,10 +15,10 @@ import type { NoteBook } from "../../types/notes";
 import type { AppSettings } from "../../types/settings";
 import type { WorkLogReport } from "../../types/workLog";
 import type { WorkshopState } from "../../types/workshop";
+import type { RewardNotice } from "../../types/rewards";
 import type { MemoryReleaseResult } from "../tauriCommands";
 import {
   cleanupEventListeners,
-  emptyEventCleanup,
   isTauriRuntime,
 } from "./eventUtils";
 import { registerPetStateListeners } from "./petStateEvents";
@@ -31,9 +31,26 @@ export function registerMainWindowEvents() {
   const unlisteners: Array<Promise<UnlistenFn>> = [];
 
   if (!isTauriRuntime()) {
-    return emptyEventCleanup();
+    const focus = (event: Event) => useFocusStore.getState().setBook((event as CustomEvent<FocusSessionBook>).detail);
+    const workshop = (event: Event) => useWorkshopStore.getState().setWorkshopState((event as CustomEvent<WorkshopState>).detail);
+    const reward = (event: Event) => {
+      void useAchievementStore.getState().loadWeeklyGoals().catch(console.error);
+    };
+    window.addEventListener("preview:focus", focus);
+    window.addEventListener("preview:workshop", workshop);
+    window.addEventListener("preview:reward", reward);
+    return async () => {
+      window.removeEventListener("preview:focus", focus);
+      window.removeEventListener("preview:workshop", workshop);
+      window.removeEventListener("preview:reward", reward);
+    };
   }
 
+  unlisteners.push(
+    listen<RewardNotice>("reward:granted", (event) => {
+      void useAchievementStore.getState().loadWeeklyGoals().catch(console.error);
+    }),
+  );
   unlisteners.push(
     listen<HardwareMetricsSnapshot>("hardware:metrics", (event) => {
       useHardwareStore.getState().setMetrics(event.payload);

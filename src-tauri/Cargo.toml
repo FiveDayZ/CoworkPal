@@ -1,6 +1,6 @@
 [package]
 name = "cowork-pal"
-version = "1.0.2"
+version = "1.0.3"
 description = "CoworkPal desktop scaffold"
 authors = ["CoworkPal"]
 edition = "2021"

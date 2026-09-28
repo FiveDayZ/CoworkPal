@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FocusSession } from "../../types/focus";
 import { useFocusStore } from "../../stores/focusStore";
 import { PixelIcon } from "../../ui/PixelIcon";
+import { creditedSeconds } from "../../types/rewards";
 
 const DURATION_OPTIONS = [25, 50, 90] as const;
 
@@ -116,7 +117,7 @@ export function FocusPage() {
                   onClick={() => void handleEnd("complete")}
                   type="button"
                 >
-                  {isEnding ? "处理中..." : "完成任务"}
+                  {isEnding ? "处理中..." : "提前结束并结算"}
                 </button>
                 <button
                   className="cwp-compact-button is-danger"
@@ -248,19 +249,13 @@ export function FocusPage() {
 }
 
 function HistoryRow({ session }: { session: FocusSession }) {
-  const durationSeconds = Math.max(
-    0,
-    Math.min(
-      session.plannedDurationSeconds,
-      Math.floor(((session.endedAt ?? session.startedAt) - session.startedAt) / 1000),
-    ),
-  );
+  const durationSeconds = creditedSeconds(session);
   const completed = session.status === "completed";
 
   return (
     <article className="cwp-focus-history-row">
       <span className={`cwp-focus-history-state ${completed ? "is-completed" : "is-abandoned"}`}>
-        {completed ? "完成" : "中止"}
+        {completed ? (session.rewardVersion > 0 && durationSeconds < session.plannedDurationSeconds ? "提前" : "完成") : "中止"}
       </span>
       <div className="cwp-focus-history-task">
         <strong title={session.taskLabel}>{session.taskLabel}</strong>
@@ -275,7 +270,7 @@ function HistoryRow({ session }: { session: FocusSession }) {
 }
 
 function getSessionTiming(session: FocusSession, now: number) {
-  const elapsedSeconds = Math.max(0, Math.floor((now - session.startedAt) / 1000));
+  const elapsedSeconds = creditedSeconds(session, now);
   const remainingSeconds = Math.max(0, session.plannedDurationSeconds - elapsedSeconds);
   const progressPercent = Math.min(
     100,
@@ -293,13 +288,7 @@ function summarizeToday(sessions: FocusSession[]) {
   const totalSeconds = completed.reduce(
     (sum, session) =>
       sum +
-      Math.max(
-        0,
-        Math.min(
-          session.plannedDurationSeconds,
-          Math.floor(((session.endedAt ?? session.startedAt) - session.startedAt) / 1000),
-        ),
-      ),
+      creditedSeconds(session),
     0,
   );
   const qualityTotal = completed.reduce((sum, session) => sum + session.focusQuality, 0);

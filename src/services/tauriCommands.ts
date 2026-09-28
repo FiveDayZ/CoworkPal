@@ -16,6 +16,7 @@ import type { HardwareSnapshot } from "../types/hardware";
 import type { AppSettings, AppSettingsPatch } from "../types/settings";
 import type { WorkLogReport } from "../types/workLog";
 import type { FocusSessionBook } from "../types/focus";
+import { estimateFocusReward, type RewardAmount } from "../types/rewards";
 import type { RhythmProfile } from "../types/rhythm";
 import {
   TREND_RANGE_VALUES,
@@ -82,7 +83,7 @@ const browserSettings: AppSettings = {
 };
 
 const browserWorkshop: WorkshopState = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   parts: 280,
   insight: 12,
   workshopLevel: 1,
@@ -121,6 +122,7 @@ const browserWorkshop: WorkshopState = {
   ],
   completedOrderIds: [],
   lastOrderRefreshDate: "1970-01-01",
+  rewardReceipts: {},
 };
 
 const browserSnapshot: HardwareSnapshot = {
@@ -925,47 +927,76 @@ export async function getAchievementSummary(): Promise<AchievementSummary> {
 
 export async function getWeeklyGoals(): Promise<WeeklyGoals> {
   if (!isTauriRuntime()) {
+    startPreviewClock();
+    const weekKey = browserIsoWeekKey();
     const badgeKey = (achievementId: string) =>
       browserAchievements.find((achievement) => achievement.achievementId === achievementId)
         ?.badgeKey ?? "cwp_badge_daily_first_launch_entry";
-    return {
-      weekKey: browserIsoWeekKey(),
+    const qualified = browserFocusBook.sessions.filter((session) =>
+      session.status === "completed" && session.plannedDurationSeconds >= 1500
+      && session.creditedDurationMs >= session.plannedDurationSeconds * 1000
+      && session.endedAt != null && browserIsoWeekKey(new Date(session.endedAt)) === weekKey).length;
+    const orderCount = browserWorkshop.completedOrderIds.filter((id) => {
+      const date = new Date(`${id.split(":")[0]}T12:00:00`);
+      return Number.isFinite(date.getTime()) && browserIsoWeekKey(date) === weekKey;
+    }).length;
+    const goals: WeeklyGoals = {
+      weekKey,
+      bonusReward: { parts: 160, insight: 10, affinityExperience: 10 },
+      bonusPaid: false,
       goals: [
         {
-          goalId: "active-30m",
-          title: "本周陪伴 30 分钟",
+          goalId: "companion-120m",
+          title: "本周陪伴 120 分钟",
           badgeKey: badgeKey("A002"),
           routeKey: "dashboard",
-          current: 720,
-          target: 1800,
-          percent: 40,
-          progressLabel: "12/30 分钟",
-          isComplete: false,
+          current: Math.min(7200, browserWeeklySeconds),
+          target: 7200,
+          percent: Math.min(100, browserWeeklySeconds / 72),
+          progressLabel: `${Math.floor(browserWeeklySeconds / 60)}/120 分钟`,
+          isComplete: browserWeeklySeconds >= 7200,
+          reward: { parts: 80, insight: 5, affinityExperience: 0 },
+          rewardPaid: false,
         },
         {
-          goalId: "focus-2",
-          title: "完成 2 次专注",
+          goalId: "qualified-focus-2",
+          title: "完整完成 2 次专注",
           badgeKey: badgeKey("A066"),
           routeKey: "focus",
-          current: 1,
+          current: Math.min(2, qualified),
           target: 2,
-          percent: 50,
-          progressLabel: "1/2 次",
-          isComplete: false,
+          percent: Math.min(100, qualified * 50),
+          progressLabel: `${Math.min(2, qualified)}/2 次`,
+          isComplete: qualified >= 2,
+          reward: { parts: 160, insight: 10, affinityExperience: 5 },
+          rewardPaid: false,
         },
         {
-          goalId: "workshop-2",
-          title: "查看工坊 2 次",
-          badgeKey: badgeKey("A005"),
-          routeKey: "workshop",
-          current: 2,
-          target: 2,
-          percent: 100,
-          progressLabel: "2/2 次",
-          isComplete: true,
+          goalId: "weekly-action",
+          title: "2 天报告或 1 张工单",
+          badgeKey: badgeKey("A003"),
+          routeKey: "workLog",
+          current: Math.min(1, orderCount),
+          target: 1,
+          percent: orderCount ? 100 : 0,
+          progressLabel: `报告 0/2 天 · 工单 ${Math.min(1, orderCount)}/1 张`,
+          isComplete: orderCount >= 1,
+          reward: { parts: 80, insight: 5, affinityExperience: 5 },
+          rewardPaid: false,
         },
       ],
     };
+    for (const goal of goals.goals) {
+      const key = `week:${weekKey}:${goal.goalId}`;
+      if (goal.isComplete) grantPreviewReward(key, goal.title, goal.reward);
+      goal.rewardPaid = key in browserWorkshop.rewardReceipts;
+    }
+    const bonusKey = `week:${weekKey}:all`;
+    if (goals.goals.every((goal) => goal.isComplete)) {
+      grantPreviewReward(bonusKey, "本周目标全部完成", goals.bonusReward);
+    }
+    goals.bonusPaid = bonusKey in browserWorkshop.rewardReceipts;
+    return goals;
   }
 
   return invoke<WeeklyGoals>("get_weekly_goals");
@@ -1100,7 +1131,74 @@ export async function toggleProductionPaused(): Promise<AppSettings> {
   return invoke<AppSettings>("toggle_production_paused");
 }
 
-let browserFocusBook: FocusSessionBook = { schemaVersion: 1, sessions: [] };
+const browserFocusBook: FocusSessionBook = { schemaVersion: 1, sessions: [] };
+let previewClock: ReturnType<typeof setInterval> | null = null;
+let browserWeeklySeconds = 0;
+let previewWeek = browserIsoWeekKey();
+let previewTickAt = Date.now();
+
+function localDateKey(timestamp = Date.now()): string {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function grantPreviewReward(key: string, title: string, amount: RewardAmount) {
+  if (key in browserWorkshop.rewardReceipts) return;
+  const reward = { ...amount };
+  browserWorkshop.parts += reward.parts;
+  browserWorkshop.insight += reward.insight;
+  browserWorkshop.todayParts += reward.parts;
+  browserWorkshop.todayInsight += reward.insight;
+  browserWorkshop.affinityExperience += reward.affinityExperience;
+  browserWorkshop.catAffinityLevel += Math.floor(browserWorkshop.affinityExperience / 100);
+  browserWorkshop.affinityExperience %= 100;
+  browserWorkshop.rewardReceipts[key] = { title, reward, earnedAt: Date.now(), paidAt: Date.now() };
+  window.dispatchEvent(new CustomEvent("preview:workshop", { detail: { ...browserWorkshop } }));
+  if (reward.parts || reward.insight || reward.affinityExperience) {
+    window.dispatchEvent(new CustomEvent("preview:reward", { detail: { rewardId: key, title, reward } }));
+  }
+}
+
+function finishPreviewFocus(session: FocusSessionBook["sessions"][number]) {
+  session.status = "completed";
+  session.endedAt = Date.now();
+  session.focusQuality = Math.max(0.4, 1 - session.distractionCount * 0.15);
+  session.productionMultiplier = 1;
+  const reward = estimateFocusReward(Math.floor(session.creditedDurationMs / 1000), session.distractionCount);
+  const affinityToday = Object.entries(browserWorkshop.rewardReceipts).filter(([key, receipt]) =>
+    key.startsWith("focus:") && receipt.reward.affinityExperience > 0 && localDateKey(receipt.earnedAt) === localDateKey()).length;
+  if (session.plannedDurationSeconds >= 1500 && session.creditedDurationMs >= session.plannedDurationSeconds * 1000 && affinityToday < 2) {
+    reward.affinityExperience = 5;
+  }
+  grantPreviewReward(`focus:${session.id}`, "专注完成奖励", reward);
+  session.reward = browserWorkshop.rewardReceipts[`focus:${session.id}`].reward;
+  session.rewardPaid = true;
+  session.achievementRecorded = true;
+}
+
+function tickPreviewClock() {
+  const now = Date.now();
+  const delta = now - previewTickAt;
+  previewTickAt = now;
+  if (previewWeek !== browserIsoWeekKey()) {
+    previewWeek = browserIsoWeekKey();
+    browserWeeklySeconds = 0;
+  }
+  if (delta >= 0 && delta <= 30_000) browserWeeklySeconds += delta / 1000;
+  for (const session of browserFocusBook.sessions.filter((item) => item.status === "active")) {
+    const gap = session.lastTickAt == null ? 0 : now - session.lastTickAt;
+    session.lastTickAt = now;
+    if (gap >= 0 && gap <= 30_000) {
+      session.creditedDurationMs = Math.min(session.plannedDurationSeconds * 1000, session.creditedDurationMs + gap);
+    }
+    if (session.creditedDurationMs >= session.plannedDurationSeconds * 1000) finishPreviewFocus(session);
+  }
+  window.dispatchEvent(new CustomEvent("preview:focus", { detail: cloneFocusBook() }));
+}
+
+function startPreviewClock() {
+  if (previewClock == null) previewClock = setInterval(tickPreviewClock, 1000);
+}
 
 function cloneFocusBook(): FocusSessionBook {
   return {
@@ -1126,12 +1224,10 @@ export async function startFocusSession(
       throw new Error("任务名称不能为空");
     }
     const now = Date.now();
-    browserFocusBook.sessions.forEach((session) => {
-      if (session.status === "active") {
-        session.status = "abandoned";
-        session.endedAt = now;
-      }
-    });
+    if (browserFocusBook.sessions.some((session) => session.status === "active")) {
+      throw new Error("已有进行中的专注，请先完成或放弃");
+    }
+    startPreviewClock();
     browserFocusBook.sessions.push({
       id: `focus-preview-${now}`,
       taskLabel: task,
@@ -1142,6 +1238,12 @@ export async function startFocusSession(
       distractionCount: 0,
       focusQuality: 0,
       productionMultiplier: 1.5,
+      rewardVersion: 1,
+      creditedDurationMs: 0,
+      lastTickAt: now,
+      reward: null,
+      rewardPaid: false,
+      achievementRecorded: false,
     });
     return cloneFocusBook();
   }
@@ -1156,14 +1258,15 @@ export async function completeFocusSession(
 ): Promise<[FocusSessionBook, WorkshopState]> {
   if (!isTauriRuntime()) {
     const session = browserFocusBook.sessions.find(
-      (candidate) => candidate.id === sessionId && candidate.status === "active",
+      (candidate) => candidate.id === sessionId && candidate.status !== "abandoned",
     );
     if (!session) {
       throw new Error("未找到进行中的专注会话");
     }
-    session.status = "completed";
-    session.endedAt = Date.now();
-    session.focusQuality = 1;
+    if (session.status === "active") {
+      tickPreviewClock();
+      if (session.status === "active") finishPreviewFocus(session);
+    }
     return [cloneFocusBook(), { ...browserWorkshop }];
   }
   return invoke<[FocusSessionBook, WorkshopState]>("complete_focus_session", {
@@ -1183,6 +1286,7 @@ export async function abandonFocusSession(
     }
     session.status = "abandoned";
     session.endedAt = Date.now();
+    session.productionMultiplier = 1;
     return cloneFocusBook();
   }
   return invoke<FocusSessionBook>("abandon_focus_session", { sessionId });
@@ -1484,6 +1588,7 @@ export async function completeWorkshopOrder(orderId: string): Promise<WorkshopSt
       browserWorkshop.catAffinityLevel += 1;
     }
     browserWorkshop.completedOrderCount += 1;
+    browserWorkshop.completedOrderIds.push(`${localDateKey()}:${orderId}`);
     browserWorkshop.activeOrders = browserWorkshop.activeOrders.filter(
       (order) => order.id !== orderId,
     );

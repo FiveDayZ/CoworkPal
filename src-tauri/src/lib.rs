@@ -10,6 +10,7 @@ mod monitoring;
 mod persistence;
 mod pet;
 mod process_util;
+mod rewards;
 mod storage;
 mod suggestions;
 mod taskbar_embed;

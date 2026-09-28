@@ -1,3 +1,5 @@
+import type { RewardReceipt } from "./rewards";
+
 export type WorkshopModuleKey =
   | "cpu"
   | "gpu"
@@ -37,6 +39,7 @@ export interface WorkshopState {
   activeOrders: WorkshopOrder[];
   completedOrderIds: string[];
   lastOrderRefreshDate: string;
+  rewardReceipts: Record<string, RewardReceipt>;
 }
 
 export type WorkshopOrderKind = "standard" | "timed" | "hardwareEvent";

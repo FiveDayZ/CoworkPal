@@ -41,6 +41,8 @@ pub const UPDATE_PROGRESS: &str = "update:progress";
 /// full list + the live active session in one shape).
 pub const FOCUS_SESSION_UPDATED: &str = "focus:session-updated";
 
+pub const REWARD_GRANTED: &str = "reward:granted";
+
 /// Emitted after any notes/memos mutation (create/update/toggle/delete).
 /// Payload is the full updated `NoteBook` so the frontend list stays in sync.
 pub const NOTES_UPDATED: &str = "notes:updated";

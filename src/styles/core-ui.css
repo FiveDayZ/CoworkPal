@@ -769,7 +769,7 @@ label {
   left: 50%;
   bottom: 102px;
   width: min(156px, calc(100vw - 12px));
-  max-height: 38px;
+  max-height: 56px;
   padding: 4px 7px;
   border-radius: 0px;
   border: 2px solid var(--color-border-soft);
@@ -2253,7 +2253,8 @@ body:has(.cwp-taskbar-monitor-root) #root {
   padding: 8px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  overflow-y: auto;
   gap: 6px;
 }
 
@@ -9195,7 +9196,7 @@ input[type="range"]::-moz-range-thumb,
   min-height: 23px;
   padding: 2px 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 27px;
+  grid-template-columns: 18px minmax(0, 1fr) 36px;
   align-items: center;
   gap: 3px;
   border: 0;
@@ -9232,6 +9233,14 @@ input[type="range"]::-moz-range-thumb,
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cwp-focus-history-row {
+  align-items: start;
+}
+
+.cwp-focus-history-task span {
+  overflow-wrap: anywhere;
 }
 
 .cwp-weekly-goals-list i {

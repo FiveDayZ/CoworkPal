@@ -74,7 +74,7 @@ export function WeeklyGoalsCard() {
                     <b style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
                   </i>
                 </span>
-                <em>{goal.isComplete ? "完成" : `${Math.round(progress)}%`}</em>
+                <em>{goal.rewardPaid ? "已到账" : goal.isComplete ? "待发放" : `${Math.round(progress)}%`}</em>
               </button>
             );
           })}
