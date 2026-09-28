@@ -17,5 +17,9 @@
 
   <ItemGroup>
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
+    <!-- Match the locked SDK tool across local and CI SDK versions. -->
+    <KnownILLinkPack Update="Microsoft.NET.ILLink.Tasks">
+      <ILLinkPackVersion Condition="'%(KnownILLinkPack.TargetFramework)' == 'net8.0'">8.0.31</ILLinkPackVersion>
+    </KnownILLinkPack>
   </ItemGroup>
 </Project>
