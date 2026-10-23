@@ -1,6 +1,6 @@
 {
   "name": "cowork-pal",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "build:hardware-monitor": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-hardware-monitor.ps1",
     "test:corecat": "node scripts/run-corecat-animation-tests.mjs",
     "test:rewards": "node scripts/run-reward-tests.mjs",
+    "test:settings": "node scripts/run-settings-tests.mjs",
     "optimize:animations": "node scripts/optimize-animation-pngs.mjs",
     "typecheck": "tsc --noEmit",
     "tauri": "pnpm build:hardware-monitor && tauri"

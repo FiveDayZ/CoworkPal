@@ -12,6 +12,9 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
 import {
   normalizeModuleLevels,
+  MAX_AFFINITY_LEVEL,
+  workshopLevelSteps,
+  workshopCoolingRelief,
   type ModuleUpgradeLevels,
   type ResourceCost,
   type WorkshopModuleKey,
@@ -236,11 +239,11 @@ export function WorkshopPage() {
             <div>
               <span>亲密关系 · {breakdown?.affinityTitle ?? "初识搭档"}</span>
               <strong>
-                LV.{workshop?.catAffinityLevel ?? 1} · 亲密度 {workshop?.affinityExperience ?? 0}/100
+                LV.{workshop?.catAffinityLevel ?? 1}/{MAX_AFFINITY_LEVEL} · {(workshop?.catAffinityLevel ?? 1) >= MAX_AFFINITY_LEVEL ? "已满级" : `亲密度 ${workshop?.affinityExperience ?? 0}/100`}
               </strong>
             </div>
             <i>
-              <b style={{ width: `${Math.max(0, Math.min(100, workshop?.affinityExperience ?? 0))}%` }} />
+              <b style={{ width: `${(workshop?.catAffinityLevel ?? 1) >= MAX_AFFINITY_LEVEL ? 100 : Math.max(0, Math.min(100, workshop?.affinityExperience ?? 0))}%` }} />
             </i>
             <small>
               工坊产出 +{formatBonusPercent(breakdown?.affinityMultiplier)}
@@ -294,7 +297,7 @@ export function WorkshopPage() {
         <div className="cwp-upgrade-left">
           <div className="cwp-upgrade-stat">
             <span className="cwp-upgrade-stat-label">工坊等级</span>
-            <span className="cwp-upgrade-stat-val">Level {currentLevel}</span>
+            <span className="cwp-upgrade-stat-val">Level {currentLevel}/255</span>
           </div>
           <div className="cwp-upgrade-stat">
             <span className="cwp-upgrade-stat-label">升级零件</span>
@@ -615,7 +618,7 @@ function buildModules(
       metricVal: formatTemperature(maxTemp > 0 ? maxTemp : null),
       progress: clamp((maxTemp / tempWarning) * 100, 0, 100),
       statZh: maxTemp > tempWarning ? "状态: 过热" : "状态: 安全",
-      statEn: `稳定 +${moduleBonus(levels.temperature, 3.0, 5.5)}%`,
+      statEn: `散热减罚 ${(workshopCoolingRelief(levels.temperature) * 100).toFixed(1)}%`,
       partsRule: "提升散热组件耐久，减少零件产出损耗。",
       processRule: "降低温度惩罚，保持灵感稳定。",
       resourceKind: "parts",
@@ -646,8 +649,8 @@ function getModuleDisplayLevel(levels: ModuleUpgradeLevels) {
 
 function moduleBonus(levels: ModuleUpgradeLevels, partsWeight: number, processWeight: number) {
   return Math.round(
-    Math.max(0, levels.parts - 1) * partsWeight +
-      Math.max(0, levels.process - 1) * processWeight,
+    workshopLevelSteps(levels.parts) * partsWeight +
+      workshopLevelSteps(levels.process) * processWeight,
   );
 }
 

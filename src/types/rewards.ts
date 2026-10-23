@@ -27,6 +27,15 @@ export function rewardLabel(reward: RewardAmount): string {
   }`;
 }
 
+export function focusRewardLabel(session: FocusSession): string {
+  if (session.status === "abandoned") return "无完成奖励";
+  if (!session.reward) return session.rewardVersion > 0 ? "奖励待结算" : "历史奖励未记录";
+  if (!session.reward.parts && !session.reward.insight && !session.reward.affinityExperience) {
+    return "无完成奖励（有效专注不足 5 分钟）";
+  }
+  return `${session.rewardPaid ? "已到账" : "待到账"} · ${rewardLabel(session.reward)}`;
+}
+
 export function creditedSeconds(session: FocusSession, now?: number): number {
   if (!session.rewardVersion) {
     return Math.min(session.plannedDurationSeconds,

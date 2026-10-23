@@ -1,5 +1,25 @@
 import type { RewardReceipt } from "./rewards";
 
+export const MAX_AFFINITY_LEVEL = 100;
+
+export function workshopLevelSteps(level: number): number {
+  const capped = Math.max(1, Math.min(255, level));
+  return Math.min(capped - 1, 99) + Math.max(0, Math.min(capped - 100, 100)) * 0.75
+    + Math.max(0, capped - 200) * 0.5;
+}
+
+export function workshopCoolingRelief(levels: ModuleUpgradeLevels): number {
+  const bonus = workshopLevelSteps(levels.parts) * 0.003 + workshopLevelSteps(levels.process) * 0.0055;
+  return bonus <= 0.29 ? bonus : 0.58 - 0.29 * Math.exp(-(bonus - 0.29) / 0.29);
+}
+
+export function addAffinityExperience(workshop: WorkshopState, amount: number): void {
+  const experience = workshop.affinityExperience + amount;
+  workshop.catAffinityLevel = Math.min(MAX_AFFINITY_LEVEL,
+    Math.max(1, workshop.catAffinityLevel) + Math.floor(experience / 100));
+  workshop.affinityExperience = workshop.catAffinityLevel === MAX_AFFINITY_LEVEL ? 0 : experience % 100;
+}
+
 export type WorkshopModuleKey =
   | "cpu"
   | "gpu"

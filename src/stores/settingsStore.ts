@@ -16,20 +16,14 @@ export interface SettingsStore {
 // if it is still the latest request. This prevents an earlier request's slow
 // response from clobbering a newer value that has already been applied.
 let pendingRequestSeq = 0;
+let settingsWriteQueue: Promise<unknown> = Promise.resolve();
 
 // Accumulates optimistic patches applied locally but whose IPC round-trip has
 // not resolved. The `settings:updated` broadcast event re-applies this on top
 // of its payload so an in-flight local edit (e.g. a slider drag) is preserved
 // instead of being overwritten by a stale backend snapshot.
 //
-// This is a single merged object rather than a per-request map: it represents
-// "all uncommitted local edits" as a set. It is cleared when the LATEST request
-// resolves (seq === pendingRequestSeq), because at that point all edits up to
-// that request have been persisted (the latest debounced commit carries the
-// merged patch). A per-request map added complexity (seq-claim ordering between
-// the debounced applyOptimistic path and discrete updateSettings calls) without
-// real-world benefit, since rapid concurrent edits across different fields are
-// rare and self-correct on the next event/load.
+// Queued writes carry all pending fields; only the latest response clears them.
 let pendingOptimisticPatch: AppSettingsPatch = {};
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -45,6 +39,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       return { settings };
     }),
   applyOptimistic: (patch) => {
+    ++pendingRequestSeq;
     const previousSettings = get().settings;
     if (previousSettings) {
       set({ settings: { ...previousSettings, ...patch } });
@@ -53,10 +48,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
   loadSettings: async () => {
     const settings = await getAppSettings();
-    set({ settings });
+    get().setSettings(settings);
   },
   updateSettings: async (patch) => {
     const seq = ++pendingRequestSeq;
+    Object.assign(pendingOptimisticPatch, patch);
+    const committedPatch = { ...pendingOptimisticPatch };
+    const request = settingsWriteQueue.then(() => updateAppSettings(committedPatch));
+    settingsWriteQueue = request.catch(() => {});
 
     // Apply the patch optimistically so the UI reacts immediately. On failure
     // we re-fetch authoritative state rather than rolling back to a snapshot
@@ -67,7 +66,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }
 
     try {
-      const settings = await updateAppSettings(patch);
+      const settings = await request;
       // Only apply the authoritative response if no newer request has started.
       if (seq === pendingRequestSeq) {
         // The latest request resolved — all edits up to here are committed, so

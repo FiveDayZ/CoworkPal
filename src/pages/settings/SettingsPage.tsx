@@ -66,13 +66,12 @@ export function SettingsPage() {
   const icons = useThemedIcons();
   const updateSettings = useSettingsStore((state) => state.updateSettings);
   const applyOptimistic = useSettingsStore((state) => state.applyOptimistic);
-  // Fire-and-forget wrapper for discrete settings writes (toggles, theme, ...).
-  // updateSettings rethrows on failure (after reconciling state via re-fetch),
-  // so we swallow the rejection here to avoid unhandled-promise warnings — the
-  // store has already corrected the UI, there is nothing else to surface.
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const safeUpdate = (patch: AppSettingsPatch) => {
+    setSettingsError(null);
     void updateSettings(patch).catch((error) => {
       console.error("failed to persist settings", error);
+      setSettingsError(`设置保存失败：${String(error)}`);
     });
   };
   const setPetStatus = usePetStore((state) => state.setPetStatus);
@@ -479,6 +478,7 @@ export function SettingsPage() {
 
         {/* Right Column: categories cards */}
         <div className="cwp-settings-cards-scroll">
+          {settingsError && <div className="cwp-sync-message" role="alert">{settingsError}</div>}
           {/* Column 1: Cat settings and Monitor bar settings */}
           <div className="cwp-settings-column">
             {/* Card 1: Companion Settings */}
@@ -567,6 +567,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.isCatVisible ?? true}
+                      aria-label="显示桌宠"
                       onChange={(e) => setCatVisible(e.target.checked)}
                     />
                     <span className="cwp-switch-slider" />
@@ -578,6 +579,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.enablePetBubble ?? true}
+                      aria-label="CoCat 气泡"
                       onChange={(e) => safeUpdate({ enablePetBubble: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
@@ -589,6 +591,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.enableStaticCatMode ?? false}
+                      aria-label="静态猫咪"
                       onChange={(e) => safeUpdate({ enableStaticCatMode: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
@@ -609,6 +612,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.isMonitorBarVisible ?? false}
+                      aria-label="显示监控条"
                       onChange={(e) => setMonitorBarVisible(e.target.checked)}
                     />
                     <span className="cwp-switch-slider" />
@@ -674,6 +678,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.showMonitorDataInTaskbar ?? false}
+                      aria-label="显示任务栏监控"
                       onChange={(e) =>
                         safeUpdate({
                           showMonitorDataInTaskbar: e.target.checked,
@@ -743,6 +748,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.enableLowPowerMode ?? false}
+                      aria-label="低功耗模式"
                       onChange={(e) => safeUpdate({ enableLowPowerMode: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
@@ -755,6 +761,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.launchAtStartup ?? false}
+                      aria-label="开机自启动"
                       onChange={(e) => safeUpdate({ launchAtStartup: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
@@ -767,6 +774,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings?.enableNotifications ?? false}
+                      aria-label="启用通知"
                       onChange={(e) => safeUpdate({ enableNotifications: e.target.checked })}
                     />
                     <span className="cwp-switch-slider" />
@@ -906,6 +914,7 @@ export function SettingsPage() {
                   <input
                     type="checkbox"
                     checked={settings?.memoryReleaseEnabled ?? true}
+                    aria-label="启用内存释放"
                     onChange={(e) =>
                       safeUpdate({ memoryReleaseEnabled: e.target.checked })
                     }
@@ -919,6 +928,7 @@ export function SettingsPage() {
                   <input
                     type="checkbox"
                     checked={settings?.memoryAutoReleaseEnabled ?? false}
+                    aria-label="超过阈值自动释放"
                     onChange={(e) =>
                       safeUpdate({
                         memoryAutoReleaseEnabled: e.target.checked,

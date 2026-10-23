@@ -551,6 +551,15 @@ impl AppSettings {
     }
 
     pub fn apply_patch(&mut self, patch: AppSettingsPatch) {
+        // Explicit settings take precedence over the minimal-mode preset.
+        if self.minimal_mode_enabled
+            && (patch.is_cat_visible == Some(true)
+                || patch.is_monitor_bar_visible == Some(true)
+                || patch.enable_low_power_mode == Some(false))
+        {
+            self.minimal_mode_enabled = false;
+            self.minimal_mode_restore = None;
+        }
         if let Some(value) = patch.cat_name {
             self.cat_name = value;
         }
@@ -737,6 +746,20 @@ pub struct WorkshopState {
 }
 
 pub const WORKSHOP_STATE_SCHEMA_VERSION: u32 = 3;
+pub const MAX_AFFINITY_LEVEL: u32 = 100;
+
+impl WorkshopState {
+    pub fn add_affinity_experience(&mut self, amount: u32) {
+        let experience = self.affinity_experience.saturating_add(amount);
+        self.cat_affinity_level = self.cat_affinity_level.max(1)
+            .saturating_add(experience / 100).min(MAX_AFFINITY_LEVEL);
+        self.affinity_experience = if self.cat_affinity_level == MAX_AFFINITY_LEVEL {
+            0
+        } else {
+            experience % 100
+        };
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -4511,9 +4534,6 @@ mod assessment_tests {
         settings.toggle_minimal_mode();
 
         settings.apply_patch(AppSettingsPatch {
-            is_cat_visible: Some(true),
-            is_monitor_bar_visible: Some(true),
-            enable_low_power_mode: Some(false),
             integrated_hardware_monitor_enabled: Some(true),
             ..Default::default()
         });
@@ -4526,6 +4546,29 @@ mod assessment_tests {
 
         settings.toggle_minimal_mode();
         assert!(settings.integrated_hardware_monitor_enabled);
+    }
+
+    #[test]
+    fn manual_visibility_and_power_settings_exit_minimal_mode() {
+        for patch in [
+            AppSettingsPatch { is_cat_visible: Some(true), ..Default::default() },
+            AppSettingsPatch { is_monitor_bar_visible: Some(true), ..Default::default() },
+            AppSettingsPatch { enable_low_power_mode: Some(false), ..Default::default() },
+        ] {
+            let mut settings = AppSettings::default();
+            settings.toggle_minimal_mode();
+            let cat = patch.is_cat_visible;
+            let monitor = patch.is_monitor_bar_visible;
+            let low_power = patch.enable_low_power_mode;
+            settings.apply_patch(patch);
+            assert!(!settings.minimal_mode_enabled);
+            assert!(settings.minimal_mode_restore.is_none());
+            if let Some(value) = cat { assert_eq!(settings.is_cat_visible, value); }
+            if let Some(value) = monitor { assert_eq!(settings.is_monitor_bar_visible, value); }
+            if let Some(value) = low_power { assert_eq!(settings.enable_low_power_mode, value); }
+            let restored: AppSettings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+            assert!(!restored.minimal_mode_enabled);
+        }
     }
 
     #[test]

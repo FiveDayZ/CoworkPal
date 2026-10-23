@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "cowork-pal"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "chrono",
  "futures-util",

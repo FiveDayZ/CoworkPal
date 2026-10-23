@@ -17,10 +17,8 @@ const MODULE_PARTS_UPGRADE_INSIGHT_WEIGHT: f64 = 0.75;
 const MODULE_PROCESS_UPGRADE_PARTS_WEIGHT: f64 = 0.9;
 const MODULE_PROCESS_UPGRADE_INSIGHT_WEIGHT: f64 = 1.2;
 const RESOURCE_EPSILON: f64 = 0.001;
-const AFFINITY_BONUS_PER_LEVEL: f64 = 0.005;
-const AFFINITY_BONUS_MAX: f64 = 0.10;
-pub const MAX_WORKSHOP_LEVEL: u32 = 100;
-pub const MAX_MODULE_SUB_LEVEL: u32 = 100;
+pub const MAX_WORKSHOP_LEVEL: u32 = 255;
+pub const MAX_MODULE_SUB_LEVEL: u32 = 255;
 /// Cap a single tick's credited time. This MUST match the work-log's cap
 /// (models.rs record_snapshot clamps to 60s) so the workshop's online-seconds
 /// tracking and the work-log's active-seconds tracking stay consistent when the
@@ -308,7 +306,7 @@ fn calculate_output(
     let parts_activity = cpu * 0.40 + memory * 0.30 + gpu * 0.20 + gpu_memory * 0.10;
     let insight_activity = network * 0.60 + disk * 0.40;
 
-    let workshop_bonus = 1.0 + workshop.workshop_level.saturating_sub(1) as f64 * 0.12;
+    let workshop_bonus = 1.0 + level_steps(workshop.workshop_level) * 0.12;
     let parts_module_bonus = module_bonus(&[
         (&module_levels.cpu, 0.060, 0.035),
         (&module_levels.gpu, 0.052, 0.030),
@@ -372,7 +370,7 @@ pub fn production_breakdown(
     );
     let parts_activity = cpu * 0.40 + memory * 0.30 + gpu * 0.20 + gpu_memory * 0.10;
     let insight_activity = network * 0.60 + disk * 0.40;
-    let workshop_multiplier = 1.0 + workshop.workshop_level.saturating_sub(1) as f64 * 0.12;
+    let workshop_multiplier = 1.0 + level_steps(workshop.workshop_level) * 0.12;
     let parts_module_multiplier = module_bonus(&[
         (&workshop.module_levels.cpu, 0.060, 0.035),
         (&workshop.module_levels.gpu, 0.052, 0.030),
@@ -412,7 +410,10 @@ pub fn production_breakdown(
 }
 
 fn affinity_multiplier(level: u32) -> f64 {
-    1.0 + (level.saturating_sub(1) as f64 * AFFINITY_BONUS_PER_LEVEL).min(AFFINITY_BONUS_MAX)
+    let level = level.clamp(1, crate::models::MAX_AFFINITY_LEVEL);
+    1.0 + level.saturating_sub(1).min(19) as f64 * 0.005
+        + level.saturating_sub(20).min(30) as f64 * 0.0075
+        + level.saturating_sub(50) as f64 * 0.01
 }
 
 fn affinity_profile(
@@ -427,7 +428,9 @@ fn affinity_profile(
         1..=4 => ("初识搭档", "new", Some(5), Some("默契搭档")),
         5..=9 => ("默契搭档", "trusted", Some(10), Some("可靠拍档")),
         10..=19 => ("可靠拍档", "partner", Some(20), Some("最佳拍档")),
-        _ => ("最佳拍档", "bonded", None, None),
+        20..=49 => ("最佳拍档", "bonded", Some(50), Some("灵魂搭档")),
+        50..=99 => ("灵魂搭档", "bonded", Some(100), Some("命定搭档")),
+        _ => ("命定搭档", "bonded", None, None),
     }
 }
 
@@ -533,13 +536,7 @@ pub fn complete_order(
             insight: order.required_insight,
         },
     )?;
-    workshop.affinity_experience = workshop
-        .affinity_experience
-        .saturating_add(order.reward_affinity);
-    while workshop.affinity_experience >= 100 {
-        workshop.affinity_experience -= 100;
-        workshop.cat_affinity_level = workshop.cat_affinity_level.saturating_add(1);
-    }
+    workshop.add_affinity_experience(order.reward_affinity);
     workshop.completed_order_count = workshop.completed_order_count.saturating_add(1);
     workshop.completed_order_ids.insert(order.id.clone());
     workshop
@@ -565,13 +562,20 @@ fn throughput_score(bytes_per_second: f64) -> f64 {
     (mib_per_second.ln_1p() / 64.0_f64.ln_1p()).clamp(0.0, 1.0)
 }
 
+fn level_steps(level: u32) -> f64 {
+    let level = level.clamp(1, MAX_WORKSHOP_LEVEL);
+    level.saturating_sub(1).min(99) as f64
+        + level.saturating_sub(100).min(100) as f64 * 0.75
+        + level.saturating_sub(200) as f64 * 0.5
+}
+
 fn module_bonus(modules: &[(&ModuleUpgradeLevels, f64, f64)]) -> f64 {
     modules
         .iter()
         .fold(1.0, |bonus, (module, parts_weight, process_weight)| {
             bonus
-                + module.parts.max(1).saturating_sub(1) as f64 * parts_weight
-                + module.process.max(1).saturating_sub(1) as f64 * process_weight
+                + level_steps(module.parts) * parts_weight
+                + level_steps(module.process) * process_weight
         })
         .clamp(1.0, 1000.0)
 }
@@ -616,9 +620,14 @@ fn stability_relief(
     process_weight: f64,
     max_relief: f64,
 ) -> f64 {
-    (module.parts.max(1).saturating_sub(1) as f64 * parts_weight
-        + module.process.max(1).saturating_sub(1) as f64 * process_weight)
-        .clamp(0.0, max_relief)
+    let bonus = level_steps(module.parts) * parts_weight
+        + level_steps(module.process) * process_weight;
+    let midpoint = max_relief / 2.0;
+    if bonus <= midpoint {
+        bonus
+    } else {
+        max_relief - midpoint * (-(bonus - midpoint) / midpoint).exp()
+    }
 }
 
 fn temperature_overage(value: Option<f32>, warning: f32) -> f64 {
@@ -835,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn affinity_levels_boost_output_with_a_ten_percent_cap() {
+    fn affinity_levels_boost_output_in_tiers_up_to_level_100() {
         let settings = AppSettings::default();
         let snapshot = balanced_snapshot();
         let base = calculate_output(&settings, &snapshot, &WorkshopState::default(), 1.0);
@@ -845,7 +854,7 @@ mod tests {
         };
         let boosted = calculate_output(&settings, &snapshot, &level_eleven, 1.0);
         let capped = WorkshopState {
-            cat_affinity_level: 99,
+            cat_affinity_level: 100,
             ..Default::default()
         };
         let capped_output = calculate_output(&settings, &snapshot, &capped, 1.0);
@@ -853,8 +862,61 @@ mod tests {
         assert_close(affinity_multiplier(11), 1.05);
         assert_close(boosted.parts_per_minute / base.parts_per_minute, 1.05);
         assert_close(boosted.insight_per_minute / base.insight_per_minute, 1.05);
-        assert_close(capped_output.parts_per_minute / base.parts_per_minute, 1.10);
-        assert_eq!(affinity_profile(20), ("最佳拍档", "bonded", None, None));
+        assert_close(capped_output.parts_per_minute / base.parts_per_minute, 1.82);
+        assert_close(capped_output.insight_per_minute / base.insight_per_minute, 1.82);
+        for (level, expected) in [(1, 1.0), (20, 1.095), (50, 1.32), (100, 1.82), (101, 1.82)] {
+            assert_close(affinity_multiplier(level), expected);
+        }
+        assert_eq!(affinity_profile(20), ("最佳拍档", "bonded", Some(50), Some("灵魂搭档")));
+        assert_eq!(affinity_profile(50), ("灵魂搭档", "bonded", Some(100), Some("命定搭档")));
+        assert_eq!(affinity_profile(100), ("命定搭档", "bonded", None, None));
+    }
+
+    #[test]
+    fn upgrades_reach_255_and_reject_further_debits_on_every_track() {
+        let mut workshop = WorkshopState { workshop_level: 100, parts: 1e12, insight: 1e12, ..Default::default() };
+        while workshop.workshop_level < 255 {
+            let previous = super::workshop_upgrade_cost(workshop.workshop_level).unwrap();
+            apply_workshop_upgrade(&mut workshop).unwrap();
+            if let Some(next) = super::workshop_upgrade_cost(workshop.workshop_level) {
+                assert!(next.parts > previous.parts && next.insight > previous.insight);
+            }
+        }
+        let balance = (workshop.parts, workshop.insight);
+        assert!(apply_workshop_upgrade(&mut workshop).is_err());
+        assert_eq!((workshop.parts, workshop.insight), balance);
+        assert!(upgrade_quotes(&workshop).workshop.is_none());
+        for module in ["cpu", "gpu", "ram", "network", "temperature", "disk"] {
+            for track in ["parts", "process"] {
+                let levels = super::module_levels_mut(&mut workshop, module).unwrap();
+                if track == "parts" { levels.parts = 100; } else { levels.process = 100; }
+                for _ in 100..255 { apply_module_upgrade(&mut workshop, module, track).unwrap(); }
+                let balance = (workshop.parts, workshop.insight);
+                assert!(apply_module_upgrade(&mut workshop, module, track).is_err());
+                assert_eq!((workshop.parts, workshop.insight), balance);
+                let quotes = upgrade_quotes(&workshop);
+                let quote = &quotes.modules[module];
+                assert!(if track == "parts" { quote.parts.is_none() } else { quote.process.is_none() });
+            }
+        }
+    }
+
+    #[test]
+    fn production_keeps_growing_across_all_level_tiers() {
+        for (level, expected) in [(1, 0.0), (100, 99.0), (101, 99.75), (200, 174.0), (201, 174.5), (255, 201.5)] {
+            assert_close(super::level_steps(level), expected);
+        }
+        for level in 2..=255 {
+            let lower = ModuleUpgradeLevels { parts: level - 1, process: level - 1 };
+            let upper = ModuleUpgradeLevels { parts: level, process: level };
+            assert!(super::module_bonus(&[(&upper, 0.06, 0.035)]) > super::module_bonus(&[(&lower, 0.06, 0.035)]));
+            assert!(super::stability_relief(&upper, 0.003, 0.0055, 0.58) > super::stability_relief(&lower, 0.003, 0.0055, 0.58));
+            let workshop = WorkshopState { workshop_level: level, ..Default::default() };
+            let breakdown = production_breakdown(&AppSettings::default(), &balanced_snapshot(), &workshop, 1.0);
+            let output = calculate_output(&AppSettings::default(), &balanced_snapshot(), &workshop, 1.0);
+            assert_close(breakdown.workshop_multiplier, 1.0 + super::level_steps(level) * 0.12);
+            assert_close(breakdown.parts_per_minute, output.parts_per_minute);
+        }
     }
 
     #[test]
@@ -878,6 +940,13 @@ mod tests {
 
         assert_eq!(workshop.cat_affinity_level, 5);
         assert_eq!(workshop.affinity_experience, 8);
+        workshop.cat_affinity_level = 99;
+        workshop.affinity_experience = 99;
+        let order = workshop.active_orders[0].clone();
+        complete_order(&mut workshop, &order.id, 2_000).unwrap();
+        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
+        workshop.add_affinity_experience(u32::MAX);
+        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
     }
 
     #[test]

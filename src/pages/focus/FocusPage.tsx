@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FocusSession } from "../../types/focus";
 import { useFocusStore } from "../../stores/focusStore";
 import { PixelIcon } from "../../ui/PixelIcon";
-import { creditedSeconds } from "../../types/rewards";
+import { creditedSeconds, focusRewardLabel } from "../../types/rewards";
 
 const DURATION_OPTIONS = [25, 50, 90] as const;
 
@@ -260,6 +260,7 @@ function HistoryRow({ session }: { session: FocusSession }) {
       <div className="cwp-focus-history-task">
         <strong title={session.taskLabel}>{session.taskLabel}</strong>
         <span>{formatSessionTime(session.endedAt ?? session.startedAt)}</span>
+        <span className="cwp-focus-history-reward">{focusRewardLabel(session)}</span>
       </div>
       <div className="cwp-focus-history-result">
         <strong>{formatCompactDuration(durationSeconds)}</strong>

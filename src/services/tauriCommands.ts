@@ -28,6 +28,8 @@ import type { TodaySuggestions } from "../types/suggestions";
 import type { CloudSyncResult, SyncConfig, TokenRequestResult } from "../types/cloudSync";
 import {
   defaultModuleLevels,
+  addAffinityExperience,
+  MAX_AFFINITY_LEVEL,
   type WorkshopModuleKey,
   type WorkshopProductionBreakdown,
   type WorkshopState,
@@ -1149,9 +1151,7 @@ function grantPreviewReward(key: string, title: string, amount: RewardAmount) {
   browserWorkshop.insight += reward.insight;
   browserWorkshop.todayParts += reward.parts;
   browserWorkshop.todayInsight += reward.insight;
-  browserWorkshop.affinityExperience += reward.affinityExperience;
-  browserWorkshop.catAffinityLevel += Math.floor(browserWorkshop.affinityExperience / 100);
-  browserWorkshop.affinityExperience %= 100;
+  addAffinityExperience(browserWorkshop, reward.affinityExperience);
   browserWorkshop.rewardReceipts[key] = { title, reward, earnedAt: Date.now(), paidAt: Date.now() };
   window.dispatchEvent(new CustomEvent("preview:workshop", { detail: { ...browserWorkshop } }));
   if (reward.parts || reward.insight || reward.affinityExperience) {
@@ -1544,10 +1544,15 @@ export async function getWorkshopUpgradeQuotes(): Promise<WorkshopUpgradeQuotes 
 
 export async function getWorkshopProductionBreakdown(): Promise<WorkshopProductionBreakdown> {
   if (!isTauriRuntime()) {
-    const level = browserWorkshop.catAffinityLevel;
-    const affinityMultiplier = 1 + Math.min(0.1, Math.max(0, level - 1) * 0.005);
-    const affinity = level >= 20
-      ? { title: "最佳拍档", tier: "bonded" as const, nextLevel: null, nextTitle: null }
+    const level = Math.max(1, Math.min(MAX_AFFINITY_LEVEL, browserWorkshop.catAffinityLevel));
+    const affinityMultiplier = 1 + Math.min(level - 1, 19) * 0.005
+      + Math.max(0, Math.min(level - 20, 30)) * 0.0075 + Math.max(0, level - 50) * 0.01;
+    const affinity = level >= 100
+      ? { title: "命定搭档", tier: "bonded" as const, nextLevel: null, nextTitle: null }
+      : level >= 50
+        ? { title: "灵魂搭档", tier: "bonded" as const, nextLevel: 100, nextTitle: "命定搭档" }
+      : level >= 20
+        ? { title: "最佳拍档", tier: "bonded" as const, nextLevel: 50, nextTitle: "灵魂搭档" }
       : level >= 10
         ? { title: "可靠拍档", tier: "partner" as const, nextLevel: 20, nextTitle: "最佳拍档" }
         : level >= 5
@@ -1582,11 +1587,7 @@ export async function completeWorkshopOrder(orderId: string): Promise<WorkshopSt
     }
     browserWorkshop.parts -= order.requiredParts;
     browserWorkshop.insight -= order.requiredInsight;
-    browserWorkshop.affinityExperience += order.rewardAffinity;
-    while (browserWorkshop.affinityExperience >= 100) {
-      browserWorkshop.affinityExperience -= 100;
-      browserWorkshop.catAffinityLevel += 1;
-    }
+    addAffinityExperience(browserWorkshop, order.rewardAffinity);
     browserWorkshop.completedOrderCount += 1;
     browserWorkshop.completedOrderIds.push(`${localDateKey()}:${orderId}`);
     browserWorkshop.activeOrders = browserWorkshop.activeOrders.filter(

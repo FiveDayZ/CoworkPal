@@ -6,7 +6,16 @@
 
 ---
 
-## 🚀 v1.0.3
+## 🚀 v1.0.4
+
+- **专注记录显示奖励**：最近记录直接展示实际零件、灵感、亲密经验及到账状态；历史无凭证记录不推算或补发。
+- **工坊与模块 255 级**：主等级和 12 条模块升级轨道均扩展至 255 级；101—200 级每级产出增幅为原来的 75%，201—255 级为 50%，散热与内存稳定收益逐渐趋缓。
+- **亲密关系 100 级**：2—20 级每级产出增加 0.5 个百分点，21—50 级每级增加 0.75 个百分点，51—100 级每级增加 1 个百分点，满级增益 +82%；50 级成为灵魂搭档，100 级成为命定搭档。
+- **设置开关修复**：手动开启桌宠、监控条或关闭低功耗时退出精简模式；设置写入按顺序保存，避免广播与连续操作覆盖新值；扩大点击区域并支持键盘聚焦，保存失败显示错误。
+
+前往 [CoworkPal v1.0.4 Release](https://github.com/FiveDayZ/CoworkPal/releases/tag/v1.0.4) 下载安装包。
+
+### v1.0.3
 
 - **奖励气泡提示**：专注与周目标奖励实际到账后，仅在开启 CoCat 气泡时提示，不增加弹窗或说明窗口
 - **专注回报明确**：实时工坊固定 ×1.5，另按有效分钟结算零件与灵感
@@ -20,7 +29,6 @@
 - **首次运行校准**：引导设置 CoCat 名称、主要关注指标和实时状态偏好，同时保持 640 × 420 主窗口的紧凑布局
 - **可靠性补强**：改进成就条件执行、专注分心判定、定时落盘、存档恢复和窗口生命周期处理
 
-前往 [CoworkPal v1.0.3 Release](https://github.com/FiveDayZ/CoworkPal/releases/tag/v1.0.3) 下载安装包。
 
 ---
 
@@ -54,14 +62,14 @@ CoCat 是一只透明悬浮在桌面上的像素猫咪，她的行为完全由�
 - **网络吞吐 / 磁盘读写** 活跃度 → 产生 💡 **灵感**
 
 用这些资源可以升级：
-- **工坊主等级**（全局产出加成，上限 100 级）
+- **工坊主等级**（全局产出加成，上限 255 级）
 - **6 大硬件工作台子模块**：CPU 核心工作台、GPU 渲染流水线、RAM 零件仓库、NET 数据传输站、TEMP 冷却风扇墙、DISK 数据归档柜
 
-每个模块升级都有独立的效能加成曲线与非线性资源消耗设计，适合长期策略养成。
+每个模块的零件、工艺轨道均可升至 255 级，升级有独立的效能加成曲线与非线性资源消耗设计，适合长期策略养成。
 
 - **实时产出拆解**：直接查看硬件活跃、工坊等级、模块、稳定度、专注和亲密度对最终产出的影响
 - **每日工单**：消耗零件与灵感交付普通、限时或硬件事件工单，让资源有持续用途
-- **亲密关系**：完成工单获得亲密度并提升关系等级；每提升 1 级，零件与灵感产出增加 0.5%，最高增加 10%
+- **亲密关系**：完成工单、专注与周目标获得亲密经验，关系上限 100 级，分段提高零件与灵感产出，最高 +82%；每级需要 100 经验，满级后不再累计经验。
 
 ---
 
@@ -304,7 +312,7 @@ CoworkPal 内置完整的成就体系，记录你与 CoCat 共同走过的每一
 | <img src="src/assets/achievements/cwp_badge_workshop_level_60_epic.webp" width="40" height="40" /> | A088 | 工坊 60 级 | 工坊养成 | 工坊达到 60 级 |  |
 | <img src="src/assets/achievements/cwp_badge_workshop_all_parts_50_epic.webp" width="40" height="40" /> | A089 | 六模块零件 50 级 | 工坊养成 | 6 个模块零件轨全 50 级 |  |
 | <img src="src/assets/achievements/cwp_badge_workshop_all_process_50_epic.webp" width="40" height="40" /> | A090 | 六模块工艺 50 级 | 工坊养成 | 6 个模块工艺轨全 50 级 |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_first_track_100_epic.webp" width="40" height="40" /> | A091 | 第一条满级轨道 | 工坊养成 | 任意模块任一轨道 100 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_first_track_100_epic.webp" width="40" height="40" /> | A091 | 第一条百级轨道 | 工坊养成 | 任意模块任一轨道 100 级 |  |
 | <img src="src/assets/achievements/cwp_badge_data_parts_1m_epic.webp" width="40" height="40" /> | A092 | 百万零件库 | 数据里程碑 | 累计获得 1,000,000 零件 |  |
 | <img src="src/assets/achievements/cwp_badge_data_insight_100k_epic.webp" width="40" height="40" /> | A093 | 十万灵感库 | 数据里程碑 | 累计获得 100,000 灵感 |  |
 | <img src="src/assets/achievements/cwp_badge_data_io_5tib_epic.webp" width="40" height="40" /> | A094 | 5 TiB 数据河流 | 数据里程碑 | 累计数据流量（磁盘+网络）达 5 TiB |  |
@@ -333,7 +341,7 @@ CoworkPal 内置完整的成就体系，记录你与 CoCat 共同走过的每一
 | <img src="src/assets/achievements/cwp_badge_task_score_85_x180_legendary.webp" width="40" height="40" /> | A105 | 180 次卓越工况 | 任务效率 | 180 天日报评分≥85 |  |
 | <img src="src/assets/achievements/cwp_badge_task_all_day_types_30_legendary.webp" width="40" height="40" /> | A106 | 七类工作日全熟练 | 任务效率 | 7 种工作日各 30 天，不含 unknown |  |
 | <img src="src/assets/achievements/cwp_badge_workshop_level_100_legendary.webp" width="40" height="40" /> | A107 | 工坊 100 级 | 工坊养成 | 工坊达到 100 级 |  |
-| <img src="src/assets/achievements/cwp_badge_workshop_all_tracks_100_legendary.webp" width="40" height="40" /> | A108 | 十二条模块轨道满级 | 工坊养成 | 12 条轨道全 100 级 |  |
+| <img src="src/assets/achievements/cwp_badge_workshop_all_tracks_100_legendary.webp" width="40" height="40" /> | A108 | 十二条模块轨道百级 | 工坊养成 | 12 条轨道全 100 级 |  |
 | <img src="src/assets/achievements/cwp_badge_data_parts_10m_legendary.webp" width="40" height="40" /> | A109 | 千万零件库 | 数据里程碑 | 累计获得 10,000,000 零件 |  |
 | <img src="src/assets/achievements/cwp_badge_data_insight_1m_legendary.webp" width="40" height="40" /> | A110 | 百万灵感库 | 数据里程碑 | 累计获得 1,000,000 灵感 |  |
 | <img src="src/assets/achievements/cwp_badge_data_io_50tib_legendary.webp" width="40" height="40" /> | A111 | 50 TiB 数据星河 | 数据里程碑 | 累计数据流量（磁盘+网络）达 50 TiB |  |
@@ -518,4 +526,4 @@ pnpm tauri build
 
 ---
 
-*CoworkPal v1.0.3 · MIT License · Made with ❤️ and a lot of pixel art*
+*CoworkPal v1.0.4 · MIT License · Made with ❤️ and a lot of pixel art*

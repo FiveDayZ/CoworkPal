@@ -2549,6 +2549,12 @@ body:has(.cwp-taskbar-monitor-root) #root {
   align-items: end;
 }
 
+.cwp-focus-history-task .cwp-focus-history-reward {
+  color: var(--color-brand-orange-strong);
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
 .cwp-focus-history-result strong {
   color: var(--color-text-secondary);
   font-size: 10px;
@@ -3932,25 +3938,30 @@ body:has(.cwp-taskbar-monitor-root) #root {
 .cwp-switch-label {
   position: relative;
   display: inline-block;
-  width: 24px;
-  height: 13px;
+  width: 32px;
+  height: 24px;
   cursor: pointer;
   flex: 0 0 auto;
 }
 
 .cwp-switch-label input {
+  position: absolute;
+  inset: 0;
   opacity: 0;
-  width: 0;
-  height: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  z-index: 1;
+  cursor: inherit;
 }
 
 .cwp-switch-slider {
   position: absolute;
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: 5px;
+  left: 4px;
+  right: 4px;
+  bottom: 6px;
   background-color: rgba(255, 255, 255, 0.1);
   transition: .2s;
   border-radius: 9px;
@@ -3977,6 +3988,11 @@ body:has(.cwp-taskbar-monitor-root) #root {
 .cwp-switch-label input:checked+.cwp-switch-slider:before {
   transform: translateX(11px);
   background-color: var(--color-brand-orange-strong);
+}
+
+.cwp-switch-label input:focus-visible + .cwp-switch-slider {
+  outline: 2px solid var(--color-tech-cyan);
+  outline-offset: 2px;
 }
 
 .cwp-custom-select {

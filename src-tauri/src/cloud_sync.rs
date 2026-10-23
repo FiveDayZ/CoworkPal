@@ -743,6 +743,8 @@ fn merge_user_data_snapshots(
     let mut achievements = merge_achievements(&local.achievements, &remote.achievements);
     achievements.weekly_goal_plan = authority.achievements.weekly_goal_plan.clone();
     achievements.pending_rewards = authority.achievements.pending_rewards.clone();
+    let mut workshop = authority.workshop.clone();
+    workshop.add_affinity_experience(0);
 
     UserDataSnapshot {
         schema_version: 1,
@@ -750,7 +752,7 @@ fn merge_user_data_snapshots(
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         device_profile: local.device_profile.clone(),
         settings,
-        workshop: authority.workshop.clone(),
+        workshop,
         layout: local.layout.clone(),
         work_logs: merge_work_log_books(&local.work_logs, &remote.work_logs),
         focus_sessions,

@@ -492,7 +492,7 @@ CREATE TABLE achievement_admin_grants (
 | A088 | 工坊养成类 | 工坊 60 级 | 60 | 否 | `cwp_badge_workshop_level_60_epic` | `workshop.level >= 60`。 |
 | A089 | 工坊养成类 | 六模块零件 50 级 | 60 | 否 | `cwp_badge_workshop_all_parts_50_epic` | 6 个模块的 `parts` 等级全部 `>= 50`。 |
 | A090 | 工坊养成类 | 六模块工艺 50 级 | 60 | 否 | `cwp_badge_workshop_all_process_50_epic` | 6 个模块的 `process` 等级全部 `>= 50`。 |
-| A091 | 工坊养成类 | 第一条满级轨道 | 60 | 否 | `cwp_badge_workshop_first_track_100_epic` | 任意模块任一升级轨等级 `>= 100`。 |
+| A091 | 工坊养成类 | 第一条百级轨道 | 60 | 否 | `cwp_badge_workshop_first_track_100_epic` | 任意模块任一升级轨等级 `>= 100`。 |
 | A092 | 数据里程碑类 | 百万零件库 | 60 | 否 | `cwp_badge_data_parts_1m_epic` | `lifetime.parts_earned >= 1000000`。 |
 | A093 | 数据里程碑类 | 十万灵感库 | 60 | 否 | `cwp_badge_data_insight_100k_epic` | `lifetime.insight_earned >= 100000`。 |
 | A094 | 数据里程碑类 | 5 TiB 数据河流 | 60 | 否 | `cwp_badge_data_io_5tib_epic` | `lifetime.disk_bytes_total + lifetime.network_bytes_total >= 5497558138880`。 |
@@ -518,7 +518,7 @@ CREATE TABLE achievement_admin_grants (
 | A105 | 任务效率类 | 180 次卓越工况 | 100 | 否 | `cwp_badge_task_score_85_x180_legendary` | `calendar.days(report_score >= 85) >= 180`。 |
 | A106 | 任务效率类 | 七类工作日全熟练 | 100 | 否 | `cwp_badge_task_all_day_types_30_legendary` | 7 个 `report_day_type` 每类天数全部 `>= 30`，不含 `unknown`。 |
 | A107 | 工坊养成类 | 工坊 100 级 | 100 | 否 | `cwp_badge_workshop_level_100_legendary` | `workshop.level >= 100`。 |
-| A108 | 工坊养成类 | 十二条模块轨道满级 | 100 | 否 | `cwp_badge_workshop_all_tracks_100_legendary` | 6 个模块的 `parts` 与 `process` 共 12 条轨道全部 `>= 100`。 |
+| A108 | 工坊养成类 | 十二条模块轨道百级 | 100 | 否 | `cwp_badge_workshop_all_tracks_100_legendary` | 6 个模块的 `parts` 与 `process` 共 12 条轨道全部 `>= 100`。 |
 | A109 | 数据里程碑类 | 千万零件库 | 100 | 否 | `cwp_badge_data_parts_10m_legendary` | `lifetime.parts_earned >= 10000000`。 |
 | A110 | 数据里程碑类 | 百万灵感库 | 100 | 否 | `cwp_badge_data_insight_1m_legendary` | `lifetime.insight_earned >= 1000000`。 |
 | A111 | 数据里程碑类 | 50 TiB 数据星河 | 100 | 否 | `cwp_badge_data_io_50tib_legendary` | `lifetime.disk_bytes_total + lifetime.network_bytes_total >= 54975581388800`。 |

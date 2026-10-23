@@ -75,9 +75,7 @@ pub fn apply_reward_once(
     {
         return Err("工坊余额无效，奖励尚未发放".to_string());
     }
-    next.affinity_experience = next.affinity_experience.saturating_add(reward.affinity_experience);
-    next.cat_affinity_level = next.cat_affinity_level.saturating_add(next.affinity_experience / 100);
-    next.affinity_experience %= 100;
+    next.add_affinity_experience(reward.affinity_experience);
     let receipt = RewardReceipt { title: intent.title.clone(), reward,
         earned_at: intent.earned_at, paid_at: now };
     next.reward_receipts.insert(key.to_string(), receipt.clone());
@@ -383,6 +381,20 @@ mod tests {
             parts: f64::NAN, ..Default::default() }, earned_at: 0 };
         assert!(apply_reward_once(&mut workshop, "focus:bad", &intent, false, 0).is_err());
         assert_eq!(serde_json::to_value(workshop).unwrap(), initial);
+    }
+
+    #[test]
+    fn focus_and_weekly_rewards_stop_affinity_at_100_without_losing_resources() {
+        let mut workshop = WorkshopState { cat_affinity_level: 99, affinity_experience: 98, ..Default::default() };
+        let initial = workshop.parts;
+        let intent = PendingReward { title: "专注".into(), reward: focus_reward(&session(25)), earned_at: 1000 };
+        apply_reward_once(&mut workshop, "focus:cap", &intent, true, 1000).unwrap();
+        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
+        let weekly = PendingReward { reward: RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 10 }, ..intent };
+        apply_reward_once(&mut workshop, "week:cap", &weekly, false, 1000).unwrap();
+        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
+        assert_eq!(workshop.parts, initial + 280.0);
+        assert_eq!(workshop.reward_receipts.len(), 2);
     }
 
     #[test]

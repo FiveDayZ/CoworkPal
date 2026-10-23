@@ -76,7 +76,11 @@ impl StorageService {
 
     pub fn load_or_create_workshop(&self) -> Result<WorkshopState, String> {
         let mut workshop = self.load_or_create::<WorkshopState>("save.json")?;
-        if workshop.schema_version < crate::models::WORKSHOP_STATE_SCHEMA_VERSION {
+        let previous_affinity = (workshop.cat_affinity_level, workshop.affinity_experience);
+        workshop.add_affinity_experience(0);
+        if workshop.schema_version < crate::models::WORKSHOP_STATE_SCHEMA_VERSION
+            || previous_affinity != (workshop.cat_affinity_level, workshop.affinity_experience)
+        {
             workshop.schema_version = crate::models::WORKSHOP_STATE_SCHEMA_VERSION;
             self.save_workshop(&workshop)?;
         }
@@ -730,6 +734,26 @@ mod tests {
         );
         assert!(storage.take_corruption_rebuilds().is_empty());
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn affinity_cap_migration_preserves_balances_and_255_level_progress() {
+        let root = unique_test_root("affinity-cap");
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        let mut workshop = WorkshopState {
+            workshop_level: 255, cat_affinity_level: 120, affinity_experience: 80,
+            parts: 12345.0, insight: 678.0, ..Default::default()
+        };
+        workshop.module_levels.cpu.parts = 255;
+        storage.save_workshop(&workshop).unwrap();
+        let restored = storage.load_or_create_workshop().unwrap();
+        assert_eq!((restored.cat_affinity_level, restored.affinity_experience), (100, 0));
+        assert_eq!((restored.parts, restored.insight), (12345.0, 678.0));
+        assert_eq!(restored.workshop_level, 255);
+        assert_eq!(restored.module_levels.cpu.parts, 255);
+        let again = storage.load_or_create_workshop().unwrap();
+        assert_eq!((again.cat_affinity_level, again.affinity_experience), (100, 0));
         let _ = fs::remove_dir_all(root);
     }
 
