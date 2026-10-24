@@ -1018,7 +1018,7 @@ export function SettingsPage() {
                 </label>
               </div>
               <div className="cwp-settings-note">
-                直接读取 CPU / GPU 硬件传感器。首次开启会请求管理员权限，并自动安装随应用提供的硬件访问驱动。
+                独立辅助程序读取 CPU / GPU 传感器；每次启动可能需确认管理员权限，缺少驱动时自动安装内置驱动。短暂采样异常会自动重试，关闭时停止读取。
               </div>
             </div>
 

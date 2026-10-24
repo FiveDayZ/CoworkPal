@@ -29,13 +29,17 @@ pub struct PendingReward {
     pub earned_at: i64,
 }
 
-const REWARDED_WEEKLY_GOALS: [WeeklyGoalDefinition; 3] = [
+const REWARDED_WEEKLY_GOALS: [WeeklyGoalDefinition; 5] = [
     WeeklyGoalDefinition { key: "companion-120m", title: "本周陪伴 120 分钟",
         counter_key: "", target: 7200.0, unit: "分钟", badge_achievement_id: "A002", route_key: "dashboard" },
     WeeklyGoalDefinition { key: "qualified-focus-2", title: "完整完成 2 次专注",
         counter_key: "", target: 2.0, unit: "次", badge_achievement_id: "A066", route_key: "focus" },
     WeeklyGoalDefinition { key: "weekly-action", title: "2 天报告或 1 张工单",
         counter_key: "", target: 1.0, unit: "项", badge_achievement_id: "A003", route_key: "workLog" },
+    WeeklyGoalDefinition { key: "report-days-3", title: "记录 3 天工况报告",
+        counter_key: "", target: 3.0, unit: "天", badge_achievement_id: "A003", route_key: "workLog" },
+    WeeklyGoalDefinition { key: "orders-3", title: "完成 3 张工单",
+        counter_key: "", target: 3.0, unit: "张", badge_achievement_id: "A005", route_key: "workshop" },
 ];
 
 #[derive(Debug, Clone, Copy)]
@@ -427,13 +431,16 @@ pub fn ensure_weekly_goals_with_progress(
     let (week_key, _) = local_iso_week(now);
     let plan_is_current = book.weekly_goal_plan.as_ref().is_some_and(|plan| {
         plan.week_key == week_key
-            && plan.goal_keys.len() == WEEKLY_GOAL_GROUPS.len()
+            && matches!(plan.goal_keys.len(), 3 | 5)
+            && (plan.goal_keys.len() == 5 || !plan.goal_keys.iter()
+                .any(|key| matches!(key.as_str(), "report-days-3" | "orders-3")))
+            && plan.goal_keys.iter().collect::<BTreeSet<_>>().len() == plan.goal_keys.len()
             && plan.goal_keys.iter().all(|goal_key| {
                 weekly_goal_definition(goal_key).is_some() && plan.baselines.contains_key(goal_key)
             })
     });
 
-    let changed = !plan_is_current;
+    let mut changed = !plan_is_current;
     if changed {
         let selected = REWARDED_WEEKLY_GOALS.iter().collect::<Vec<_>>();
         let baselines = selected
@@ -454,24 +461,44 @@ pub fn ensure_weekly_goals_with_progress(
         });
     }
 
-    let goals = book
-        .weekly_goal_plan
-        .as_ref()
-        .into_iter()
-        .flat_map(|plan| {
-            plan.goal_keys.iter().enumerate().filter_map(|(index, goal_key)| {
+    if let Some(plan) = &mut book.weekly_goal_plan {
+        if plan.goal_keys.len() == 3 {
+            for goal in &REWARDED_WEEKLY_GOALS[3..] {
+                if !plan.goal_keys.iter().any(|key| key == goal.key) {
+                    plan.goal_keys.push(goal.key.to_string());
+                    plan.baselines.insert(goal.key.to_string(), 0.0);
+                }
+            }
+            changed = true;
+        }
+    }
+    let plan = book.weekly_goal_plan.as_ref().expect("weekly plan initialized above");
+    (weekly_goals_for_plan(book, definitions, plan, progress), changed)
+}
+
+pub(crate) fn weekly_goals_for_plan(
+    book: &AchievementBook, definitions: &[AchievementDefinition],
+    plan: &WeeklyGoalPlan, progress: &WeeklyProgress,
+) -> WeeklyGoals {
+    let legacy = plan.goal_keys.len() == 3;
+    let goals = plan.goal_keys.iter().enumerate().filter_map(|(index, goal_key)| {
                 let goal = weekly_goal_definition(goal_key)?;
                 let baseline = plan.baselines.get(goal_key).copied().unwrap_or_default();
                 let mut card = build_weekly_goal(book, definitions, goal, baseline, progress);
-                card.reward = weekly_goal_reward(index);
+                card.reward = if legacy {
+                    match index {
+                        1 => RewardAmount { parts: 160.0, insight: 10.0, affinity_experience: 5 },
+                        2 => RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 5 },
+                        _ => RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 0 },
+                    }
+                } else { weekly_goal_reward(index) };
                 Some(card)
             })
-        })
         .collect();
 
-    (WeeklyGoals { week_key, goals, bonus_reward: RewardAmount {
+    WeeklyGoals { week_key: plan.week_key.clone(), goals, bonus_reward: if legacy { RewardAmount {
         parts: 160.0, insight: 10.0, affinity_experience: 10,
-    }, bonus_paid: false }, changed)
+    } } else { RewardAmount { parts: 400.0, insight: 30.0, affinity_experience: 20 } }, bonus_paid: false }
 }
 
 fn weekly_goal_definition(goal_key: &str) -> Option<&'static WeeklyGoalDefinition> {
@@ -493,6 +520,8 @@ fn build_weekly_goal(
         "companion-120m" => progress.online_seconds.max(0.0),
         "qualified-focus-2" => progress.qualified_focus_count as f64,
         "weekly-action" => (progress.report_days as f64 / 2.0).max(progress.order_count as f64),
+        "report-days-3" => progress.report_days as f64,
+        "orders-3" => progress.order_count as f64,
         _ => (counter_value_with_fallback(book, goal.counter_key) - baseline).max(0.0),
     };
     let current = current_raw.min(goal.target);
@@ -536,9 +565,11 @@ fn build_weekly_goal(
 
 pub fn weekly_goal_reward(index: usize) -> RewardAmount {
     match index {
-        1 => RewardAmount { parts: 160.0, insight: 10.0, affinity_experience: 5 },
-        2 => RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 5 },
-        _ => RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 0 },
+        1 => RewardAmount { parts: 320.0, insight: 20.0, affinity_experience: 10 },
+        2 => RewardAmount { parts: 160.0, insight: 10.0, affinity_experience: 10 },
+        3 => RewardAmount { parts: 240.0, insight: 15.0, affinity_experience: 10 },
+        4 => RewardAmount { parts: 320.0, insight: 20.0, affinity_experience: 15 },
+        _ => RewardAmount { parts: 160.0, insight: 10.0, affinity_experience: 5 },
     }
 }
 
@@ -3046,7 +3077,7 @@ mod tests {
 
         let (first, changed) = ensure_weekly_goals(&mut book, &definitions, monday);
         assert!(changed);
-        assert_eq!(first.goals.len(), 3);
+        assert_eq!(first.goals.len(), 5);
         let first_ids = first
             .goals
             .iter()
@@ -3073,7 +3104,7 @@ mod tests {
             ensure_weekly_goals(&mut book, &definitions, monday + 7 * 86_400_000);
         assert!(changed);
         assert_ne!(next_week.week_key, first.week_key);
-        assert_eq!(next_week.goals.len(), 3);
+        assert_eq!(next_week.goals.len(), 5);
         assert_eq!(
             next_week
                 .goals
@@ -3106,11 +3137,11 @@ mod tests {
         let (goals, changed) = ensure_weekly_goals(&mut book, &definitions, now);
 
         assert!(changed);
-        assert_eq!(goals.goals.len(), 3);
+        assert_eq!(goals.goals.len(), 5);
         let plan = book.weekly_goal_plan.unwrap();
         assert!(plan.achievement_ids.is_empty());
-        assert_eq!(plan.goal_keys.len(), 3);
-        assert_eq!(plan.baselines.len(), 3);
+        assert_eq!(plan.goal_keys.len(), 5);
+        assert_eq!(plan.baselines.len(), 5);
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { useAchievementStore } from "../../stores/achievementStore";
 import { useUiStore } from "../../stores/uiStore";
 import { badgeAssets } from "../../ui/assets";
 import { PixelIcon } from "../../ui/PixelIcon";
+import { rewardLabel } from "../../types/rewards";
 
 export function WeeklyGoalsCard() {
   const weeklyGoals = useAchievementStore((state) => state.weeklyGoals);
@@ -30,7 +31,7 @@ export function WeeklyGoalsCard() {
           <strong>本周目标</strong>
         </div>
         <span className="cwp-weekly-goals-count">
-          {completed}/3
+          {completed}/{weeklyGoals?.goals.length ?? 5}
         </span>
       </header>
 
@@ -52,6 +53,8 @@ export function WeeklyGoalsCard() {
           <span />
           <span />
           <span />
+          <span />
+          <span />
         </div>
       ) : null}
 
@@ -64,7 +67,7 @@ export function WeeklyGoalsCard() {
                 className={goal.isComplete ? "is-complete" : ""}
                 key={goal.goalId}
                 onClick={() => setRoute(goal.routeKey)}
-                title={goal.progressLabel}
+                title={`${goal.progressLabel} · ${rewardLabel(goal.reward)}`}
                 type="button"
               >
                 <img alt="" src={badgeAssets[goal.badgeKey]} />

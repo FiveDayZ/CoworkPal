@@ -16,6 +16,10 @@ internal static class HardwareMonitorProgram
 
     public static async Task<int> RunAsync(string[] args)
     {
+        if (args.Contains("--self-test-recovery", StringComparer.OrdinalIgnoreCase))
+        {
+            return TestSampleRecovery();
+        }
         if (args.Contains("--validate-pawnio-installer", StringComparer.OrdinalIgnoreCase))
         {
             string? installerPath = ResolvePawnIoInstallerPath();
@@ -68,9 +72,10 @@ internal static class HardwareMonitorProgram
             IsCpuEnabled = true,
             IsGpuEnabled = true,
         };
+        bool opened = false;
+        int missingCpuSamples = 0;
         try
         {
-            computer.Open();
             string pawnIoVersion = GetPawnIoVersion()?.ToString() ?? "unavailable";
 
             do
@@ -80,12 +85,28 @@ internal static class HardwareMonitorProgram
                     break;
                 }
 
-                SensorSample sample = ReadSensors(computer, pawnIoVersion);
-                WriteSampleAtomically(outputPath, sample);
-                TryWriteCpuDiagnostic(outputPath, sample);
+                bool sampled = TrySample(() =>
+                {
+                    if (!opened)
+                    {
+                        computer.Open();
+                        opened = true;
+                    }
+                    SensorSample sample = ReadSensors(computer, pawnIoVersion);
+                    WriteSampleAtomically(outputPath, sample);
+                    TryWriteCpuDiagnostic(outputPath, sample);
+                    missingCpuSamples = sample.CpuTemperatureCelsius is null ? missingCpuSamples + 1 : 0;
+                }, outputPath);
                 if (runOnce)
                 {
-                    break;
+                    return sampled ? 0 : 1;
+                }
+                // Reopen sensors after a fault or sustained loss (for example after sleep).
+                if (!sampled || missingCpuSamples >= 15)
+                {
+                    CloseComputer(computer, outputPath);
+                    opened = false;
+                    missingCpuSamples = 0;
                 }
 
                 await Task.Delay(SampleInterval);
@@ -101,9 +122,50 @@ internal static class HardwareMonitorProgram
         }
         finally
         {
-            computer.Close();
+            CloseComputer(computer, outputPath);
             parent?.Dispose();
         }
+    }
+
+    private static bool TrySample(Action readAndPublish, string outputPath)
+    {
+        try
+        {
+            readAndPublish();
+            return true;
+        }
+        catch (Exception error)
+        {
+            TryWriteError(outputPath, error);
+            return false;
+        }
+    }
+
+    private static void CloseComputer(Computer computer, string outputPath)
+    {
+        try { computer.Close(); }
+        catch (Exception error) { TryWriteError(outputPath, error); }
+    }
+
+    private static int TestSampleRecovery()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "coworkpal-monitor-test-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        string output = Path.Combine(directory, "sample.json");
+        try
+        {
+            foreach (Exception error in new Exception[] {
+                new IOException("sharing violation"), new UnauthorizedAccessException("temporary access failure"),
+                new InvalidOperationException("sensor refresh failed") })
+            {
+                if (TrySample(() => throw error, output) || !File.Exists(output + ".error.log")) return 10;
+            }
+            if (!TrySample(() => WriteSampleAtomically(output, new SensorSample(55, 60, "test")), output)) return 11;
+            if (!File.ReadAllText(output).Contains("\"cpuTemperatureCelsius\":55")
+                || File.Exists(output + ".error.log")) return 12;
+            return 0;
+        }
+        finally { Directory.Delete(directory, true); }
     }
 
     private static SensorSample ReadSensors(Computer computer, string pawnIoVersion)

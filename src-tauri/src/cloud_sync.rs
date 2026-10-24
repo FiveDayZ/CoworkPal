@@ -1501,11 +1501,11 @@ mod tests {
 
         assert_eq!(merged.schema_version, ACHIEVEMENT_BOOK_SCHEMA_VERSION);
         assert!(changed);
-        assert_eq!(goals.goals.len(), 3);
+        assert_eq!(goals.goals.len(), 5);
         let plan = merged.weekly_goal_plan.unwrap();
         assert!(plan.achievement_ids.is_empty());
-        assert_eq!(plan.goal_keys.len(), 3);
-        assert_eq!(plan.baselines.len(), 3);
+        assert_eq!(plan.goal_keys.len(), 5);
+        assert_eq!(plan.baselines.len(), 5);
     }
 
     fn test_snapshot(exported_at: i64) -> UserDataSnapshot {

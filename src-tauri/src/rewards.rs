@@ -45,9 +45,10 @@ pub fn apply_reward_once(
         return Ok(None);
     }
     let mut reward = intent.reward.clone();
+    let max_affinity = if key.starts_with("week:") { 20 } else { 10 };
     if key.is_empty() || !reward.parts.is_finite() || !reward.insight.is_finite()
         || !(0.0..=1440.0).contains(&reward.parts)
-        || !(0.0..=90.0).contains(&reward.insight) || reward.affinity_experience > 10
+        || !(0.0..=90.0).contains(&reward.insight) || reward.affinity_experience > max_affinity
     {
         return Err("奖励数据无效".to_string());
     }
@@ -146,7 +147,7 @@ pub fn queue_weekly_rewards(
     for goal in goals.goals.iter().filter(|goal| goal.is_complete) {
         queue(format!("week:{}:{}", goals.week_key, goal.goal_id), goal.title.clone(), goal.reward.clone());
     }
-    if goals.goals.len() == 3 && goals.goals.iter().all(|goal| goal.is_complete) {
+    if matches!(goals.goals.len(), 3 | 5) && goals.goals.iter().all(|goal| goal.is_complete) {
         queue(format!("week:{}:all", goals.week_key), "本周目标全部完成".to_string(), goals.bonus_reward.clone());
     }
     changed
@@ -163,14 +164,14 @@ fn queue_previous_week_rewards(
 ) -> Result<bool, String> {
     let Some(plan) = book.weekly_goal_plan.clone().filter(|plan| {
         plan.week_key != local_iso_week(now).0 && plan.goal_keys.iter().all(|key| {
-            matches!(key.as_str(), "companion-120m" | "qualified-focus-2" | "weekly-action")
+            matches!(key.as_str(), "companion-120m" | "qualified-focus-2" | "weekly-action" | "report-days-3" | "orders-3")
         })
     }) else { return Ok(false); };
     // 仅重算有日期证据的新目标；旧累计计数无法证明增长属于上周，沿用已保存的待发奖记录。
     let progress = weekly_progress(plan.generated_at, logs, focus, workshop);
-    let (goals, changed) = ensure_weekly_goals_with_progress(
-        book, seed_definitions().map_err(|error| error.to_string())?, plan.generated_at, &progress);
-    Ok(queue_weekly_rewards(book, &goals, workshop, plan.generated_at) || changed)
+    let goals = crate::achievements::runtime::weekly_goals_for_plan(
+        book, seed_definitions().map_err(|error| error.to_string())?, &plan, &progress);
+    Ok(queue_weekly_rewards(book, &goals, workshop, plan.generated_at))
 }
 
 async fn settle_weekly_locked(state: &AppState, app: &AppHandle, now: i64) -> Result<WeeklyGoals, String> {
@@ -380,6 +381,11 @@ mod tests {
         let intent = PendingReward { title: "invalid".into(), reward: RewardAmount {
             parts: f64::NAN, ..Default::default() }, earned_at: 0 };
         assert!(apply_reward_once(&mut workshop, "focus:bad", &intent, false, 0).is_err());
+        for (key, amount) in [("week:bad", 21), ("focus:bad", 11)] {
+            let intent = PendingReward { title: "invalid".into(), reward: RewardAmount {
+                affinity_experience: amount, ..Default::default() }, earned_at: 0 };
+            assert!(apply_reward_once(&mut workshop, key, &intent, false, 0).is_err());
+        }
         assert_eq!(serde_json::to_value(workshop).unwrap(), initial);
     }
 
@@ -398,10 +404,10 @@ mod tests {
     }
 
     #[test]
-    fn all_weekly_rewards_total_480_30_20_and_queue_survives_restart() {
+    fn five_weekly_rewards_total_1600_105_70_and_queue_survives_restart() {
         let mut book = AchievementBook::default();
         let progress = WeeklyProgress { online_seconds: 7200.0, qualified_focus_count: 2,
-            report_days: 2, order_count: 0 };
+            report_days: 3, order_count: 3 };
         let (goals, _) = ensure_weekly_goals_with_progress(
             &mut book, seed_definitions().unwrap(), 1000, &progress);
         let mut workshop = WorkshopState::default();
@@ -413,10 +419,10 @@ mod tests {
         for (key, intent) in &restored.pending_rewards {
             apply_reward_once(&mut workshop, key, intent, false, 1000).unwrap();
         }
-        assert_eq!(workshop.parts - initial_parts, 480.0);
-        assert_eq!(workshop.insight - initial_insight, 30.0);
-        assert_eq!(workshop.affinity_experience, 20);
-        assert_eq!(workshop.reward_receipts.len(), 4);
+        assert_eq!(workshop.parts - initial_parts, 1600.0);
+        assert_eq!(workshop.insight - initial_insight, 105.0);
+        assert_eq!(workshop.affinity_experience, 70);
+        assert_eq!(workshop.reward_receipts.len(), 6);
     }
 
     #[test]
@@ -431,6 +437,51 @@ mod tests {
         assert_eq!(focus.credit_tick(950_000), 0);
         focus.record_distraction();
         assert_eq!(focus.normalized_production_multiplier(), 1.5);
+    }
+
+    #[test]
+    fn three_completed_goals_do_not_pay_the_five_goal_bonus() {
+        let mut book = AchievementBook::default();
+        let progress = WeeklyProgress { online_seconds: 7200.0, qualified_focus_count: 2,
+            report_days: 2, order_count: 0 };
+        let (goals, _) = ensure_weekly_goals_with_progress(&mut book, seed_definitions().unwrap(), 1000, &progress);
+        queue_weekly_rewards(&mut book, &goals, &WorkshopState::default(), 1000);
+        assert_eq!(book.pending_rewards.len(), 3);
+        assert!(!book.pending_rewards.contains_key(&format!("week:{}:all", goals.week_key)));
+    }
+
+    #[test]
+    fn expanding_a_paid_current_week_only_pays_the_two_new_goals() {
+        let now = Local::now().timestamp_millis();
+        let mut book = AchievementBook::default();
+        let progress = WeeklyProgress { online_seconds: 7200.0, qualified_focus_count: 2,
+            report_days: 3, order_count: 3 };
+        ensure_weekly_goals_with_progress(&mut book, seed_definitions().unwrap(), now, &progress);
+        let plan = book.weekly_goal_plan.as_mut().unwrap();
+        plan.goal_keys.truncate(3);
+        let old = crate::achievements::runtime::weekly_goals_for_plan(&book, seed_definitions().unwrap(),
+            book.weekly_goal_plan.as_ref().unwrap(), &progress);
+        let mut workshop = WorkshopState::default();
+        queue_weekly_rewards(&mut book, &old, &workshop, now);
+        for (key, intent) in &book.pending_rewards {
+            apply_reward_once(&mut workshop, key, intent, false, now).unwrap();
+        }
+        book.pending_rewards.clear();
+        let balance = (workshop.parts, workshop.insight);
+        let (upgraded, changed) = ensure_weekly_goals_with_progress(&mut book, seed_definitions().unwrap(), now, &progress);
+        assert!(changed);
+        assert_eq!(upgraded.goals.len(), 5);
+        queue_weekly_rewards(&mut book, &upgraded, &workshop, now);
+        assert_eq!(book.pending_rewards.len(), 2);
+        for (key, intent) in &book.pending_rewards {
+            apply_reward_once(&mut workshop, key, intent, false, now).unwrap();
+        }
+        assert_eq!((workshop.parts - balance.0, workshop.insight - balance.1), (560.0, 35.0));
+        let restored: AchievementBook = serde_json::from_str(&serde_json::to_string(&book).unwrap()).unwrap();
+        for (key, intent) in &restored.pending_rewards {
+            assert!(apply_reward_once(&mut workshop, key, intent, false, now).unwrap().is_none());
+        }
+        assert_eq!(workshop.reward_receipts.len(), 6);
     }
 
     #[test]
@@ -463,9 +514,12 @@ mod tests {
             ..Default::default()
         };
         let (goals, changed) = ensure_weekly_goals_with_progress(&mut book, seed_definitions().unwrap(), now, &WeeklyProgress::default());
-        assert!(!changed);
+        assert!(changed);
         assert_eq!(goals.goals[0].goal_id, "active-30m");
-        assert!(goals.goals.iter().all(|goal| goal.is_complete));
+        assert_eq!(goals.goals.len(), 5);
+        assert!(goals.goals[..3].iter().all(|goal| goal.is_complete));
+        assert!(goals.goals[3..].iter().all(|goal| !goal.is_complete));
+        assert_eq!(book.weekly_goal_plan.as_ref().unwrap().baselines["active-30m"], 1000.0);
         let mut workshop = WorkshopState::default();
         assert!(queue_weekly_rewards(&mut book, &goals, &workshop, now));
         for (key, intent) in &book.pending_rewards {

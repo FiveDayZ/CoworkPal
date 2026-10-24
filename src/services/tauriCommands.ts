@@ -942,9 +942,10 @@ export async function getWeeklyGoals(): Promise<WeeklyGoals> {
       const date = new Date(`${id.split(":")[0]}T12:00:00`);
       return Number.isFinite(date.getTime()) && browserIsoWeekKey(date) === weekKey;
     }).length;
+    const reportDays = browserWeeklyReportDates.size;
     const goals: WeeklyGoals = {
       weekKey,
-      bonusReward: { parts: 160, insight: 10, affinityExperience: 10 },
+      bonusReward: { parts: 400, insight: 30, affinityExperience: 20 },
       bonusPaid: false,
       goals: [
         {
@@ -957,7 +958,7 @@ export async function getWeeklyGoals(): Promise<WeeklyGoals> {
           percent: Math.min(100, browserWeeklySeconds / 72),
           progressLabel: `${Math.floor(browserWeeklySeconds / 60)}/120 分钟`,
           isComplete: browserWeeklySeconds >= 7200,
-          reward: { parts: 80, insight: 5, affinityExperience: 0 },
+          reward: { parts: 160, insight: 10, affinityExperience: 5 },
           rewardPaid: false,
         },
         {
@@ -970,7 +971,7 @@ export async function getWeeklyGoals(): Promise<WeeklyGoals> {
           percent: Math.min(100, qualified * 50),
           progressLabel: `${Math.min(2, qualified)}/2 次`,
           isComplete: qualified >= 2,
-          reward: { parts: 160, insight: 10, affinityExperience: 5 },
+          reward: { parts: 320, insight: 20, affinityExperience: 10 },
           rewardPaid: false,
         },
         {
@@ -978,13 +979,25 @@ export async function getWeeklyGoals(): Promise<WeeklyGoals> {
           title: "2 天报告或 1 张工单",
           badgeKey: badgeKey("A003"),
           routeKey: "workLog",
-          current: Math.min(1, orderCount),
+          current: Math.min(1, Math.max(reportDays / 2, orderCount)),
           target: 1,
-          percent: orderCount ? 100 : 0,
-          progressLabel: `报告 0/2 天 · 工单 ${Math.min(1, orderCount)}/1 张`,
-          isComplete: orderCount >= 1,
-          reward: { parts: 80, insight: 5, affinityExperience: 5 },
+          percent: Math.min(100, Math.max(reportDays / 2, orderCount) * 100),
+          progressLabel: `报告 ${Math.min(2, reportDays)}/2 天 · 工单 ${Math.min(1, orderCount)}/1 张`,
+          isComplete: reportDays >= 2 || orderCount >= 1,
+          reward: { parts: 160, insight: 10, affinityExperience: 10 },
           rewardPaid: false,
+        },
+        {
+          goalId: "report-days-3", title: "记录 3 天工况报告", badgeKey: badgeKey("A003"), routeKey: "workLog",
+          current: Math.min(3, reportDays), target: 3, percent: Math.min(100, reportDays / 3 * 100),
+          progressLabel: `${Math.min(3, reportDays)}/3 天`, isComplete: reportDays >= 3,
+          reward: { parts: 240, insight: 15, affinityExperience: 10 }, rewardPaid: false,
+        },
+        {
+          goalId: "orders-3", title: "完成 3 张工单", badgeKey: badgeKey("A005"), routeKey: "workshop",
+          current: Math.min(3, orderCount), target: 3, percent: Math.min(100, orderCount / 3 * 100),
+          progressLabel: `${Math.min(3, orderCount)}/3 张`, isComplete: orderCount >= 3,
+          reward: { parts: 320, insight: 20, affinityExperience: 15 }, rewardPaid: false,
         },
       ],
     };
@@ -1136,6 +1149,7 @@ export async function toggleProductionPaused(): Promise<AppSettings> {
 const browserFocusBook: FocusSessionBook = { schemaVersion: 1, sessions: [] };
 let previewClock: ReturnType<typeof setInterval> | null = null;
 let browserWeeklySeconds = 0;
+const browserWeeklyReportDates = new Set<string>();
 let previewWeek = browserIsoWeekKey();
 let previewTickAt = Date.now();
 
@@ -1183,8 +1197,12 @@ function tickPreviewClock() {
   if (previewWeek !== browserIsoWeekKey()) {
     previewWeek = browserIsoWeekKey();
     browserWeeklySeconds = 0;
+    browserWeeklyReportDates.clear();
   }
-  if (delta >= 0 && delta <= 30_000) browserWeeklySeconds += delta / 1000;
+  if (delta >= 0 && delta <= 30_000) {
+    browserWeeklySeconds += delta / 1000;
+    browserWeeklyReportDates.add(localDateKey(now));
+  }
   for (const session of browserFocusBook.sessions.filter((item) => item.status === "active")) {
     const gap = session.lastTickAt == null ? 0 : now - session.lastTickAt;
     session.lastTickAt = now;

@@ -72,7 +72,7 @@ impl SysinfoAdapter {
             #[cfg(windows)]
             performance_counters: WindowsPerformanceCounters::new(),
             integrated_monitor: IntegratedHardwareMonitorProbe::new(),
-            integrated_monitor_enabled: read_integrated_hardware_monitor_enabled(),
+            integrated_monitor_enabled: read_integrated_hardware_monitor_enabled(app_data_root()).unwrap_or(false),
             integrated_monitor_settings_checked_at: Some(Instant::now()),
         }
     }
@@ -143,7 +143,9 @@ impl SysinfoAdapter {
             })
             || self.integrated_monitor_settings_checked_at.is_none()
         {
-            self.integrated_monitor_enabled = read_integrated_hardware_monitor_enabled();
+            if let Some(enabled) = read_integrated_hardware_monitor_enabled(app_data_root()) {
+                self.integrated_monitor_enabled = enabled;
+            }
             self.integrated_monitor_settings_checked_at = Some(now);
         }
 
@@ -650,23 +652,16 @@ struct EmptyPerformanceSample {
 
 /// Reads the `integratedHardwareMonitorEnabled` flag from settings.json without
 /// pulling in the full `AppSettings` type. The adapter polls this on a short
-/// cadence so a UI toggle propagates without a restart. Any read/parse failure
-/// defaults to false, preventing an unexpected UAC prompt.
-fn read_integrated_hardware_monitor_enabled() -> bool {
-    let Some(root) = app_data_root() else {
-        return false;
-    };
+/// cadence so a UI toggle propagates without a restart. Transient failures keep
+/// the last explicit setting; only startup defaults to false to avoid a UAC prompt.
+fn read_integrated_hardware_monitor_enabled(root: Option<std::path::PathBuf>) -> Option<bool> {
+    let root = root?;
     let path = root.join("settings.json");
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return false;
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return false;
-    };
+    let content = std::fs::read_to_string(&path).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&content).ok()?;
     value
         .get("integratedHardwareMonitorEnabled")
         .and_then(|flag| flag.as_bool())
-        .unwrap_or(false)
 }
 
 /// Resolves the per-user app data directory (`%APPDATA%\CoworkPal` on
@@ -682,6 +677,29 @@ fn app_data_root() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_settings_failure_keeps_monitor_enabled_until_explicitly_disabled() {
+        let root = std::env::temp_dir().join(format!("coworkpal-monitor-setting-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("settings.json");
+        let read = || read_integrated_hardware_monitor_enabled(Some(root.clone()));
+        assert!(!read().unwrap_or(false));
+        std::fs::write(&path, r#"{"integratedHardwareMonitorEnabled":true}"#).unwrap();
+        let mut enabled = read().unwrap_or(false);
+        assert!(enabled);
+        for content in ["", "{", "{}", r#"{"integratedHardwareMonitorEnabled":null}"#] {
+            std::fs::write(&path, content).unwrap();
+            enabled = read().unwrap_or(enabled);
+            assert!(enabled);
+        }
+        std::fs::remove_file(&path).unwrap();
+        assert!(read().unwrap_or(enabled));
+        std::fs::write(&path, r#"{"integratedHardwareMonitorEnabled":false}"#).unwrap();
+        assert_eq!(read(), Some(false));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[cfg(windows)]
     #[test]

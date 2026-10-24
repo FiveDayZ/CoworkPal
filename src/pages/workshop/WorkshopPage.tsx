@@ -239,7 +239,7 @@ export function WorkshopPage() {
             <div>
               <span>亲密关系 · {breakdown?.affinityTitle ?? "初识搭档"}</span>
               <strong>
-                LV.{workshop?.catAffinityLevel ?? 1}/{MAX_AFFINITY_LEVEL} · {(workshop?.catAffinityLevel ?? 1) >= MAX_AFFINITY_LEVEL ? "已满级" : `亲密度 ${workshop?.affinityExperience ?? 0}/100`}
+                LV.{workshop?.catAffinityLevel ?? 1} · {(workshop?.catAffinityLevel ?? 1) >= MAX_AFFINITY_LEVEL ? "已满级" : `亲密度 ${workshop?.affinityExperience ?? 0}/100`}
               </strong>
             </div>
             <i>
@@ -297,7 +297,7 @@ export function WorkshopPage() {
         <div className="cwp-upgrade-left">
           <div className="cwp-upgrade-stat">
             <span className="cwp-upgrade-stat-label">工坊等级</span>
-            <span className="cwp-upgrade-stat-val">Level {currentLevel}/255</span>
+            <span className="cwp-upgrade-stat-val">Level {currentLevel}</span>
           </div>
           <div className="cwp-upgrade-stat">
             <span className="cwp-upgrade-stat-label">升级零件</span>
