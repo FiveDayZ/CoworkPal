@@ -1134,8 +1134,8 @@ mod command_tests {
         let mut session = focus_session_for_reward(0);
         session.credited_duration_ms = 25 * 60 * 1000;
         let reward = crate::rewards::focus_reward(&session);
-        assert_eq!(reward.parts, 200.0);
-        assert!((reward.insight - 12.5).abs() < 1e-9);
+        assert_eq!(reward.parts, 600.0);
+        assert!((reward.insight - 37.5).abs() < 1e-9);
     }
 
     #[test]
@@ -1143,8 +1143,8 @@ mod command_tests {
         let mut session = focus_session_for_reward(0);
         session.credited_duration_ms = 60 * 60 * 1000;
         let reward = crate::rewards::focus_reward(&session);
-        assert_eq!(reward.parts, 200.0);
-        assert!((reward.insight - 12.5).abs() < 1e-9);
+        assert_eq!(reward.parts, 600.0);
+        assert!((reward.insight - 37.5).abs() < 1e-9);
     }
 
     #[test]
@@ -1152,8 +1152,8 @@ mod command_tests {
         let mut session = focus_session_for_reward(2);
         session.credited_duration_ms = 25 * 60 * 1000;
         let reward = crate::rewards::focus_reward(&session);
-        assert!((reward.parts - 140.0).abs() < 1e-9);
-        assert!((reward.insight - 8.75).abs() < 1e-9);
+        assert!((reward.parts - 420.0).abs() < 1e-9);
+        assert!((reward.insight - 26.25).abs() < 1e-9);
     }
 
     #[test]

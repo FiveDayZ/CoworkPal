@@ -30,8 +30,21 @@ pub fn focus_reward(session: &FocusSession) -> RewardAmount {
     }
     let minutes = seconds as f64 / 60.0;
     let quality = compute_focus_quality(session.distraction_count);
-    RewardAmount { parts: minutes * 8.0 * quality, insight: minutes * 0.5 * quality,
+    RewardAmount { parts: minutes * 24.0 * quality, insight: minutes * 1.5 * quality,
         affinity_experience: 0 }
+}
+
+pub(crate) fn valid_reward(key: &str, reward: &RewardAmount) -> bool {
+    let (max_parts, max_insight) = if key.starts_with("focus:") {
+        (4320.0, 270.0)
+    } else {
+        (1440.0, 90.0)
+    };
+    let max_affinity = if key.starts_with("week:") { 20 } else { 10 };
+    !key.is_empty() && reward.parts.is_finite() && reward.insight.is_finite()
+        && (0.0..=max_parts).contains(&reward.parts)
+        && (0.0..=max_insight).contains(&reward.insight)
+        && reward.affinity_experience <= max_affinity
 }
 
 pub fn apply_reward_once(
@@ -45,11 +58,7 @@ pub fn apply_reward_once(
         return Ok(None);
     }
     let mut reward = intent.reward.clone();
-    let max_affinity = if key.starts_with("week:") { 20 } else { 10 };
-    if key.is_empty() || !reward.parts.is_finite() || !reward.insight.is_finite()
-        || !(0.0..=1440.0).contains(&reward.parts)
-        || !(0.0..=90.0).contains(&reward.insight) || reward.affinity_experience > max_affinity
-    {
+    if !valid_reward(key, &reward) {
         return Err("奖励数据无效".to_string());
     }
     if qualified_focus {
@@ -270,7 +279,8 @@ async fn complete_focus_locked(state: &AppState, app: &AppHandle, id: &str, now:
         None
     } else {
         Some(grant(state, app, &format!("focus:{id}"), &PendingReward {
-            title: "专注完成奖励".to_string(), reward: focus_reward(&completed),
+            title: "专注完成奖励".to_string(),
+            reward: completed.reward.clone().unwrap_or_else(|| focus_reward(&completed)),
             earned_at: completed.ended_at.unwrap_or(now),
         }, completed.is_qualified_completion(), now).await?)
     };
@@ -348,10 +358,10 @@ mod tests {
     #[test]
     fn focus_amount_uses_only_credited_time_and_quality() {
         let mut focus = session(25);
-        assert_eq!(focus_reward(&focus).parts, 200.0);
-        assert_eq!(focus_reward(&focus).insight, 12.5);
+        assert_eq!(focus_reward(&focus).parts, 600.0);
+        assert_eq!(focus_reward(&focus).insight, 37.5);
         focus.distraction_count = 2;
-        assert!((focus_reward(&focus).parts - 140.0).abs() < 1e-9);
+        assert!((focus_reward(&focus).parts - 420.0).abs() < 1e-9);
         focus.credited_duration_ms = 299_999;
         assert_eq!(focus_reward(&focus), RewardAmount::default());
         focus.credited_duration_ms = 600_000;
@@ -366,12 +376,34 @@ mod tests {
         for id in ["focus:a", "focus:b", "focus:c"] {
             apply_reward_once(&mut workshop, id, &intent, true, 1000).unwrap();
         }
-        assert_eq!(workshop.parts, initial + 600.0);
+        assert_eq!(workshop.parts, initial + 1800.0);
         assert_eq!(workshop.affinity_experience, 10);
         assert!(apply_reward_once(&mut workshop, "focus:a", &intent, true, 1000).unwrap().is_none());
-        assert_eq!(workshop.parts, initial + 600.0);
+        assert_eq!(workshop.parts, initial + 1800.0);
         let restored: WorkshopState = serde_json::from_str(&serde_json::to_string(&workshop).unwrap()).unwrap();
         assert_eq!(restored.reward_receipts.len(), 3);
+    }
+
+    #[test]
+    fn maximum_focus_reward_can_be_paid_once_and_invalid_amounts_are_rejected() {
+        let mut workshop = WorkshopState::default();
+        let initial = workshop.parts;
+        let intent = PendingReward { title: "180 minutes".into(),
+            reward: focus_reward(&session(180)), earned_at: 1000 };
+        assert_eq!(intent.reward.parts, 4320.0);
+        assert_eq!(intent.reward.insight, 270.0);
+        apply_reward_once(&mut workshop, "focus:max", &intent, true, 1000).unwrap();
+        assert_eq!(workshop.parts, initial + 4320.0);
+        assert!(apply_reward_once(&mut workshop, "focus:max", &intent, true, 1000).unwrap().is_none());
+        for reward in [
+            RewardAmount { parts: 4320.1, ..Default::default() },
+            RewardAmount { insight: 270.1, ..Default::default() },
+            RewardAmount { parts: -1.0, ..Default::default() },
+            RewardAmount { insight: f64::INFINITY, ..Default::default() },
+        ] {
+            assert!(!valid_reward("focus:invalid", &reward));
+        }
+        assert!(!valid_reward("week:invalid", &intent.reward));
     }
 
     #[test]
@@ -399,7 +431,7 @@ mod tests {
         let weekly = PendingReward { reward: RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 10 }, ..intent };
         apply_reward_once(&mut workshop, "week:cap", &weekly, false, 1000).unwrap();
         assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
-        assert_eq!(workshop.parts, initial + 280.0);
+        assert_eq!(workshop.parts, initial + 680.0);
         assert_eq!(workshop.reward_receipts.len(), 2);
     }
 

@@ -21,9 +21,10 @@ assert.equal(creditedSeconds(session, 500), 600, "clock reversal must not inflat
 assert.equal(creditedSeconds({ ...session, status: "completed" }, 3000), 600);
 assert.equal(creditedSeconds({ ...session, creditedDurationMs: 1499_000 }, 3000), 1500);
 assert.equal(estimateFocusReward(299).parts, 0);
-assert.deepEqual(estimateFocusReward(1500), { parts: 200, insight: 12.5, affinityExperience: 0 });
-assert.ok(Math.abs(estimateFocusReward(1500, 2).parts - 140) < 1e-9);
-assert.equal(estimateFocusReward(1500, 99).parts, 80);
+assert.deepEqual(estimateFocusReward(1500), { parts: 600, insight: 37.5, affinityExperience: 0 });
+assert.deepEqual(estimateFocusReward(10800), { parts: 4320, insight: 270, affinityExperience: 0 });
+assert.ok(Math.abs(estimateFocusReward(1500, 2).parts - 420) < 1e-9);
+assert.equal(estimateFocusReward(1500, 99).parts, 240);
 assert.match(rewardLabel({ parts: 160, insight: 10, affinityExperience: 5 }), /亲密经验 \+5/);
 const completed = { ...session, status: "completed", rewardPaid: true,
   reward: { parts: 200, insight: 12.5, affinityExperience: 5 } };

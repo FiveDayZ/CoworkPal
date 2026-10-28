@@ -49,6 +49,6 @@ export function creditedSeconds(session: FocusSession, now?: number): number {
 
 export function estimateFocusReward(seconds: number, distractions = 0): RewardAmount {
   const quality = Math.max(0.4, 1 - distractions * 0.15);
-  return { parts: seconds >= 300 ? seconds / 60 * 8 * quality : 0,
-    insight: seconds >= 300 ? seconds / 60 * 0.5 * quality : 0, affinityExperience: 0 };
+  return { parts: seconds >= 300 ? seconds / 60 * 24 * quality : 0,
+    insight: seconds >= 300 ? seconds / 60 * 1.5 * quality : 0, affinityExperience: 0 };
 }

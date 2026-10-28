@@ -1136,15 +1136,10 @@ fn validate_snapshot(snapshot: &UserDataSnapshot) -> Result<(), String> {
     {
         return Err("云端窗口配置无效，已停止恢复".to_string());
     }
-    let valid_reward = |reward: &crate::models::RewardAmount| {
-        reward.parts.is_finite() && (0.0..=1440.0).contains(&reward.parts)
-            && reward.insight.is_finite() && (0.0..=90.0).contains(&reward.insight)
-            && reward.affinity_experience <= 10
-    };
     if workshop.reward_receipts.iter().any(|(key, receipt)| {
-        key.is_empty() || !valid_reward(&receipt.reward)
+        !crate::rewards::valid_reward(key, &receipt.reward)
     }) || snapshot.achievements.pending_rewards.iter().any(|(key, intent)| {
-        key.is_empty() || !valid_reward(&intent.reward)
+        !crate::rewards::valid_reward(key, &intent.reward)
     }) || snapshot.focus_sessions.sessions.iter().any(|session| {
         session.reward_version > 1 || (session.reward_version > 0
             && (!(300..=10800).contains(&session.planned_duration_seconds)
@@ -1472,6 +1467,62 @@ mod tests {
         let merged = merge_user_data_snapshots(&local, &remote);
         assert_eq!(merged.focus_sessions.sessions[0].status, FocusSessionStatus::Active);
         assert_eq!(merged.focus_sessions.sessions[0].credited_duration_ms, 600_000);
+    }
+
+    #[test]
+    fn weekly_rewards_can_be_backed_up_and_restored() {
+        use crate::achievements::runtime::{ensure_weekly_goals_with_progress, PendingReward, WeeklyProgress};
+        use crate::models::RewardReceipt;
+        let mut snapshot = test_snapshot(100);
+        let progress = WeeklyProgress { online_seconds: 7200.0, qualified_focus_count: 2,
+            report_days: 3, order_count: 3 };
+        let (goals, _) = ensure_weekly_goals_with_progress(&mut snapshot.achievements,
+            &load_seed_definitions().unwrap(), 100, &progress);
+        let rewards = goals.goals.iter().map(|goal| (goal.goal_id.as_str(), &goal.reward))
+            .chain(std::iter::once(("all", &goals.bonus_reward)));
+        for (id, reward) in rewards {
+            let key = format!("week:{}:{id}", goals.week_key);
+            snapshot.workshop.reward_receipts.insert(key.clone(), RewardReceipt {
+                title: id.into(), reward: reward.clone(), earned_at: 100, paid_at: 100,
+            });
+            snapshot.achievements.pending_rewards.insert(key, PendingReward {
+                title: id.into(), reward: reward.clone(), earned_at: 100,
+            });
+        }
+        assert_eq!(snapshot.workshop.reward_receipts.len(), 6);
+        assert_eq!(super::validate_snapshot(&snapshot), Ok(()));
+        let restored = serde_json::from_str::<UserDataSnapshot>(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+        assert_eq!(super::validate_snapshot(&restored), Ok(()));
+    }
+
+    #[test]
+    fn cloud_reward_limits_match_settlement_for_receipts_and_pending_rewards() {
+        use crate::{achievements::runtime::PendingReward, models::{RewardAmount, RewardReceipt}};
+        for (key, reward, valid) in [
+            ("focus:legacy", RewardAmount { parts: 200.0, insight: 12.5, affinity_experience: 5 }, true),
+            ("focus:max", crate::rewards::focus_reward(&FocusSession {
+                planned_duration_seconds: 10800, credited_duration_ms: 10_800_000, ..Default::default()
+            }), true),
+            ("week:too-much-affinity", RewardAmount { affinity_experience: 21, ..Default::default() }, false),
+            ("focus:too-much-affinity", RewardAmount { affinity_experience: 11, ..Default::default() }, false),
+            ("focus:too-many-parts", RewardAmount { parts: 4321.0, ..Default::default() }, false),
+            ("focus:too-much-insight", RewardAmount { insight: 271.0, ..Default::default() }, false),
+            ("", RewardAmount::default(), false),
+        ] {
+            for pending in [false, true] {
+                let mut snapshot = test_snapshot(100);
+                if pending {
+                    snapshot.achievements.pending_rewards.insert(key.into(), PendingReward {
+                        title: key.into(), reward: reward.clone(), earned_at: 100,
+                    });
+                } else {
+                    snapshot.workshop.reward_receipts.insert(key.into(), RewardReceipt {
+                        title: key.into(), reward: reward.clone(), earned_at: 100, paid_at: 100,
+                    });
+                }
+                assert_eq!(super::validate_snapshot(&snapshot).is_ok(), valid, "{key}, pending={pending}");
+            }
+        }
     }
 
     #[test]
