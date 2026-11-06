@@ -13,6 +13,21 @@ pub fn handle_window_event(_window: &tauri::Window, _event: &WindowEvent) {
     // Windows close naturally and get destroyed, preventing app exit via ExitRequested in lib.rs.
 }
 
+pub async fn apply_settings_visibility(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+    if settings.is_cat_visible {
+        show_window(app, "pet", false).await?;
+    } else {
+        hide_window(app, "pet").await?;
+        hide_window(app, "pet-panel").await?;
+    }
+    if settings.is_monitor_bar_visible {
+        show_window(app, "monitor-bar", false).await?;
+    } else {
+        hide_window(app, "monitor-bar").await?;
+    }
+    Ok(())
+}
+
 pub async fn show_window(app: &AppHandle, label: &str, focus: bool) -> Result<(), String> {
     let window = ensure_webview_window(app, label).await?;
 
@@ -226,6 +241,7 @@ pub async fn save_window_position(
     x: f64,
     y: f64,
 ) -> Result<AppSettings, String> {
+    let _guard = state.settings_update_lock.lock().await;
     let settings = {
         let mut settings = state.settings.write().await;
         let mut layout = state.layout.write().await;

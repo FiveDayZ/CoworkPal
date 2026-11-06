@@ -7,7 +7,7 @@ use tauri::{
 
 use crate::{
     app_state::AppState,
-    events::{SETTINGS_UPDATED, UI_NAVIGATE_MAIN},
+    events::UI_NAVIGATE_MAIN,
     models::{AppSettings, AppSettingsPatch},
     taskbar_embed, window_manager,
 };
@@ -252,6 +252,7 @@ fn handle_menu_action(app: &AppHandle, action: &str) {
 async fn toggle_minimal_mode(app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     {
+        let _guard = state.settings_update_lock.lock().await;
         let mut settings = state.settings.write().await;
         let previous = settings.clone();
         settings.toggle_minimal_mode();
@@ -277,10 +278,7 @@ async fn show_main_route(app: &AppHandle, route: &str) -> Result<(), String> {
 }
 
 async fn toggle_cat_visibility(app: AppHandle) -> Result<(), String> {
-    let is_cat_visible = window_manager::toggle_window(&app, "pet").await?;
-    if !is_cat_visible {
-        window_manager::hide_window(&app, "pet-panel").await?;
-    }
+    let is_cat_visible = !app.state::<AppState>().settings.read().await.is_cat_visible;
 
     apply_settings_patch(
         &app,
@@ -294,7 +292,7 @@ async fn toggle_cat_visibility(app: AppHandle) -> Result<(), String> {
 }
 
 async fn toggle_monitor_visibility(app: AppHandle) -> Result<(), String> {
-    let is_monitor_bar_visible = window_manager::toggle_window(&app, "monitor-bar").await?;
+    let is_monitor_bar_visible = !app.state::<AppState>().settings.read().await.is_monitor_bar_visible;
 
     apply_settings_patch(
         &app,
@@ -365,22 +363,15 @@ async fn apply_settings_patch(
     patch: AppSettingsPatch,
 ) -> Result<AppSettings, String> {
     let state = app.state::<AppState>();
-    let settings = {
-        let mut settings = state.settings.write().await;
-        settings.apply_patch(patch);
-        state.storage.save_settings(&settings)?;
-        settings.clone()
-    };
+    crate::commands::update_app_settings(patch, state, app.clone()).await
+}
 
+pub(crate) fn sync_tray_icon(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let icon = create_tray_icon(&settings.theme_name);
-        let _ = tray.set_icon(Some(icon));
+        tray.set_icon(Some(create_tray_icon(&settings.theme_name)))
+            .map_err(|error| format!("failed to update tray icon: {error}"))?;
     }
-
-    app.emit(SETTINGS_UPDATED, settings.clone())
-        .map_err(|error| format!("failed to emit {SETTINGS_UPDATED}: {error}"))?;
-
-    Ok(settings)
+    Ok(())
 }
 
 fn create_tray_icon(theme: &str) -> Image<'static> {

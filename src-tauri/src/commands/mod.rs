@@ -222,7 +222,11 @@ pub async fn get_hardware_snapshot(state: State<'_, AppState>) -> Result<Hardwar
 
 #[tauri::command]
 pub async fn get_app_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
-    Ok(state.settings.read().await.clone())
+    let _guard = state.settings_update_lock.lock().await;
+    let mut settings = state.settings.write().await;
+    #[cfg(windows)]
+    { settings.launch_at_startup = crate::startup::is_enabled()?; }
+    Ok(settings.clone())
 }
 
 #[tauri::command]
@@ -231,36 +235,81 @@ pub async fn update_app_settings(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<AppSettings, String> {
+    let _guard = state.settings_update_lock.lock().await;
     normalize_app_settings_patch(&mut patch)?;
+    if patch.enable_notifications == Some(true) {
+        crate::notifications::check_permission(&app)?;
+    }
     let launch_at_startup = patch.launch_at_startup;
+    let visibility_requested = patch.is_cat_visible.is_some() || patch.is_monitor_bar_visible.is_some();
+    let taskbar_requested = patch.show_monitor_data_in_taskbar.is_some()
+        || patch.visible_taskbar_metrics.is_some() || patch.taskbar_monitor_mode.is_some();
     let achievement_payloads = settings_patch_achievement_payloads(&patch);
+    #[cfg(windows)]
+    let registration = launch_at_startup
+        .map(|_| crate::startup::Registration::capture()).transpose()?;
 
-    let settings = {
-        let mut settings = state.settings.write().await;
-        // Snapshot before applying so we can roll back on a failed save.
-        let previous = settings.clone();
-        settings.apply_patch(patch);
-        if let Err(error) = state.storage.save_settings(&settings) {
-            *settings = previous;
+    let (previous, settings) = {
+        let mut current = state.settings.write().await;
+        let previous = current.clone();
+        let mut next = previous.clone();
+        next.apply_patch(patch);
+        if let Some(enabled) = launch_at_startup {
+            crate::startup::sync(enabled, true)?;
+        }
+        if let Err(error) = state.storage.save_settings(&next) {
+            #[cfg(windows)]
+            if let Some(registration) = &registration {
+                registration.restore().map_err(|rollback| {
+                    format!("failed to save settings: {error}; startup rollback failed: {rollback}")
+                })?;
+            }
             return Err(format!("failed to save settings: {error}"));
         }
-        settings.clone()
+        *current = next.clone();
+        (previous, next)
     };
 
-    // Sync the launch-at-startup registry ONLY after settings persisted
-    // successfully. Previously this ran before save_settings, so a failed save
-    // left the registry changed while memory/disk rolled back — a split state
-    // where the app would auto-start despite showing "disabled".
-    if let Some(enabled) = launch_at_startup {
-        sync_launch_at_startup(enabled)?;
+    let runtime_result = async {
+        if visibility_requested {
+            window_manager::apply_settings_visibility(&app, &settings).await?;
+        }
+        if taskbar_requested {
+            taskbar_embed::try_sync_taskbar_monitor(&app).await?;
+        }
+        if previous.theme_name != settings.theme_name {
+            crate::tray::sync_tray_icon(&app, &settings)?;
+        }
+        Ok::<(), String>(())
+    }.await;
+    if let Err(error) = runtime_result {
+        let mut current = state.settings.write().await;
+        state.storage.save_settings(&previous).map_err(|rollback| {
+            format!("{error}; settings rollback failed: {rollback}")
+        })?;
+        *current = previous.clone();
+        drop(current);
+        #[cfg(windows)]
+        if let Some(registration) = &registration {
+            registration.restore()?;
+        }
+        if visibility_requested {
+            window_manager::apply_settings_visibility(&app, &previous).await
+                .map_err(|rollback| format!("{error}; window rollback failed: {rollback}"))?;
+        }
+        if taskbar_requested {
+            taskbar_embed::sync_taskbar_monitor(&app).await;
+        }
+        let _ = crate::tray::sync_tray_icon(&app, &previous);
+        let _ = app.emit(SETTINGS_UPDATED, previous);
+        return Err(error);
     }
 
     if let Err(error) = app.emit(SETTINGS_UPDATED, settings.clone()) {
         tracing::warn!("failed to emit {SETTINGS_UPDATED}: {error}");
     }
 
-    taskbar_embed::sync_taskbar_monitor(&app).await;
-
+    drop(_guard);
     for payload in achievement_payloads {
         let changed_key = payload
             .get("changedKey")
@@ -293,55 +342,8 @@ fn normalize_app_settings_patch(patch: &mut AppSettingsPatch) -> Result<(), Stri
     Ok(())
 }
 
-#[cfg(windows)]
 pub(crate) fn sync_launch_at_startup(enabled: bool) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-    const VALUE_NAME: &str = "CoworkPal";
-
-    let mut command = std::process::Command::new("reg.exe");
-    command.creation_flags(CREATE_NO_WINDOW);
-
-    if enabled {
-        let exe_path = std::env::current_exe()
-            .map_err(|error| format!("failed to resolve current executable: {error}"))?;
-        let exe_command = format!("\"{}\"", exe_path.display());
-        command.args([
-            "add",
-            RUN_KEY,
-            "/v",
-            VALUE_NAME,
-            "/t",
-            "REG_SZ",
-            "/d",
-            &exe_command,
-            "/f",
-        ]);
-    } else {
-        command.args(["delete", RUN_KEY, "/v", VALUE_NAME, "/f"]);
-    }
-
-    let output = crate::process_util::run_command_with_timeout(
-        command,
-        crate::process_util::DEFAULT_SUBPROCESS_TIMEOUT,
-    )
-    .ok_or_else(|| {
-        "failed to update startup registry: subprocess timed out or failed".to_string()
-    })?;
-
-    if output.status.success() || (!enabled && output.status.code() == Some(1)) {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!("failed to update startup registry: {stderr}"))
-}
-
-#[cfg(not(windows))]
-pub(crate) fn sync_launch_at_startup(_enabled: bool) -> Result<(), String> {
-    Ok(())
+    crate::startup::sync(enabled, false)
 }
 
 #[tauri::command]
@@ -1302,23 +1304,14 @@ pub async fn toggle_production_paused(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<AppSettings, String> {
-    // Read-modify-write under a SINGLE write lock. The previous version read the
-    // current value under a read lock, released it, then called
-    // update_app_settings (which re-acquires the write lock) — leaving a window
-    // in which two rapid toggles could both read `false` and both write `true`,
-    // so the user's two clicks net to "paused" instead of "toggled". Doing the
-    // flip inside one critical section makes the toggle atomic.
-    //
-    // Note: save_settings is called INSIDE the lock here, which deviates from
-    // the "lock-free IO" (S5) pattern used by other settings writes. This is
-    // intentional: splitting the save out would reintroduce the TOCTOU above,
-    // and toggle is a rare user action so blocking settings readers for the
-    // duration of one small JSON write is acceptable.
+    let _guard = state.settings_update_lock.lock().await;
     let settings = {
-        let mut settings = state.settings.write().await;
-        settings.is_production_paused = !settings.is_production_paused;
-        state.storage.save_settings(&settings)?;
-        settings.clone()
+        let mut current = state.settings.write().await;
+        let mut next = current.clone();
+        next.is_production_paused = !next.is_production_paused;
+        state.storage.save_settings(&next)?;
+        *current = next.clone();
+        next
     };
 
     if let Err(error) = app.emit(SETTINGS_UPDATED, settings.clone()) {
@@ -1349,7 +1342,6 @@ pub async fn hide_main_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn show_pet_window(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    window_manager::show_window(&app, "pet", false).await?;
     update_app_settings(
         AppSettingsPatch {
             is_cat_visible: Some(true),
@@ -1364,8 +1356,6 @@ pub async fn show_pet_window(app: AppHandle, state: State<'_, AppState>) -> Resu
 
 #[tauri::command]
 pub async fn hide_pet_window(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    window_manager::hide_window(&app, "pet").await?;
-    window_manager::hide_window(&app, "pet-panel").await?;
     update_app_settings(
         AppSettingsPatch {
             is_cat_visible: Some(false),
@@ -1380,7 +1370,7 @@ pub async fn hide_pet_window(app: AppHandle, state: State<'_, AppState>) -> Resu
 
 #[tauri::command]
 pub async fn toggle_monitor_bar(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let is_monitor_bar_visible = window_manager::toggle_window(&app, "monitor-bar").await?;
+    let is_monitor_bar_visible = !state.settings.read().await.is_monitor_bar_visible;
 
     update_app_settings(
         AppSettingsPatch {
@@ -1402,7 +1392,6 @@ pub async fn toggle_monitor_bar(app: AppHandle, state: State<'_, AppState>) -> R
 
 #[tauri::command]
 pub async fn show_monitor_bar(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    window_manager::show_window(&app, "monitor-bar", false).await?;
     update_app_settings(
         AppSettingsPatch {
             is_monitor_bar_visible: Some(true),
@@ -1420,7 +1409,6 @@ pub async fn show_monitor_bar(app: AppHandle, state: State<'_, AppState>) -> Res
 
 #[tauri::command]
 pub async fn hide_monitor_bar(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    window_manager::hide_window(&app, "monitor-bar").await?;
     update_app_settings(
         AppSettingsPatch {
             is_monitor_bar_visible: Some(false),
@@ -1824,6 +1812,7 @@ pub async fn perform_release(
     // Persist the last-release record (only when something was actually freed;
     // a 0-byte release isn't worth surfacing as "last release").
     if result.released_bytes > 0 {
+        let _guard = state.settings_update_lock.lock().await;
         let patch = AppSettingsPatch {
             memory_last_release: Some(LastMemoryRelease {
                 timestamp_ms: current_timestamp_ms(),
@@ -1843,6 +1832,10 @@ pub async fn perform_release(
     }
 
     memory_release::emit_result(app, &result);
+    if state.settings.read().await.enable_notifications {
+        let title = if result.full_tier { "内存已全量释放" } else { "内存已轻量释放" };
+        crate::notifications::show(app, title, &result.note);
+    }
 
     // Trigger the one-shot Free_Memory CoCat animation so the user sees the
     // pet react to every release (manual, tray, or auto-threshold).

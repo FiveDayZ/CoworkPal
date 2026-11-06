@@ -9354,3 +9354,28 @@ input[type="range"]::-moz-range-thumb,
     transition: none;
   }
 }
+
+.cwp-confirm-dialog {
+  width: min(360px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-900);
+  color: var(--color-text-primary);
+  font: 14px/1.6 var(--font-sans);
+}
+.cwp-confirm-dialog::backdrop { background: rgba(0, 0, 0, 0.65); }
+.cwp-confirm-dialog h2 { margin: 0 0 12px; font-size: 16px; }
+.cwp-confirm-dialog p { margin: 0 0 20px; overflow-wrap: anywhere; }
+.cwp-confirm-dialog > div { display: flex; justify-content: flex-end; gap: 12px; }
+.cwp-confirm-dialog button {
+  min-height: 32px;
+  min-width: 64px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface-800);
+  color: var(--color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.cwp-confirm-dialog button:last-child { background: var(--color-border-strong); color: var(--color-bg-950); }
+.cwp-confirm-dialog button:focus-visible { outline: 2px solid var(--color-border-strong); outline-offset: 3px; }

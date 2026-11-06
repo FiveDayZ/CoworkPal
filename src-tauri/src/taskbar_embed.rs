@@ -17,6 +17,12 @@ const TASKBAR_ROW_HEIGHT: i32 = 16;
 const TASKBAR_FONT_BYTES: &[u8] = include_bytes!("../fonts/NotoSansCJKsc-CoworkPal.otf");
 
 pub async fn sync_taskbar_monitor(app: &AppHandle) {
+    if let Err(error) = try_sync_taskbar_monitor(app).await {
+        tracing::warn!("failed to sync taskbar monitor: {error}");
+    }
+}
+
+pub async fn try_sync_taskbar_monitor(app: &AppHandle) -> Result<(), String> {
     let (settings, snapshot) = if let Some(state) = app.try_state::<AppState>() {
         let settings = state.settings.read().await.clone();
         let snapshot = state.last_snapshot.read().await.clone();
@@ -32,37 +38,28 @@ pub async fn sync_taskbar_monitor(app: &AppHandle) {
 
     if !enabled {
         #[cfg(windows)]
-        if let Err(error) = imp::hide_native(app.clone()) {
-            tracing::warn!("failed to schedule native taskbar monitor hide: {error}");
-        }
+        imp::hide_native(app.clone())?;
 
         if let Some(window) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
-            if let Err(error) = window.close() {
-                tracing::warn!("failed to close taskbar monitor: {error}");
-            }
+            window.close().map_err(|error| error.to_string())?;
         }
-        return;
+        return Ok(());
     }
 
     #[cfg(windows)]
     {
         if let Some(window) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
-            if let Err(error) = window.close() {
-                tracing::warn!("failed to close legacy taskbar monitor window: {error}");
-            }
+            window.close().map_err(|error| error.to_string())?;
         }
 
         let Some(settings) = settings.as_ref() else {
-            return;
+            return Ok(());
         };
         let snapshot = snapshot.unwrap_or_default();
         let cells = resolve_taskbar_cells(settings, &snapshot);
         let desired_width = resolve_taskbar_width(settings);
 
-        if let Err(error) = imp::embed_and_show_native(app.clone(), cells, desired_width) {
-            tracing::warn!("failed to schedule native taskbar monitor: {error}");
-        }
-        return;
+        return imp::embed_and_show_native(app.clone(), cells, desired_width).await;
     }
 
     #[cfg(not(windows))]
@@ -71,7 +68,7 @@ pub async fn sync_taskbar_monitor(app: &AppHandle) {
             Ok(window) => window,
             Err(error) => {
                 tracing::warn!("{error}");
-                return;
+                return Err(error);
             }
         };
 
@@ -82,11 +79,12 @@ pub async fn sync_taskbar_monitor(app: &AppHandle) {
 
         if let Err(error) = imp::embed_and_show(&window, desired_width) {
             tracing::warn!("failed to embed taskbar monitor: {error}");
-            if let Err(show_error) = window.hide() {
-                tracing::warn!("failed to hide unembedded taskbar monitor: {show_error}");
-            }
+            let _ = window.hide();
+            return Err(error);
         }
     }
+    #[cfg(not(windows))]
+    Ok(())
 }
 
 fn resolve_taskbar_width(settings: &AppSettings) -> i32 {
@@ -680,20 +678,23 @@ mod imp {
         }
     }
 
-    pub fn embed_and_show_native(
+    pub async fn embed_and_show_native(
         app: AppHandle,
         cells: Vec<(String, String)>,
         desired_width: i32,
     ) -> Result<(), String> {
         let _ = APP_HANDLE.set(app.clone());
 
+        let (sender, receiver) = tokio::sync::oneshot::channel();
         app.run_on_main_thread(move || {
-            if let Err(error) = embed_and_show_native_now(&cells, desired_width) {
-                tracing::warn!("failed to draw native taskbar monitor: {error}");
+            let result = embed_and_show_native_now(&cells, desired_width);
+            if result.is_err() {
                 hide_native_now();
             }
+            let _ = sender.send(result);
         })
-        .map_err(|error| format!("failed to run native taskbar monitor on main thread: {error}"))
+        .map_err(|error| format!("failed to run native taskbar monitor on main thread: {error}"))?;
+        receiver.await.map_err(|error| error.to_string())?
     }
 
     fn embed_and_show_native_now(

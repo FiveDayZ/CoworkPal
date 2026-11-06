@@ -331,15 +331,7 @@ pub async fn install_update(app: AppHandle, package_path: String) -> Result<(), 
             crate::persistence::flush_before_shutdown(&app).await?;
             // It's a setup installer. Launch it and exit the application
             // Use shell execute to handle UAC elevation automatically if installer requests it
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-            // NSIS installers support /S for silent install, MSI supports /qn, but here we run interactive so user sees install wizard
-            let mut command = std::process::Command::new("cmd.exe");
-            command.args(["/c", "start", "", &package_path]);
-            command.creation_flags(CREATE_NO_WINDOW);
-
-            command
+            installer_command(&package_path)
                 .spawn()
                 .map_err(|e| format!("Failed to spawn installer process: {}", e))?;
 
@@ -365,9 +357,35 @@ pub async fn install_update(app: AppHandle, package_path: String) -> Result<(), 
     Ok(())
 }
 
+#[cfg(windows)]
+fn installer_command(package_path: &str) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new("cmd.exe");
+    command.args(["/c", "start", "", package_path]);
+    if package_path.ends_with(".exe") {
+        // NSIS update mode preserves Run entries and skips uninstalling user preferences.
+        command.arg("/UPDATE");
+    }
+    command.creation_flags(0x08000000);
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn nsis_upgrade_preserves_startup_registration_without_changing_msi_arguments() {
+        let exe = r"C:\下载目录\带空格的目录\CoworkPal-setup.exe";
+        let command = installer_command(exe);
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(args, ["/c", "start", "", exe, "/UPDATE"]);
+        let msi = r"C:\Downloads\CoworkPal-setup.msi";
+        let command = installer_command(msi);
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(args, ["/c", "start", "", msi]);
+    }
 
     #[test]
     fn test_check_update_fails_gracefully_with_bad_token() {

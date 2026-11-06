@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatNoteTimestamp } from "../../services/noteFormatters";
 import { renderMarkdown } from "../../services/markdown";
+import { confirmAction } from "../../services/dialogs";
 import { useNotesStore } from "../../stores/notesStore";
 import type { Note } from "../../types/notes";
 import { PixelIcon } from "../../ui/PixelIcon";
@@ -102,11 +103,12 @@ export function NoteViewModal({ note }: { note: Note }) {
 
   async function handleDelete() {
     if (busy) return;
-    if (!window.confirm("确定删除这条记录吗？此操作不可撤销。")) {
-      return;
-    }
     setBusy(true);
     try {
+      if (!(await confirmAction("确定删除这条记录吗？此操作不可撤销。"))) {
+        setBusy(false);
+        return;
+      }
       // Await the delete BEFORE closing: if it fails the modal stays open and
       // surfaces the error, rather than closing and hiding the failure from the
       // user (who would believe the note was deleted while it still exists).

@@ -591,6 +591,7 @@ async fn restore_cloud_envelope(
 ) -> Result<CloudSyncResult, String> {
     validate_snapshot(&envelope.data)?;
     let _reward_guard = state.reward_lock.lock().await;
+    let _settings_guard = state.settings_update_lock.lock().await;
     envelope.data.settings.enforce_minimal_mode_constraints();
     let device_profile = current_device_profile(state).await;
 

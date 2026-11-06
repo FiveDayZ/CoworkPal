@@ -19,6 +19,7 @@ import {
 } from "../../services/tauriCommands";
 import { calculateSystemStability } from "../../services/systemStability";
 import { startDraggingCurrentWindow } from "../../services/windowApi";
+import { confirmAction } from "../../services/dialogs";
 import { useHardwareStore } from "../../stores/hardwareStore";
 import { useFocusStore } from "../../stores/focusStore";
 import { usePetStore } from "../../stores/petStore";
@@ -166,8 +167,10 @@ export function PetQuickPanelWindow() {
   }
 
   async function confirmExit() {
-    if (window.confirm("确认退出 CoworkPal 吗?")) {
-      await exitApp();
+    try {
+      if (await confirmAction("确认退出 CoworkPal 吗?")) await exitApp();
+    } catch (error) {
+      setFocusError(`退出失败：${String(error)}`);
     }
   }
 

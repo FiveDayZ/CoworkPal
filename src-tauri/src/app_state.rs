@@ -17,6 +17,7 @@ use crate::{
 };
 
 pub struct AppState {
+    pub settings_update_lock: AsyncMutex<()>,
     pub settings: RwLock<AppSettings>,
     pub workshop: RwLock<WorkshopState>,
     pub layout: RwLock<LayoutState>,
@@ -50,6 +51,9 @@ impl AppState {
         let settings = storage
             .load_or_create_settings()
             .map_err(|error| format!("settings.json: {error}"))?;
+        if let Err(error) = crate::startup::sync(settings.launch_at_startup, false) {
+            tracing::warn!("failed to reconcile launch-at-startup registration: {error}");
+        }
         let workshop = storage
             .load_or_create_workshop()
             .map_err(|error| format!("save.json: {error}"))?;
@@ -84,6 +88,7 @@ impl AppState {
         let cat_runtime = restore_focus_runtime(&focus_sessions);
 
         Ok(Self {
+            settings_update_lock: AsyncMutex::new(()),
             settings: RwLock::new(settings),
             workshop: RwLock::new(workshop),
             layout: RwLock::new(layout),

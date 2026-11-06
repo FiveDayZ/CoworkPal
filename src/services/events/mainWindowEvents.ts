@@ -151,6 +151,7 @@ export function registerMainWindowEvents() {
 
 function maybeNotifyMemoryRelease(result: MemoryReleaseResult) {
   const settings = useSettingsStore.getState().settings;
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && navigator.userAgent.includes("Windows")) return;
   if (!settings?.enableNotifications || typeof window === "undefined") {
     return;
   }

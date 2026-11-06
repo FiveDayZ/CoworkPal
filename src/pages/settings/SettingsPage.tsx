@@ -1,9 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  hideMonitorBar,
-  hidePetWindow,
-  showMonitorBar,
-  showPetWindow,
   exitApp,
   downloadUserData,
   checkAccessTokenRequest,
@@ -17,6 +13,7 @@ import {
   type MemoryStatus,
 } from "../../services/tauriCommands";
 import { usePetStore } from "../../stores/petStore";
+import { confirmAction } from "../../services/dialogs";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
 import type { AppSettingsPatch, MonitorBarMode, MonitorMetric } from "../../types/settings";
@@ -67,8 +64,10 @@ export function SettingsPage() {
   const updateSettings = useSettingsStore((state) => state.updateSettings);
   const applyOptimistic = useSettingsStore((state) => state.applyOptimistic);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const safeUpdate = (patch: AppSettingsPatch) => {
     setSettingsError(null);
+    setSettingsNotice(null);
     void updateSettings(patch).catch((error) => {
       console.error("failed to persist settings", error);
       setSettingsError(`设置保存失败：${String(error)}`);
@@ -135,12 +134,8 @@ export function SettingsPage() {
       settingsDebounceRef.current = null;
       const patchToCommit = pendingSettingsPatch.current;
       pendingSettingsPatch.current = {};
-      // updateSettings rethrows on failure (after re-fetching authoritative
-      // state). Catch here to avoid an unhandled rejection — the store has
-      // already reconciled, so there is nothing else for the UI to do.
-      void updateSettings(patchToCommit).catch((error) => {
-        console.error("failed to persist settings", error);
-      });
+      // Report slider persistence failures through the same path as switches.
+      safeUpdate(patchToCommit);
     }, 250);
   }
   useEffect(() => {
@@ -289,16 +284,12 @@ export function SettingsPage() {
 
   async function handleCloudAction(action: "save" | "upload" | "download") {
     if (syncBusy) return;
-    if (
-      action === "download" &&
-      !window.confirm("从云端恢复会覆盖本机的设置、工坊、笔记及其他用户数据。确认继续吗？")
-    ) {
-      return;
-    }
-
     setSyncBusy(action);
     setSyncMessage("");
     try {
+      if (action === "download" && !(await confirmAction(
+        "从云端恢复会覆盖本机的设置、工坊、笔记及其他用户数据。确认继续吗？",
+      ))) return;
       await saveCloudConfig();
       if (action === "save") {
         setSyncMessage("同步配置已保存");
@@ -367,30 +358,21 @@ export function SettingsPage() {
   }
 
   function setCatVisible(checked: boolean) {
-    if (!isTauriRuntime) {
-      safeUpdate({ isCatVisible: checked });
-      return;
-    }
-    void (checked ? showPetWindow() : hidePetWindow());
+    safeUpdate({ isCatVisible: checked });
   }
 
   function setMonitorBarVisible(checked: boolean) {
-    if (!isTauriRuntime) {
-      safeUpdate({ isMonitorBarVisible: checked });
-      return;
-    }
-    void (checked ? showMonitorBar() : hideMonitorBar());
+    safeUpdate({ isMonitorBarVisible: checked });
   }
 
   async function handleToggleCoCatPause() {
     const isPaused = settings?.isProductionPaused ?? false;
     const nextPaused = !isPaused;
 
-    await updateSettings({ isProductionPaused: nextPaused });
-
-    if (!nextPaused && isTauriRuntime) {
-      await showPetWindow();
-    }
+    await updateSettings({
+      isProductionPaused: nextPaused,
+      ...(!nextPaused ? { isCatVisible: true } : {}),
+    });
 
     setPetStatus({
       timestamp: Date.now(),
@@ -402,15 +384,21 @@ export function SettingsPage() {
   }
 
   const confirmExit = async () => {
-    if (window.confirm("确认退出 CoworkPal 吗?")) {
-      await exitApp();
+    try {
+      if (await confirmAction("确认退出 CoworkPal 吗?")) await exitApp();
+    } catch (error) {
+      setSettingsError(`退出失败：${String(error)}`);
     }
   };
 
   const handleResetAll = async () => {
-    if (window.confirm("确认要重置所有工坊状态和已获得的零件/灵感数据吗？该操作无法撤销。")) {
-      await resetWorkshop();
-      alert("工坊状态已成功重置为初始状态！");
+    try {
+      if (await confirmAction("确认要重置所有工坊状态和已获得的零件/灵感数据吗？该操作无法撤销。")) {
+        await resetWorkshop();
+        setSettingsNotice("工坊状态已成功重置为初始状态！");
+      }
+    } catch (error) {
+      setSettingsError(`重置失败：${String(error)}`);
     }
   };
 
@@ -453,7 +441,12 @@ export function SettingsPage() {
           <div className="cwp-portrait-actions">
             <button
               className="cwp-portrait-btn primary"
-              onClick={() => void handleToggleCoCatPause().catch((error) => console.error("toggle production pause failed", error))}
+              onClick={() => {
+                setSettingsError(null);
+                void handleToggleCoCatPause().catch((error) =>
+                  setSettingsError(`切换工坊状态失败：${String(error)}`),
+                );
+              }}
               type="button"
             >
               {settings?.isProductionPaused ? "唤醒 CoCat" : "暂停 / 沉睡"}
@@ -479,6 +472,7 @@ export function SettingsPage() {
         {/* Right Column: categories cards */}
         <div className="cwp-settings-cards-scroll">
           {settingsError && <div className="cwp-sync-message" role="alert">{settingsError}</div>}
+          {settingsNotice && <div className="cwp-sync-message" role="status">{settingsNotice}</div>}
           {/* Column 1: Cat settings and Monitor bar settings */}
           <div className="cwp-settings-column">
             {/* Card 1: Companion Settings */}
@@ -929,6 +923,7 @@ export function SettingsPage() {
                     type="checkbox"
                     checked={settings?.memoryAutoReleaseEnabled ?? false}
                     aria-label="超过阈值自动释放"
+                    disabled={!settings?.memoryReleaseEnabled}
                     onChange={(e) =>
                       safeUpdate({
                         memoryAutoReleaseEnabled: e.target.checked,
@@ -944,6 +939,7 @@ export function SettingsPage() {
                   className="custom-range"
                   max="64"
                   min="1"
+                  disabled={!settings?.memoryReleaseEnabled || !settings?.memoryAutoReleaseEnabled}
                   onChange={(e) =>
                     scheduleSettingsCommit({
                       memoryAutoReleaseThresholdGib: Number(e.target.value),

@@ -143,6 +143,10 @@ impl PetStateService {
             }
         };
 
+        if settings.enable_notifications && matches!(payload.cat_state,
+            CatState::TemperatureCheck | CatState::MemoryCrowded | CatState::RepairHeavy) {
+            crate::notifications::show(app, "CoCat", &payload.cat_message);
+        }
         if let Err(error) = app.emit(crate::events::PET_STATE_CHANGED, payload) {
             tracing::warn!("failed to emit pet:state-changed: {error}");
         }
