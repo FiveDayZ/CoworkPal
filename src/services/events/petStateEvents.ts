@@ -1,3 +1,4 @@
+import { effectiveCompanionSettings } from "../companionSettings";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -47,7 +48,7 @@ function maybeNotifyPetState(event: CatStateChangedEvent) {
 }
 
 function maybeNotify(title: string, body: string) {
-  const settings = useSettingsStore.getState().settings;
+  const settings = effectiveCompanionSettings(useSettingsStore.getState().settings);
   if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && navigator.userAgent.includes("Windows")) return;
   if (!settings?.enableNotifications || typeof window === "undefined") {
     return;

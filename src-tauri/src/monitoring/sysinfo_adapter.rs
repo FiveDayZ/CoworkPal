@@ -21,16 +21,11 @@ use super::windows_perf::{
 };
 
 use super::integrated_hardware_monitor::{
-    IntegratedHardwareMonitorProbe, IntegratedHardwareMonitorSample,
+    IntegratedHardwareMonitorProbe,
 };
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-/// How long a cached `integrated_hardware_monitor_enabled` reading from settings.json
-/// is trusted before the file is re-read. The adapter has no access to the live
-/// settings state (its `sample()` takes no args), so it polls the file on disk.
-const INTEGRATED_MONITOR_SETTINGS_RECHECK_INTERVAL: Duration = Duration::from_secs(2);
 
 pub struct SysinfoAdapter {
     system: System,
@@ -40,21 +35,23 @@ pub struct SysinfoAdapter {
     cached_nvidia_sample: Option<NvidiaSmiSample>,
     last_nvidia_query_at: Option<Instant>,
     cached_device_inventory: HardwareDeviceInventory,
+    cached_processes: Vec<ProcessUsageSnapshot>,
+    last_process_sample_at: Option<Instant>,
     #[cfg(windows)]
     gpu_info: WindowsGpuInfo,
     #[cfg(windows)]
     performance_counters: Option<WindowsPerformanceCounters>,
     integrated_monitor: IntegratedHardwareMonitorProbe,
-    /// Whether the user enabled the bundled privileged sensor helper. Re-read
-    /// from settings.json so toggling the switch takes effect without restart.
-    integrated_monitor_enabled: bool,
-    integrated_monitor_settings_checked_at: Option<Instant>,
+
+}
+
+fn refresh_due(last: Option<Instant>, now: Instant, interval: Duration) -> bool {
+    last.is_none_or(|last| now.saturating_duration_since(last) >= interval)
 }
 
 impl SysinfoAdapter {
     pub fn new() -> Self {
-        let mut system = System::new_all();
-        system.refresh_all();
+        let system = System::new_all();
         let components = create_platform_components();
         let mut networks = Networks::new_with_refreshed_list();
         networks.refresh();
@@ -67,13 +64,13 @@ impl SysinfoAdapter {
             cached_nvidia_sample: None,
             last_nvidia_query_at: None,
             cached_device_inventory: query_device_inventory().unwrap_or_default(),
+            cached_processes: Vec::new(),
+            last_process_sample_at: None,
             #[cfg(windows)]
             gpu_info: query_primary_gpu_info(),
             #[cfg(windows)]
             performance_counters: WindowsPerformanceCounters::new(),
             integrated_monitor: IntegratedHardwareMonitorProbe::new(),
-            integrated_monitor_enabled: read_integrated_hardware_monitor_enabled(app_data_root()).unwrap_or(false),
-            integrated_monitor_settings_checked_at: Some(Instant::now()),
         }
     }
 
@@ -115,13 +112,10 @@ impl SysinfoAdapter {
     }
 
     fn sample_nvidia_smi(&mut self) -> Option<NvidiaSmiSample> {
-        const NVIDIA_QUERY_INTERVAL: Duration = Duration::from_secs(3);
+        let query_interval = Duration::from_secs(if self.cached_nvidia_sample.is_some() { 3 } else { 30 });
 
         let now = Instant::now();
-        if self
-            .last_nvidia_query_at
-            .is_some_and(|previous| now.duration_since(previous) < NVIDIA_QUERY_INTERVAL)
-        {
+        if !refresh_due(self.last_nvidia_query_at, now, query_interval) {
             return self.cached_nvidia_sample.clone();
         }
 
@@ -131,32 +125,14 @@ impl SysinfoAdapter {
         self.cached_nvidia_sample.clone()
     }
 
-    fn sample_integrated_hardware_monitor(&mut self) -> Option<IntegratedHardwareMonitorSample> {
-        let now = Instant::now();
-
-        // The adapter is intentionally independent of AppState, so it observes
-        // the persisted toggle on a short cadence.
-        if self
-            .integrated_monitor_settings_checked_at
-            .is_some_and(|checked| {
-                now.duration_since(checked) >= INTEGRATED_MONITOR_SETTINGS_RECHECK_INTERVAL
-            })
-            || self.integrated_monitor_settings_checked_at.is_none()
-        {
-            if let Some(enabled) = read_integrated_hardware_monitor_enabled(app_data_root()) {
-                self.integrated_monitor_enabled = enabled;
-            }
-            self.integrated_monitor_settings_checked_at = Some(now);
-        }
-
-        self.integrated_monitor
-            .sample(self.integrated_monitor_enabled)
-    }
-
     fn sample_processes(
         &mut self,
-        elapsed_seconds: f32,
+        interval: Duration,
     ) -> (Vec<ProcessUsageSnapshot>, Option<String>) {
+        let now = Instant::now();
+        let elapsed_seconds = self.last_process_sample_at.map(|last| now.duration_since(last).as_secs_f32()).unwrap_or(1.0);
+        let refresh = refresh_due(self.last_process_sample_at, now, interval);
+        if refresh {
         self.system.refresh_processes_specifics(
             ProcessRefreshKind::new()
                 .with_cpu()
@@ -165,8 +141,15 @@ impl SysinfoAdapter {
                 .with_exe(UpdateKind::OnlyIfNotSet),
         );
 
+            self.last_process_sample_at = Some(now);
+        }
+
         #[cfg(windows)]
         let foreground_process_name = query_foreground_process_id().and_then(|process_id| {
+            let pid = Pid::from_u32(process_id);
+            if self.system.process(pid).is_none() {
+                self.system.refresh_process_specifics(pid, ProcessRefreshKind::new());
+            }
             self.system
                 .process(Pid::from_u32(process_id))
                 .map(|process| process.name().trim().to_string())
@@ -174,6 +157,10 @@ impl SysinfoAdapter {
         });
         #[cfg(not(windows))]
         let foreground_process_name = None;
+
+        if !refresh {
+            return (self.cached_processes.clone(), foreground_process_name);
+        }
 
         let current_pid = std::process::id();
         let elapsed = elapsed_seconds.max(0.001);
@@ -226,6 +213,7 @@ impl SysinfoAdapter {
                 .then_with(|| right.memory_bytes.cmp(&left.memory_bytes))
         });
         processes.truncate(32);
+        self.cached_processes = processes.clone();
         (processes, foreground_process_name)
     }
 }
@@ -247,7 +235,7 @@ fn create_platform_components() -> Components {
 }
 
 impl HardwareSensorAdapter for SysinfoAdapter {
-    fn sample(&mut self) -> HardwareSnapshot {
+    fn sample(&mut self, settings: &crate::models::AppSettings, background: bool) -> HardwareSnapshot {
         let now = Instant::now();
         let elapsed_seconds = now.duration_since(self.last_sample_at).as_secs_f32();
         self.last_sample_at = now;
@@ -267,7 +255,7 @@ impl HardwareSensorAdapter for SysinfoAdapter {
         let (network_download_bytes_per_second, network_upload_bytes_per_second) =
             self.sample_network_bytes_per_second(elapsed_seconds);
         let nvidia_sample = self.sample_nvidia_smi();
-        let (processes, foreground_process_name) = self.sample_processes(elapsed_seconds);
+        let (processes, foreground_process_name) = self.sample_processes(Duration::from_secs(if background || settings.enable_low_power_mode { 10 } else { 5 }));
 
         #[cfg(windows)]
         let performance_sample = self
@@ -282,7 +270,8 @@ impl HardwareSensorAdapter for SysinfoAdapter {
         // Only hardware-scoped sensors are accepted as CPU temperatures. ACPI
         // thermal zones describe a platform/chassis zone and can differ from
         // CPU package temperature by tens of degrees, so they are not used.
-        let integrated_sample = self.sample_integrated_hardware_monitor();
+        let integrated_sample = self.integrated_monitor.sample(settings.integrated_hardware_monitor_enabled,
+            if background || settings.enable_low_power_mode { 5000 } else { 2000 });
         let integrated_cpu_temperature = integrated_sample
             .as_ref()
             .and_then(|sample| sample.cpu_temperature_celsius);
@@ -650,55 +639,19 @@ struct EmptyPerformanceSample {
     gpu_memory_used_bytes: Option<u64>,
 }
 
-/// Reads the `integratedHardwareMonitorEnabled` flag from settings.json without
-/// pulling in the full `AppSettings` type. The adapter polls this on a short
-/// cadence so a UI toggle propagates without a restart. Transient failures keep
-/// the last explicit setting; only startup defaults to false to avoid a UAC prompt.
-fn read_integrated_hardware_monitor_enabled(root: Option<std::path::PathBuf>) -> Option<bool> {
-    let root = root?;
-    let path = root.join("settings.json");
-    let content = std::fs::read_to_string(&path).ok()?;
-    let value = serde_json::from_str::<serde_json::Value>(&content).ok()?;
-    value
-        .get("integratedHardwareMonitorEnabled")
-        .and_then(|flag| flag.as_bool())
-}
-
-/// Resolves the per-user app data directory (`%APPDATA%\CoworkPal` on
-/// Windows, `$XDG_DATA_HOME/CoworkPal` elsewhere), mirroring
-/// `storage::app_data_root` without the cross-module dependency.
-fn app_data_root() -> Option<std::path::PathBuf> {
-    std::env::var_os("APPDATA")
-        .or_else(|| std::env::var_os("XDG_DATA_HOME"))
-        .map(std::path::PathBuf::from)
-        .map(|base| base.join("CoworkPal"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn transient_settings_failure_keeps_monitor_enabled_until_explicitly_disabled() {
-        let root = std::env::temp_dir().join(format!("coworkpal-monitor-setting-{}-{}", std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-        std::fs::create_dir_all(&root).unwrap();
-        let path = root.join("settings.json");
-        let read = || read_integrated_hardware_monitor_enabled(Some(root.clone()));
-        assert!(!read().unwrap_or(false));
-        std::fs::write(&path, r#"{"integratedHardwareMonitorEnabled":true}"#).unwrap();
-        let mut enabled = read().unwrap_or(false);
-        assert!(enabled);
-        for content in ["", "{", "{}", r#"{"integratedHardwareMonitorEnabled":null}"#] {
-            std::fs::write(&path, content).unwrap();
-            enabled = read().unwrap_or(enabled);
-            assert!(enabled);
+    fn expensive_probe_cadence_respects_success_failure_and_background_intervals() {
+        let now = Instant::now();
+        assert!(refresh_due(None, now, Duration::from_secs(30)));
+        for seconds in [3, 5, 10, 30] {
+            let interval = Duration::from_secs(seconds);
+            assert!(!refresh_due(Some(now), now + interval - Duration::from_millis(1), interval));
+            assert!(refresh_due(Some(now), now + interval, interval));
         }
-        std::fs::remove_file(&path).unwrap();
-        assert!(read().unwrap_or(enabled));
-        std::fs::write(&path, r#"{"integratedHardwareMonitorEnabled":false}"#).unwrap();
-        assert_eq!(read(), Some(false));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(windows)]

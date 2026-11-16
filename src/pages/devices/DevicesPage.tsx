@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { formatBytes } from "../../services/formatters";
 import { getHardwareSnapshot } from "../../services/tauriCommands";
 import { useHardwareStore } from "../../stores/hardwareStore";
@@ -20,14 +20,19 @@ export function DevicesPage() {
   const snapshot = useHardwareStore((state) => state.snapshot);
   const setSnapshot = useHardwareStore((state) => state.setSnapshot);
   const sections = buildDeviceSections(snapshot);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError(null);
     void getHardwareSnapshot()
-      .then(setSnapshot)
-      .catch((error) => {
-        console.error("Failed to load hardware inventory:", error);
-      });
-  }, [setSnapshot]);
+      .then((snapshot) => { if (!cancelled) setSnapshot(snapshot); })
+      .catch((error) => { if (!cancelled) setError(String(error)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [setSnapshot, retry]);
 
   return (
     <div className="cwp-page cwp-device-page">
@@ -51,6 +56,8 @@ export function DevicesPage() {
           </span>
         </div>
 
+        {loading ? <p role="status">正在后台识别硬件，其他页面可正常使用…</p> : null}
+        {error ? <p role="alert">设备读取失败：{error} <button type="button" className="cwp-compact-button" onClick={() => setRetry((n) => n + 1)}>重试</button></p> : null}
         <div className="cwp-device-list">
           {sections.map((section) => (
             <div className="cwp-device-row" key={section.key}>
@@ -66,7 +73,7 @@ export function DevicesPage() {
                     <span key={`${section.key}-${index}`}>{item}</span>
                   ))
                 ) : (
-                  <span className="is-muted">等待系统返回设备信息</span>
+                  <span className="is-muted">{loading ? "等待系统返回设备信息" : "系统未提供此项信息"}</span>
                 )}
               </div>
             </div>

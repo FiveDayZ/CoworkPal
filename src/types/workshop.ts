@@ -1,9 +1,9 @@
 import type { RewardReceipt } from "./rewards";
 
-export const MAX_AFFINITY_LEVEL = 100;
+export const MAX_AFFINITY_LEVEL = 999;
 
 export function workshopLevelSteps(level: number): number {
-  const capped = Math.max(1, Math.min(255, level));
+  const capped = Math.max(1, Math.min(999, level));
   return Math.min(capped - 1, 99) + Math.max(0, Math.min(capped - 100, 100)) * 0.75
     + Math.max(0, capped - 200) * 0.5;
 }
@@ -43,6 +43,7 @@ export interface WorkshopModuleLevels {
 }
 
 export interface WorkshopState {
+  revision?: number;
   schemaVersion: number;
   parts: number;
   insight: number;
@@ -63,6 +64,9 @@ export interface WorkshopState {
 }
 
 export type WorkshopOrderKind = "standard" | "timed" | "hardwareEvent";
+export type WorkshopTick = Pick<WorkshopState, "revision" | "parts" | "insight" | "lastProductionTime"
+  | "totalOnlineSeconds" | "todayParts" | "todayInsight" | "lastDailyResetDate"
+  | "activeOrders" | "lastOrderRefreshDate">;
 
 export interface WorkshopOrder {
   id: string;

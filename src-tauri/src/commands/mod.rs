@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use chrono::{Duration, Local};
+use chrono::{Duration, Local, NaiveDate};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -206,11 +206,12 @@ pub async fn get_hardware_snapshot(state: State<'_, AppState>) -> Result<Hardwar
     let snapshot = {
         // `sample()` may spawn subprocesses; run it off the async runtime.
         let adapter = state.hardware_adapter.clone();
+        let settings = state.settings.read().await.effective();
         tokio::task::spawn_blocking(move || {
             let mut adapter = adapter
                 .lock()
                 .map_err(|error| format!("hardware adapter lock failed: {error}"))?;
-            Ok::<HardwareSnapshot, String>(adapter.sample())
+            Ok::<HardwareSnapshot, String>(adapter.get_or_insert_with(crate::monitoring::create_default_adapter).sample(&settings, false))
         })
         .await
         .map_err(|join_error| format!("hardware sample task failed: {join_error}"))??
@@ -237,6 +238,13 @@ pub async fn update_app_settings(
 ) -> Result<AppSettings, String> {
     let _guard = state.settings_update_lock.lock().await;
     normalize_app_settings_patch(&mut patch)?;
+    if let Some(decoration) = patch.workshop_decoration {
+        let workshop = state.workshop.read().await.clone();
+        let focus = state.focus_sessions.read().await;
+        if !workshop.decoration_unlocked(decoration, &focus) {
+            return Err("装饰尚未解锁，请先完成对应的成长目标".to_string());
+        }
+    }
     if patch.enable_notifications == Some(true) {
         crate::notifications::check_permission(&app)?;
     }
@@ -390,6 +398,11 @@ pub(crate) fn compute_focus_quality(distraction_count: u32) -> f64 {
 }
 
 #[tauri::command]
+pub async fn get_performance_history(state: State<'_, AppState>) -> Result<crate::monitoring::timeline::PerformanceHistory, String> {
+    Ok(state.performance_history.read().await.clone())
+}
+
+#[tauri::command]
 pub async fn get_focus_sessions(state: State<'_, AppState>) -> Result<FocusSessionBook, String> {
     Ok(state.focus_sessions.read().await.clone())
 }
@@ -398,6 +411,7 @@ pub async fn get_focus_sessions(state: State<'_, AppState>) -> Result<FocusSessi
 pub async fn start_focus_session(
     task_label: String,
     duration_minutes: u64,
+    note_id: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<FocusSessionBook, String> {
@@ -406,6 +420,12 @@ pub async fn start_focus_session(
         return Err("任务名称必须是 1 到 40 个可见字符".to_string());
     }
     let _guard = state.reward_lock.lock().await;
+    if let Some(id) = &note_id {
+        let notes = state.notes.read().await;
+        if !notes.notes.iter().any(|note| &note.id == id && !note.archived) {
+            return Err("关联笔记不存在或已归档".to_string());
+        }
+    }
     let duration_minutes = duration_minutes.clamp(5, 180);
     let duration_seconds = duration_minutes * 60;
     let now = current_timestamp_ms();
@@ -420,6 +440,7 @@ pub async fn start_focus_session(
         sessions.sessions.push(FocusSession {
             id: id.clone(),
             task_label: trimmed.to_string(),
+            note_id,
             planned_duration_seconds: duration_seconds,
             started_at: now,
             ended_at: None,
@@ -507,6 +528,31 @@ pub async fn abandon_focus_session(
         tracing::warn!("failed to emit {FOCUS_SESSION_UPDATED}: {error}");
     }
     Ok(next_book)
+}
+
+#[tauri::command]
+pub async fn update_focus_outcome(
+    session_id: String,
+    outcome: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<FocusSessionBook, String> {
+    let _guard = state.reward_lock.lock().await;
+    let mut sessions = state.focus_sessions.write().await;
+    let previous = sessions.clone();
+    let session = sessions.sessions.iter_mut().find(|s| s.id == session_id)
+        .ok_or_else(|| "专注记录不存在".to_string())?;
+    session.set_outcome(&outcome, current_timestamp_ms())?;
+    if let Err(error) = state.storage.save_focus_sessions(&sessions) {
+        *sessions = previous;
+        return Err(format!("专注结果尚未保存: {error}"));
+    }
+    let book = sessions.clone();
+    drop(sessions);
+    if let Err(error) = app.emit(FOCUS_SESSION_UPDATED, book.clone()) {
+        tracing::warn!("failed to emit {FOCUS_SESSION_UPDATED}: {error}");
+    }
+    Ok(book)
 }
 
 // --- Notes & memos -------------------------------------------------------
@@ -857,23 +903,31 @@ pub async fn import_note(
     Ok(Some(id))
 }
 
+async fn load_work_log_range(state: &AppState, end: &str, days: i64) -> Result<crate::models::WorkLogBook, String> {
+    let end_date = NaiveDate::parse_from_str(end, "%Y-%m-%d").map_err(|_| "日期格式无效")?;
+    let start_date = end_date.checked_sub_signed(Duration::days(days - 1)).ok_or("日期超出范围")?;
+    let cutoff = Local::now().date_naive() - Duration::days(crate::models::WORK_LOG_HOT_WINDOW_DAYS - 1);
+    let mut result = if start_date < cutoff {
+        let storage = state.storage.clone();
+        tokio::task::spawn_blocking(move || storage.load_archived_work_logs(start_date, end_date))
+            .await.map_err(|error| format!("读取历史日报失败: {error}"))??
+    } else { crate::models::WorkLogBook::default() };
+    let start = start_date.format("%Y-%m-%d").to_string();
+    let logs = state.work_logs.read().await;
+    result.entries.extend(logs.entries.range(start..=end.to_string()).map(|(date, entry)| (date.clone(), entry.clone())));
+    Ok(result)
+}
+
 #[tauri::command]
 pub async fn get_work_log_report(
     date: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<WorkLogReport, String> {
     let date = date.unwrap_or_else(today_key);
-    let entry = state
-        .work_logs
-        .read()
-        .await
-        .entries
-        .get(&date)
-        .cloned()
-        .unwrap_or_else(|| WorkLogEntry {
-            date,
-            ..Default::default()
-        });
+    let mut book = load_work_log_range(&state, &date, 1).await?;
+    let entry = book.entries.remove(&date).unwrap_or_else(|| WorkLogEntry {
+        date, ..Default::default()
+    });
 
     Ok(WorkLogReport::from_entry(entry))
 }
@@ -886,7 +940,7 @@ pub async fn get_daily_work_assessment(
 ) -> Result<DailyWorkAssessment, String> {
     let date = date.unwrap_or_else(today_key);
     let (entry, history) = {
-        let work_logs = state.work_logs.read().await;
+        let work_logs = load_work_log_range(&state, &date, 366).await?;
         let entry = work_logs
             .entries
             .get(&date)
@@ -930,8 +984,8 @@ pub async fn get_daily_work_assessment_history(
     limit: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<Vec<DailyWorkAssessmentSummary>, String> {
-    let limit = limit.unwrap_or(14).clamp(1, 31);
-    let work_logs = state.work_logs.read().await;
+    let limit = limit.unwrap_or(14).clamp(1, 370);
+    let work_logs = load_work_log_range(&state, &today_key(), limit as i64 + 90).await?;
 
     Ok(build_calendar_assessment_summaries(
         &work_logs.entries,
@@ -944,8 +998,8 @@ pub async fn get_daily_work_assessment_trend(
     limit: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<DailyWorkAssessmentTrend, String> {
-    let limit = limit.unwrap_or(14).clamp(1, 31);
-    let work_logs = state.work_logs.read().await;
+    let limit = limit.unwrap_or(14).clamp(1, 370);
+    let work_logs = load_work_log_range(&state, &today_key(), limit as i64 + 90).await?;
     let summaries = build_assessment_summaries(&work_logs.entries, limit);
 
     Ok(DailyWorkAssessmentTrend::from_summaries(&summaries))
@@ -970,7 +1024,7 @@ pub async fn get_health_trend(
     state: State<'_, AppState>,
 ) -> Result<HealthTrendReport, String> {
     let trend_range = parse_trend_range(range.as_deref());
-    let work_logs = state.work_logs.read().await;
+    let work_logs = load_work_log_range(&state, &today_key(), 180).await?;
     Ok(HealthTrendReport::from_book(
         &work_logs.entries,
         trend_range,
@@ -992,7 +1046,8 @@ fn parse_trend_range(range: Option<&str>) -> TrendRange {
 pub async fn get_today_suggestions(state: State<'_, AppState>) -> Result<TodaySuggestions, String> {
     let work_logs = state.work_logs.read().await;
     let current = state.last_snapshot.read().await.clone();
-    Ok(TodaySuggestions::from_local(&work_logs, current.as_ref()))
+    let focus = state.focus_sessions.read().await;
+    Ok(TodaySuggestions::from_local(&work_logs, current.as_ref(), &focus))
 }
 
 fn build_assessment_summaries(
@@ -1572,6 +1627,7 @@ pub(crate) async fn mutate_and_save_workshop(
     let mut workshop = state.workshop.write().await;
     let previous = workshop.clone();
     mutate(&mut workshop)?;
+    workshop.revision = previous.revision.saturating_add(1);
     let next = workshop.clone();
 
     // Keep the write lock through this small atomic file write so production
@@ -1804,7 +1860,8 @@ pub async fn perform_release(
     let result = match kind {
         ReleaseKind::ManualFull => memory_release::run_full_clean_via_helper().await,
         ReleaseKind::AutoLight => {
-            let released = memory_release::run_light_clean();
+            let released = tokio::task::spawn_blocking(memory_release::run_light_clean)
+                .await.map_err(|error| format!("内存释放任务失败: {error}"))?;
             ReleaseResult::light(released)
         }
     };
@@ -1832,7 +1889,7 @@ pub async fn perform_release(
     }
 
     memory_release::emit_result(app, &result);
-    if state.settings.read().await.enable_notifications {
+    if state.settings.read().await.effective().enable_notifications {
         let title = if result.full_tier { "内存已全量释放" } else { "内存已轻量释放" };
         crate::notifications::show(app, title, &result.note);
     }

@@ -3,10 +3,10 @@ import { useFocusStore } from "../../stores/focusStore";
 import { useHardwareStore } from "../../stores/hardwareStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
-import type { FocusSessionBook } from "../../types/focus";
+import type { FocusSession, FocusSessionBook } from "../../types/focus";
 import type { HardwareMetricsSnapshot } from "../../types/hardware";
 import type { AppSettings } from "../../types/settings";
-import type { WorkshopState } from "../../types/workshop";
+import type { WorkshopState, WorkshopTick } from "../../types/workshop";
 import {
   cleanupEventListeners,
   emptyEventCleanup,
@@ -28,8 +28,18 @@ export function registerPetPanelWindowEvents() {
   );
 
   unlisteners.push(
+    listen<WorkshopTick>("workshop:tick", (event) => useWorkshopStore.getState().setTick(event.payload)),
+  );
+
+  unlisteners.push(
     listen<WorkshopState>("workshop:updated", (event) => {
       useWorkshopStore.getState().setWorkshopState(event.payload);
+    }),
+  );
+
+  unlisteners.push(
+    listen<FocusSession>("focus:session-tick", (event) => {
+      useFocusStore.getState().setActiveTick(event.payload);
     }),
   );
 

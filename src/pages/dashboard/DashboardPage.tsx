@@ -1,3 +1,4 @@
+import { CompanionDecoration } from "../../components/WorkshopDecorationVisual";
 import { useState } from "react";
 import {
   formatBytes,
@@ -150,6 +151,7 @@ export function DashboardPage() {
                   alt="Hero Companion"
                   className="cwp-hero-pet-img"
                 />
+                <CompanionDecoration />
               </div>
               <div className="cwp-hero-status-row">
                 <span>当前状态:</span>

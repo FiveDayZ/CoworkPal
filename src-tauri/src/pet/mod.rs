@@ -63,7 +63,7 @@ impl PetStateService {
     pub async fn update_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapshot) {
         let now_ms = current_timestamp_ms();
         let state = app.state::<AppState>();
-        let settings = state.settings.read().await.clone();
+        let settings = state.settings.read().await.effective();
 
         // Read, decide, and write the entire cat runtime state under a single
         // lock guard. Previously these were five separate RwLocks read in one

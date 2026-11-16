@@ -68,17 +68,3 @@ export const moduleAssets = {
   disk: moduleDisk,
 };
 
-// Eagerly load all achievement badges for bundler compilation
-const badgeImageModules = import.meta.glob(
-  "../assets/achievements/*.webp",
-  { eager: true, import: "default", query: "?url" },
-) as Record<string, string>;
-
-export const badgeAssets = Object.fromEntries(
-  Object.entries(badgeImageModules).map(([path, url]) => {
-    const filename = path.split("/").pop() ?? "";
-    const badgeKey = filename.replace(/\.webp$/i, "");
-    return [badgeKey, url];
-  })
-) as Record<string, string>;
-

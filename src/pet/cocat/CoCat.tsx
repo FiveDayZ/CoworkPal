@@ -93,6 +93,7 @@ export function CoCat({
   );
 
   const {
+    sampledAtMs,
     animationState,
     eyeState,
     pose,
@@ -139,7 +140,7 @@ export function CoCat({
     reducedMotion,
     transitionDurationMs,
     vfxParticleCount: vfxSnapshot.particleCounts.total,
-  });
+  }, sampledAtMs);
 
   useEffect(() => {
     onDebugInfo?.({

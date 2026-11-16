@@ -3,6 +3,8 @@ import { formatNoteTimestamp } from "../../services/noteFormatters";
 import { renderMarkdown } from "../../services/markdown";
 import { confirmAction } from "../../services/dialogs";
 import { useNotesStore } from "../../stores/notesStore";
+import { useFocusStore } from "../../stores/focusStore";
+import { useUiStore } from "../../stores/uiStore";
 import type { Note } from "../../types/notes";
 import { PixelIcon } from "../../ui/PixelIcon";
 
@@ -20,6 +22,8 @@ import { PixelIcon } from "../../ui/PixelIcon";
  *             reduces eye strain and blue light in low-light environments
  */
 export function NoteViewModal({ note }: { note: Note }) {
+  const focusBook = useFocusStore((state) => state.book);
+  const activeSession = useFocusStore((state) => state.activeSession);
   const closeView = useNotesStore((state) => state.closeView);
   const openEditExisting = useNotesStore((state) => state.openEditExisting);
   const togglePinned = useNotesStore((state) => state.togglePinned);
@@ -230,12 +234,24 @@ export function NoteViewModal({ note }: { note: Note }) {
             )}
           </div>
 
+          {!fullscreen && focusBook?.sessions.some((session) => session.noteId === note.id) ?
+            <section className="cwp-note-focus-review" aria-label="关联专注记录">
+              <strong>任务复盘</strong>
+              {focusBook.sessions.filter((session) => session.noteId === note.id).slice(-8).reverse().map((session) =>
+                <p key={session.id}><strong>{session.taskLabel}</strong> · {session.status === "active" ? "进行中" : session.status === "completed" ? "已完成" : "已中止"}<br />{session.outcome || "尚未记录结果"}</p>
+              )}
+            </section> : null}
           {/* Inline feedback for export/delete/toggle outcomes. */}
           {toast ? <div className="cwp-note-view-toast" role="status">{toast}</div> : null}
 
           {/* Footer actions (hidden in fullscreen for immersive reading) */}
           {!fullscreen ? (
             <div className="cwp-notes-modal-actions">
+              <button type="button" className="cwp-note-btn" disabled={busy || note.archived || !!activeSession} onClick={() => {
+                useFocusStore.getState().setDraftNote({ id: note.id, title: note.title || "整理笔记" });
+                closeView();
+                useUiStore.getState().setMainRoute("focus");
+              }} title={activeSession ? "请先结束当前专注" : undefined}>以此开始专注</button>
               <button
                 type="button"
                 className="cwp-note-btn is-primary"

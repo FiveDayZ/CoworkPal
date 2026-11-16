@@ -8,33 +8,28 @@ import {
   createInitialCoCatPerformanceReport,
 } from "./coCatPerformanceMonitor";
 
-export function useCoCatPerformance(input: CoCatPerformanceFrameInput) {
+export function useCoCatPerformance(input: CoCatPerformanceFrameInput, sampledAtMs: number) {
   const monitorRef = useRef<ReturnType<
     typeof createCoCatPerformanceMonitor
   > | null>(null);
+  const lastRecordedAt = useRef(0);
   const [report, setReport] = useState<CoCatPerformanceReport>(() =>
     createInitialCoCatPerformanceReport(input),
   );
 
   if (monitorRef.current == null) {
-    monitorRef.current = createCoCatPerformanceMonitor(input);
+    monitorRef.current = createCoCatPerformanceMonitor(input, sampledAtMs);
   }
 
   useEffect(() => {
-    const nextReport = monitorRef.current?.recordFrame(input);
+    if (sampledAtMs <= lastRecordedAt.current) return;
+    lastRecordedAt.current = sampledAtMs;
+    const nextReport = monitorRef.current?.recordFrame(input, sampledAtMs);
     if (nextReport) {
       setReport(nextReport);
     }
   }, [
-    input.activeVfxCount,
-    input.animationState,
-    input.isLowPower,
-    input.isVfxAutoDegraded,
-    input.isVfxPaused,
-    input.previousAnimationState,
-    input.reducedMotion,
-    input.transitionDurationMs,
-    input.vfxParticleCount,
+    sampledAtMs,
   ]);
 
   return report;

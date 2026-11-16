@@ -1,3 +1,4 @@
+import { localDateKey } from "../../services/dateKeys";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type {
@@ -17,17 +18,18 @@ import { trackAchievementEvent } from "../../services/tauriCommands";
 import { useWorkLogStore } from "../../stores/workLogStore";
 import { PixelIcon, type PixelIconName } from "../../ui/PixelIcon";
 import { WorkProfileAvatar } from "../../components/WorkProfileAvatar";
+import { FocusDailySummary } from "./FocusDailySummary";
 import { TodaySuggestionsStrip } from "./TodaySuggestionsStrip";
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 function buildRecentDates(count: number) {
   return Array.from({ length: count }, (_, index) => {
     const date = new Date();
     date.setDate(date.getDate() - index);
-    return date.toISOString().slice(0, 10);
+    return localDateKey(date.getTime());
   });
 }
 
@@ -67,7 +69,8 @@ type WorkLogTab =
   | "insights"
   | "dimensions"
   | "rhythm"
-  | "suggestions";
+  | "suggestions"
+  | "focus";
 
 const workLogTabs: Array<{ id: WorkLogTab; label: string }> = [
   { id: "overview", label: "概览" },
@@ -79,6 +82,7 @@ const workLogTabs: Array<{ id: WorkLogTab; label: string }> = [
   { id: "dimensions", label: "五维" },
   { id: "rhythm", label: "节律" },
   { id: "suggestions", label: "今日建议" },
+  { id: "focus", label: "任务复盘" },
 ];
 
 const WORKLOG_HISTORY_LIMIT = 370;
@@ -265,6 +269,8 @@ export function WorkLogPage() {
             <CoCatCommentaryPanel assessment={currentAssessment} />
           </>
         )}
+
+        {activeTab === "focus" && <FocusDailySummary key={selectedDate} date={selectedDate} />}
 
         {activeTab === "history" && (
           <section className="cwp-history-card-wall">

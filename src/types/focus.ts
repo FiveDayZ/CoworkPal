@@ -5,6 +5,9 @@ export type FocusSessionStatus = "active" | "completed" | "abandoned";
 export interface FocusSession {
   id: string;
   taskLabel: string;
+  noteId?: string | null;
+  outcome?: string;
+  outcomeUpdatedAt?: number;
   plannedDurationSeconds: number;
   startedAt: number;
   endedAt: number | null;

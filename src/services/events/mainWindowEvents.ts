@@ -1,3 +1,5 @@
+import { effectiveCompanionSettings } from "../companionSettings";
+import { localDateKey } from "../dateKeys";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useAchievementStore } from "../../stores/achievementStore";
 import { isMainRoute } from "../../routeTypes";
@@ -10,11 +12,11 @@ import { useWorkLogStore } from "../../stores/workLogStore";
 import { useWorkshopStore } from "../../stores/workshopStore";
 import type { HardwareMetricsSnapshot } from "../../types/hardware";
 import type { AchievementUnlockedEvent } from "../../types/achievement";
-import type { FocusSessionBook } from "../../types/focus";
+import type { FocusSession, FocusSessionBook } from "../../types/focus";
 import type { NoteBook } from "../../types/notes";
 import type { AppSettings } from "../../types/settings";
 import type { WorkLogReport } from "../../types/workLog";
-import type { WorkshopState } from "../../types/workshop";
+import type { WorkshopState, WorkshopTick } from "../../types/workshop";
 import type { RewardNotice } from "../../types/rewards";
 import type { MemoryReleaseResult } from "../tauriCommands";
 import {
@@ -24,7 +26,7 @@ import {
 import { registerPetStateListeners } from "./petStateEvents";
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 export function registerMainWindowEvents() {
@@ -58,8 +60,18 @@ export function registerMainWindowEvents() {
   );
 
   unlisteners.push(
+    listen<WorkshopTick>("workshop:tick", (event) => useWorkshopStore.getState().setTick(event.payload)),
+  );
+
+  unlisteners.push(
     listen<WorkshopState>("workshop:updated", (event) => {
       useWorkshopStore.getState().setWorkshopState(event.payload);
+    }),
+  );
+
+  unlisteners.push(
+    listen<FocusSession>("focus:session-tick", (event) => {
+      useFocusStore.getState().setActiveTick(event.payload);
     }),
   );
 
@@ -150,7 +162,7 @@ export function registerMainWindowEvents() {
 }
 
 function maybeNotifyMemoryRelease(result: MemoryReleaseResult) {
-  const settings = useSettingsStore.getState().settings;
+  const settings = effectiveCompanionSettings(useSettingsStore.getState().settings);
   if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && navigator.userAgent.includes("Windows")) return;
   if (!settings?.enableNotifications || typeof window === "undefined") {
     return;

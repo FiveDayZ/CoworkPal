@@ -316,7 +316,7 @@ async fn complete_focus_locked(state: &AppState, app: &AppHandle, id: &str, now:
 pub async fn tick(app: &AppHandle, now: i64) {
     let state = app.state::<AppState>();
     let _guard = state.reward_lock.lock().await;
-    let (done, pending, book) = {
+    let (done, pending, active) = {
         let mut book = state.focus_sessions.write().await;
         let mut done = None;
         if let Some(session) = book.sessions.iter_mut().find(|s| s.status == FocusSessionStatus::Active) {
@@ -329,10 +329,10 @@ pub async fn tick(app: &AppHandle, now: i64) {
         let pending = book.sessions.iter().filter(|s| s.reward_version > 0
             && s.status == FocusSessionStatus::Completed && (!s.reward_paid || !s.achievement_recorded))
             .map(|s| s.id.clone()).collect::<Vec<_>>();
-        (done, pending, book.clone())
+        (done, pending, book.active_session().cloned())
     };
-    if book.active_session().is_some() {
-        let _ = app.emit(FOCUS_SESSION_UPDATED, book);
+    if let Some(active) = active {
+        let _ = app.emit(crate::events::FOCUS_SESSION_TICK, active);
     }
     for id in done.into_iter().chain(pending) {
         if let Err(error) = complete_focus_locked(&state, app, &id, now).await {
@@ -422,15 +422,15 @@ mod tests {
     }
 
     #[test]
-    fn focus_and_weekly_rewards_stop_affinity_at_100_without_losing_resources() {
-        let mut workshop = WorkshopState { cat_affinity_level: 99, affinity_experience: 98, ..Default::default() };
+    fn focus_and_weekly_rewards_stop_affinity_at_999_without_losing_resources() {
+        let mut workshop = WorkshopState { cat_affinity_level: 998, affinity_experience: 98, ..Default::default() };
         let initial = workshop.parts;
         let intent = PendingReward { title: "专注".into(), reward: focus_reward(&session(25)), earned_at: 1000 };
         apply_reward_once(&mut workshop, "focus:cap", &intent, true, 1000).unwrap();
-        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
+        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (999, 0));
         let weekly = PendingReward { reward: RewardAmount { parts: 80.0, insight: 5.0, affinity_experience: 10 }, ..intent };
         apply_reward_once(&mut workshop, "week:cap", &weekly, false, 1000).unwrap();
-        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
+        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (999, 0));
         assert_eq!(workshop.parts, initial + 680.0);
         assert_eq!(workshop.reward_receipts.len(), 2);
     }

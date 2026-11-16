@@ -9,7 +9,12 @@ export interface LastMemoryRelease {
   fullTier: boolean;
 }
 
+export type CompanionMode = "normal" | "quiet" | "economy";
+export type WorkshopDecoration = "none" | "orders" | "focus" | "weekly";
+
 export interface AppSettings {
+  companionMode?: CompanionMode;
+  workshopDecoration?: WorkshopDecoration;
   schemaVersion: number;
   catName: string;
   onboardingVersion: number;

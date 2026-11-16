@@ -470,7 +470,7 @@ async fn upload_with_config(
 ) -> Result<CloudSyncResult, String> {
     let _guard = SYNC_LOCK.lock().await;
     let endpoint = snapshot_endpoint(config)?;
-    let snapshot = snapshot_from_state(state).await;
+    let snapshot = snapshot_from_state(state).await?;
     validate_snapshot(&snapshot)?;
 
     let response = http_client()?
@@ -592,6 +592,7 @@ async fn restore_cloud_envelope(
     validate_snapshot(&envelope.data)?;
     let _reward_guard = state.reward_lock.lock().await;
     let _settings_guard = state.settings_update_lock.lock().await;
+    let _work_log_save_guard = state.work_log_save_lock.lock().await;
     envelope.data.settings.enforce_minimal_mode_constraints();
     let device_profile = current_device_profile(state).await;
 
@@ -619,6 +620,7 @@ async fn restore_cloud_envelope(
         notes: notes.clone(),
     };
     let mut merged = merge_user_data_snapshots(&previous, &envelope.data);
+    merged.workshop.revision = previous.workshop.revision.saturating_add(1);
     for session in &mut merged.focus_sessions.sessions {
         session.last_tick_at = None;
     }
@@ -667,9 +669,12 @@ async fn restore_cloud_envelope(
     })
 }
 
-async fn snapshot_from_state(state: &AppState) -> UserDataSnapshot {
-    let _reward_guard = state.reward_lock.lock().await;
+async fn snapshot_from_state(state: &AppState) -> Result<UserDataSnapshot, String> {
     let device_profile = current_device_profile(state).await;
+    let _reward_guard = state.reward_lock.lock().await;
+    let storage = state.storage.clone();
+    let mut all_work_logs = tokio::task::spawn_blocking(move || storage.load_all_work_logs())
+        .await.map_err(|error| format!("读取历史备份失败: {error}"))??;
     let settings = state.settings.read().await;
     let workshop = state.workshop.read().await;
     let layout = state.layout.read().await;
@@ -678,13 +683,9 @@ async fn snapshot_from_state(state: &AppState) -> UserDataSnapshot {
     let achievements = state.achievements.read().await;
     let notes = state.notes.read().await;
 
-    let mut all_work_logs = state.storage.load_all_work_logs().unwrap_or_else(|error| {
-        tracing::warn!("failed to include archived work logs in cloud backup: {error}");
-        work_logs.clone()
-    });
     merge_work_log_entries(&mut all_work_logs.entries, work_logs.entries.clone());
 
-    UserDataSnapshot {
+    Ok(UserDataSnapshot {
         schema_version: 1,
         exported_at: current_timestamp_ms(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -696,7 +697,7 @@ async fn snapshot_from_state(state: &AppState) -> UserDataSnapshot {
         focus_sessions: focus_sessions.clone(),
         achievements: achievements.clone(),
         notes: notes.clone(),
-    }
+    })
 }
 
 fn merge_user_data_snapshots(
@@ -724,7 +725,11 @@ fn merge_user_data_snapshots(
     for session in &mut focus_sessions.sessions {
         if let Some(original) = authority.focus_sessions.sessions.iter().find(|s| s.id == session.id) {
             if original.reward_version > 0 {
+                let outcome = session.outcome.clone();
+                let updated_at = session.outcome_updated_at;
                 *session = original.clone();
+                session.outcome = outcome;
+                session.outcome_updated_at = updated_at;
             } else {
                 session.reward_version = 0;
             }
@@ -784,9 +789,13 @@ fn merge_focus_sessions(local: &FocusSessionBook, remote: &FocusSessionBook) -> 
         let replace = by_id
             .get(&session.id)
             .is_none_or(|current| focus_session_rank(session) > focus_session_rank(current));
-        if replace {
-            by_id.insert(session.id.clone(), session.clone());
-        }
+        let current = by_id.get(&session.id);
+        let outcome_source = current.filter(|current| current.outcome_updated_at >= session.outcome_updated_at)
+            .unwrap_or(session);
+        let mut merged = if replace { session.clone() } else { current.unwrap().clone() };
+        merged.outcome = outcome_source.outcome.clone();
+        merged.outcome_updated_at = outcome_source.outcome_updated_at;
+        by_id.insert(session.id.clone(), merged);
     }
     let mut sessions = by_id.into_values().collect::<Vec<_>>();
     sessions.sort_by_key(|session| session.started_at);
@@ -1142,7 +1151,9 @@ fn validate_snapshot(snapshot: &UserDataSnapshot) -> Result<(), String> {
     }) || snapshot.achievements.pending_rewards.iter().any(|(key, intent)| {
         !crate::rewards::valid_reward(key, &intent.reward)
     }) || snapshot.focus_sessions.sessions.iter().any(|session| {
-        session.reward_version > 1 || (session.reward_version > 0
+        session.outcome.chars().count() > 500
+            || session.outcome.chars().any(|c| c.is_control() && c != '\n' && c != '\t')
+            || session.reward_version > 1 || (session.reward_version > 0
             && (!(300..=10800).contains(&session.planned_duration_seconds)
                 || session.credited_duration_ms > session.planned_duration_seconds * 1000))
     }) {
@@ -1574,5 +1585,30 @@ mod tests {
             achievements: AchievementBook::default(),
             notes: NoteBook::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod focus_review_merge_tests {
+    use super::*;
+    #[test]
+    fn latest_review_survives_older_economic_authority_and_can_be_cleared() {
+        let mut local = UserDataSnapshot { schema_version: 1, exported_at: 0, app_version: String::new(),
+            device_profile: Default::default(), settings: Default::default(), workshop: Default::default(),
+            layout: Default::default(), work_logs: Default::default(), focus_sessions: Default::default(),
+            achievements: Default::default(), notes: Default::default() };
+        let mut remote = local.clone();
+        let session = FocusSession { id: "review".into(), reward_version: 1, status: FocusSessionStatus::Completed,
+            outcome: "new result".into(), outcome_updated_at: 20, ..Default::default() };
+        local.focus_sessions.sessions.push(session.clone());
+        remote.focus_sessions.sessions.push(FocusSession { outcome: "old result".into(), outcome_updated_at: 10, ..session });
+        local.workshop.last_production_time = 100;
+        remote.workshop.last_production_time = 200;
+        let merged = merge_user_data_snapshots(&local, &remote);
+        assert_eq!(merged.focus_sessions.sessions[0].outcome, "new result");
+        remote.focus_sessions.sessions[0].outcome.clear();
+        remote.focus_sessions.sessions[0].outcome_updated_at = 30;
+        let merged = merge_user_data_snapshots(&local, &remote);
+        assert_eq!(merged.focus_sessions.sessions[0].outcome, "");
     }
 }

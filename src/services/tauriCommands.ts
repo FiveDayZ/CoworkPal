@@ -1,3 +1,4 @@
+import { localDateKey } from "./dateKeys";
 import { invoke } from "@tauri-apps/api/core";
 import type { MainRoute } from "../routeTypes";
 import type {
@@ -356,7 +357,7 @@ const browserAchievementSummary: AchievementSummary = {
 
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 function browserIsoWeekKey(date = new Date()) {
@@ -371,7 +372,7 @@ function browserIsoWeekKey(date = new Date()) {
 function relativeDateKey(offsetDays: number) {
   const date = new Date();
   date.setDate(date.getDate() - offsetDays);
-  return date.toISOString().slice(0, 10);
+  return localDateKey(date.getTime());
 }
 
 function createBrowserWorkLogReport(date = todayKey()): WorkLogReport {
@@ -1153,10 +1154,7 @@ const browserWeeklyReportDates = new Set<string>();
 let previewWeek = browserIsoWeekKey();
 let previewTickAt = Date.now();
 
-function localDateKey(timestamp = Date.now()): string {
-  const date = new Date(timestamp);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
+
 
 function grantPreviewReward(key: string, title: string, amount: RewardAmount) {
   if (key in browserWorkshop.rewardReceipts) return;
@@ -1225,6 +1223,11 @@ function cloneFocusBook(): FocusSessionBook {
   };
 }
 
+export async function getPerformanceHistory(): Promise<import("../types/performance").PerformanceHistory> {
+  if (!isTauriRuntime()) return { samples: [], events: [] };
+  return invoke("get_performance_history");
+}
+
 export async function getFocusSessions(): Promise<FocusSessionBook> {
   if (!isTauriRuntime()) {
     return cloneFocusBook();
@@ -1235,11 +1238,15 @@ export async function getFocusSessions(): Promise<FocusSessionBook> {
 export async function startFocusSession(
   taskLabel: string,
   durationMinutes: number,
+  noteId: string | null = null,
 ): Promise<FocusSessionBook> {
   if (!isTauriRuntime()) {
     const task = taskLabel.trim();
-    if (!task) {
-      throw new Error("任务名称不能为空");
+    if (!task || [...task].length > 40 || /[\x00-\x1f\x7f-\x9f]/.test(task)) {
+      throw new Error("任务名称必须是 1 到 40 个可见字符");
+    }
+    if (noteId && !emptyNoteBook.notes.some((note) => note.id === noteId && !note.archived)) {
+      throw new Error("关联笔记不存在或已归档");
     }
     const now = Date.now();
     if (browserFocusBook.sessions.some((session) => session.status === "active")) {
@@ -1249,6 +1256,9 @@ export async function startFocusSession(
     browserFocusBook.sessions.push({
       id: `focus-preview-${now}`,
       taskLabel: task,
+      noteId,
+      outcome: "",
+      outcomeUpdatedAt: 0,
       plannedDurationSeconds: Math.min(180, Math.max(5, durationMinutes)) * 60,
       startedAt: now,
       endedAt: null,
@@ -1268,7 +1278,21 @@ export async function startFocusSession(
   return invoke<FocusSessionBook>("start_focus_session", {
     taskLabel,
     durationMinutes,
+    noteId,
   });
+}
+
+export async function updateFocusOutcome(sessionId: string, outcome: string): Promise<FocusSessionBook> {
+  if (!isTauriRuntime()) {
+    const session = browserFocusBook.sessions.find((item) => item.id === sessionId);
+    if (!session || session.status === "active") throw new Error("请先结束专注，再记录结果");
+    const value = outcome.trim();
+    if ([...value].length > 500 || /[\x00-\x08\x0b-\x1f\x7f-\x9f]/.test(value)) throw new Error("专注结果无效或超过 500 字");
+    session.outcome = value;
+    session.outcomeUpdatedAt = Date.now();
+    return cloneFocusBook();
+  }
+  return invoke<FocusSessionBook>("update_focus_outcome", { sessionId, outcome });
 }
 
 export async function completeFocusSession(
@@ -1483,7 +1507,7 @@ export async function getHealthTrend(
 /** Browser-preview fallback: no suggestions in the browser. */
 function createBrowserTodaySuggestions(): TodaySuggestions {
   return {
-    date: new Date().toISOString().slice(0, 10),
+    date: localDateKey(),
     top: [],
     all: [],
     generatedAt: Date.now(),
@@ -1639,7 +1663,7 @@ export async function resetWorkshopState(): Promise<WorkshopState> {
       totalOnlineSeconds: 0,
       todayParts: 0,
       todayInsight: 0,
-      lastDailyResetDate: new Date().toISOString().split("T")[0],
+      lastDailyResetDate: localDateKey(),
       affinityExperience: 0,
       completedOrderCount: 0,
       activeOrders: [],

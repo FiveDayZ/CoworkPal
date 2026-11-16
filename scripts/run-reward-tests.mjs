@@ -38,20 +38,20 @@ const workshopOutput = path.join(path.dirname(output), "workshop.mjs");
 writeFileSync(workshopOutput, ts.transpileModule(readFileSync(path.join(root, "src/types/workshop.ts"), "utf8"),
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
 const { workshopLevelSteps, workshopCoolingRelief, addAffinityExperience } = await import(pathToFileURL(workshopOutput).href);
-for (const [level, expected] of [[1, 0], [100, 99], [101, 99.75], [200, 174], [201, 174.5], [255, 201.5], [256, 201.5]]) {
+for (const [level, expected] of [[1, 0], [100, 99], [101, 99.75], [200, 174], [201, 174.5], [255, 201.5], [999, 573.5], [1000, 573.5]]) {
   assert.equal(workshopLevelSteps(level), expected);
 }
 assert.equal(workshopCoolingRelief({ parts: 1, process: 1 }), 0);
-for (let level = 2; level <= 255; level++) {
+for (let level = 2; level <= 999; level++) {
   const relief = workshopCoolingRelief({ parts: level, process: level });
   assert.ok(relief > workshopCoolingRelief({ parts: level - 1, process: level - 1 }));
   assert.ok(relief < 0.58, "displayed cooling relief must follow the actual diminishing cap");
 }
-const workshop = { catAffinityLevel: 99, affinityExperience: 95 };
+const workshop = { catAffinityLevel: 998, affinityExperience: 95 };
 addAffinityExperience(workshop, 18);
-assert.deepEqual(workshop, { catAffinityLevel: 100, affinityExperience: 0 });
+assert.deepEqual(workshop, { catAffinityLevel: 999, affinityExperience: 0 });
 addAffinityExperience(workshop, 1000);
-assert.deepEqual(workshop, { catAffinityLevel: 100, affinityExperience: 0 });
+assert.deepEqual(workshop, { catAffinityLevel: 999, affinityExperience: 0 });
 const storeCode = ts.transpileModule(readFileSync(path.join(root, "src/stores/petStore.ts"), "utf8"),
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
 const storeExports = {};

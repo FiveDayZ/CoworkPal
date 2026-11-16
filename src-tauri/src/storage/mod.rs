@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use chrono::{Duration, Local, NaiveDate};
+use chrono::{Datelike, Duration, Local, NaiveDate};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
@@ -167,7 +167,7 @@ impl StorageService {
     }
 
     pub fn load_all_work_logs(&self) -> Result<WorkLogBook, String> {
-        let mut all = self.load_or_create_work_logs()?;
+        let mut all: WorkLogBook = self.read_work_log_file("work_logs.json")?;
         let archive_root = self.root.join("work-log-archive");
         for entry in fs::read_dir(&archive_root)
             .map_err(|error| format!("failed to read work-log archive directory: {error}"))?
@@ -186,6 +186,29 @@ impl StorageService {
         }
         all.schema_version = WORK_LOG_BOOK_SCHEMA_VERSION;
         Ok(all)
+    }
+
+    fn read_work_log_file(&self, file_name: &str) -> Result<WorkLogBook, String> {
+        let path = self.root.join(file_name);
+        match fs::read_to_string(&path) {
+            Ok(content) => serde_json::from_str(&content)
+                .map_err(|error| format!("failed to parse {file_name}: {error}")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(WorkLogBook::default()),
+            Err(error) => Err(format!("failed to read {file_name}: {error}")),
+        }
+    }
+
+    pub fn load_archived_work_logs(&self, start: NaiveDate, end: NaiveDate) -> Result<WorkLogBook, String> {
+        let mut result = WorkLogBook::default();
+        let mut month = start.with_day(1).ok_or("invalid archive date")?;
+        let start_key = start.format("%Y-%m-%d").to_string();
+        let end_key = end.format("%Y-%m-%d").to_string();
+        while month <= end {
+            let archive = self.read_work_log_file(&format!("work-log-archive/{}.json", month.format("%Y-%m")))?;
+            result.entries.extend(archive.entries.into_iter().filter(|(date, _)| date >= &start_key && date <= &end_key));
+            month = month.checked_add_months(chrono::Months::new(1)).ok_or("archive date overflow")?;
+        }
+        Ok(result)
     }
 
     fn archive_and_save_work_logs(&self, work_logs: &WorkLogBook) -> Result<WorkLogBook, String> {
@@ -738,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    fn affinity_cap_migration_preserves_balances_and_255_level_progress() {
+    fn new_level_cap_preserves_old_balances_and_progress() {
         let root = unique_test_root("affinity-cap");
         let storage = StorageService::new_with_root(root.clone()).unwrap();
         let mut workshop = WorkshopState {
@@ -748,12 +771,12 @@ mod tests {
         workshop.module_levels.cpu.parts = 255;
         storage.save_workshop(&workshop).unwrap();
         let restored = storage.load_or_create_workshop().unwrap();
-        assert_eq!((restored.cat_affinity_level, restored.affinity_experience), (100, 0));
+        assert_eq!((restored.cat_affinity_level, restored.affinity_experience), (120, 80));
         assert_eq!((restored.parts, restored.insight), (12345.0, 678.0));
         assert_eq!(restored.workshop_level, 255);
         assert_eq!(restored.module_levels.cpu.parts, 255);
         let again = storage.load_or_create_workshop().unwrap();
-        assert_eq!((again.cat_affinity_level, again.affinity_experience), (100, 0));
+        assert_eq!((again.cat_affinity_level, again.affinity_experience), (120, 80));
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1085,5 +1108,34 @@ mod tests {
         assert!(!root.join("restore.pending.json").exists());
 
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod archive_range_tests {
+    use super::*;
+    #[test]
+    fn archive_range_crosses_months_and_reports_corruption_without_writes() {
+        let root = std::env::temp_dir().join(format!("coworkpal-archive-range-{}-{}", std::process::id(), crate::models::current_timestamp_ms()));
+        let storage = StorageService::new_with_root(root.clone()).unwrap();
+        for (month, dates) in [("2026-06", vec!["2026-06-01", "2026-06-30"]), ("2026-07", vec!["2026-07-01", "2026-07-31"])] {
+            let mut book = WorkLogBook::default();
+            for date in dates { book.entries.insert(date.into(), crate::models::WorkLogEntry::new(date.into(), 100)); }
+            storage.write_json(&format!("work-log-archive/{month}.json"), &book).unwrap();
+        }
+        let start = NaiveDate::from_ymd_opt(2026, 6, 30).unwrap();
+        let end = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        let book = storage.load_archived_work_logs(start, end).unwrap();
+        assert_eq!(book.entries.keys().cloned().collect::<Vec<_>>(), vec!["2026-06-30", "2026-07-01"]);
+        assert!(storage.load_archived_work_logs(end, start).unwrap().entries.is_empty());
+        let before = fs::read(root.join("work-log-archive/2026-07.json")).unwrap();
+        assert_eq!(storage.load_all_work_logs().unwrap().entries.len(), 4);
+        assert_eq!(fs::read(root.join("work-log-archive/2026-07.json")).unwrap(), before);
+        assert!(!root.join("work_logs.json").exists());
+        fs::write(root.join("work-log-archive/2026-07.json"), "bad-json").unwrap();
+        assert!(storage.load_archived_work_logs(start, end).unwrap_err().contains("failed to parse"));
+        assert!(storage.load_all_work_logs().is_err());
+        assert_eq!(fs::read_to_string(root.join("work-log-archive/2026-07.json")).unwrap(), "bad-json");
+        fs::remove_dir_all(root).unwrap();
     }
 }

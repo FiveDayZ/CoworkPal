@@ -1,3 +1,4 @@
+import { effectiveCompanionSettings } from "../companionSettings";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   continuousWorkBreakMs,
@@ -13,7 +14,7 @@ import { useHardwareStore } from "../../stores/hardwareStore";
 import { usePetStore } from "../../stores/petStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getWorkshopState, type MemoryReleaseResult } from "../tauriCommands";
-import type { FocusSessionBook } from "../../types/focus";
+import type { FocusSession, FocusSessionBook } from "../../types/focus";
 import type { HardwareMetricsSnapshot } from "../../types/hardware";
 import type { CatState } from "../../types/pet";
 import type { AppSettings } from "../../types/settings";
@@ -48,6 +49,12 @@ export function registerPetWindowEvents() {
   );
 
   registerPetStateListeners(unlisteners);
+
+  unlisteners.push(
+    listen<FocusSession>("focus:session-tick", (event) => {
+      useFocusStore.getState().setActiveTick(event.payload);
+    }),
+  );
 
   unlisteners.push(
     listen<FocusSessionBook>("focus:session-updated", (event) => {
@@ -99,7 +106,7 @@ export function registerPetWindowEvents() {
   unlisteners.push(
     listen<RewardNotice>("reward:granted", (event) => {
       usePetStore.getState().showReward(
-        event.payload, useSettingsStore.getState().settings?.enablePetBubble === true,
+        event.payload, effectiveCompanionSettings(useSettingsStore.getState().settings)?.enablePetBubble === true,
       );
     }),
   );
@@ -117,7 +124,7 @@ export function registerPetWindowEvents() {
 
   let disposed = false;
   void Promise.all(unlisteners).then(async () => {
-    if (!useSettingsStore.getState().settings) {
+    if (!effectiveCompanionSettings(useSettingsStore.getState().settings)) {
       await useSettingsStore.getState().loadSettings();
     }
     const workshop = await getWorkshopState();
@@ -128,7 +135,7 @@ export function registerPetWindowEvents() {
       if (age >= 0 && age <= 6000) {
         usePetStore.getState().showReward(
           { rewardId, title: receipt.title, reward: receipt.reward },
-          useSettingsStore.getState().settings?.enablePetBubble === true,
+          effectiveCompanionSettings(useSettingsStore.getState().settings)?.enablePetBubble === true,
         );
       }
     }
@@ -141,7 +148,7 @@ export function registerPetWindowEvents() {
 }
 
 function applyHardwareDerivedPetFallback(snapshot: HardwareMetricsSnapshot) {
-  const settings = useSettingsStore.getState().settings;
+  const settings = effectiveCompanionSettings(useSettingsStore.getState().settings);
   if (!settings) {
     return;
   }

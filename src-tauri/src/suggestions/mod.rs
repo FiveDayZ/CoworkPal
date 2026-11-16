@@ -12,7 +12,7 @@ use chrono::{Datelike, Duration, Local};
 
 use crate::models::{
     current_timestamp_ms, today_key, HardwareSnapshot, Suggestion, SuggestionCategory,
-    SuggestionSeverity, TodaySuggestions, WorkLogBook, WorkLogEntry, WorkLogReport,
+    SuggestionSeverity, TodaySuggestions, WorkLogBook, WorkLogEntry, WorkLogReport, FocusSessionBook,
 };
 
 /// Maximum suggestions returned in `all`, and in `top`.
@@ -25,14 +25,14 @@ const HISTORY_DAYS: i64 = 7;
 impl TodaySuggestions {
     /// Build today's suggestions from local state. `book` is the full work-log
     /// history; `current` is the latest hardware snapshot (may be None at boot).
-    pub fn from_local(book: &WorkLogBook, current: Option<&HardwareSnapshot>) -> Self {
+    pub fn from_local(book: &WorkLogBook, current: Option<&HardwareSnapshot>, focus: &FocusSessionBook) -> Self {
         let today = today_key();
         let recent = recent_entries(book, HISTORY_DAYS);
         let today_entry = book.entries.get(&today);
 
         let mut suggestions: Vec<Suggestion> = Vec::new();
         // Each rule is a pure function returning Option<Suggestion>; push if fired.
-        push_if(&mut suggestions, rule_focus_gap(&recent));
+        push_if(&mut suggestions, rule_focus_gap(&recent, focus));
         push_if(&mut suggestions, rule_sustained_high_load(&recent));
         push_if(&mut suggestions, rule_memory_pressure(&recent, current));
         push_if(&mut suggestions, rule_thermal_rhythm(&recent));
@@ -122,12 +122,13 @@ fn active_hours(entry: &WorkLogEntry) -> f64 {
 // --- rules ---
 
 /// If the user hasn't started a focus session in the last week, nudge them.
-fn rule_focus_gap(recent: &[(String, WorkLogEntry)]) -> Option<Suggestion> {
-    // We can't see focus sessions directly from WorkLogEntry, but a week with
-    // high active hours and zero focus is a strong signal the ritual is unused.
-    // Heuristic: 3+ days with >3h activity but we have no focus markers.
-    // Since WorkLogEntry doesn't track focus starts, this rule keys off the
-    // activity pattern: long busy days without breaks suggest no focus ritual.
+fn rule_focus_gap(recent: &[(String, WorkLogEntry)], focus: &FocusSessionBook) -> Option<Suggestion> {
+    let first_day = (Local::now().date_naive() - Duration::days(HISTORY_DAYS - 1)).format("%Y-%m-%d").to_string();
+    let today = today_key();
+    if focus.sessions.iter().any(|session| {
+        let date = crate::models::date_key_from_timestamp(session.started_at);
+        date >= first_day && date <= today
+    }) { return None; }
     let busy_days = recent.iter().filter(|(_, e)| active_hours(e) > 3.0).count();
     if recent.len() >= 3 && busy_days >= 3 {
         Some(Suggestion {
@@ -135,9 +136,9 @@ fn rule_focus_gap(recent: &[(String, WorkLogEntry)]) -> Option<Suggestion> {
             category: SuggestionCategory::FocusHabit,
             priority: 60,
             title: "试试专注仪式".to_string(),
-            body: "最近几天工作时长都不短，但似乎还没用过专注模式。25 分钟番茄钟能帮你保持节奏。"
+            body: "最近几天工作时长都不短，近 7 天还没有专注记录。25 分钟番茄钟能帮你保持节奏。"
                 .to_string(),
-            action_hint: "在控制台点开「专注仪式」，挑一个任务开始。".to_string(),
+            action_hint: "进入专注舱，挑一个任务开始。".to_string(),
             severity: SuggestionSeverity::Neutral,
         })
     } else {
@@ -368,7 +369,7 @@ mod tests {
     #[test]
     fn empty_book_yields_no_suggestions() {
         let book = WorkLogBook::default();
-        let result = TodaySuggestions::from_local(&book, None);
+        let result = TodaySuggestions::from_local(&book, None, &FocusSessionBook::default());
         assert!(result.all.is_empty());
         assert!(result.top.is_empty());
     }
@@ -377,21 +378,21 @@ mod tests {
     fn sustained_high_load_fires() {
         // 4 consecutive days, each with high_load_ratio > 0.4.
         let book = book_with_recent(4, |_| entry(4 * 3600, 2 * 3600, 100, 10.0));
-        let result = TodaySuggestions::from_local(&book, None);
+        let result = TodaySuggestions::from_local(&book, None, &FocusSessionBook::default());
         assert!(result.all.iter().any(|s| s.id == "sustained_high_load"));
     }
 
     #[test]
     fn low_load_does_not_fire_high_load_rule() {
         let book = book_with_recent(4, |_| entry(4 * 3600, 60, 100, 10.0));
-        let result = TodaySuggestions::from_local(&book, None);
+        let result = TodaySuggestions::from_local(&book, None, &FocusSessionBook::default());
         assert!(!result.all.iter().any(|s| s.id == "sustained_high_load"));
     }
 
     #[test]
     fn streak_encouragement_fires_after_five_days() {
         let book = book_with_recent(5, |_| entry(2 * 3600, 60, 50, 10.0));
-        let result = TodaySuggestions::from_local(&book, None);
+        let result = TodaySuggestions::from_local(&book, None, &FocusSessionBook::default());
         assert!(result.all.iter().any(|s| s.id == "streak_encouragement"));
     }
 
@@ -402,7 +403,7 @@ mod tests {
             memory_usage_percent: Some(88.0),
             ..Default::default()
         };
-        let result = TodaySuggestions::from_local(&book, Some(&snapshot));
+        let result = TodaySuggestions::from_local(&book, Some(&snapshot), &FocusSessionBook::default());
         assert!(result
             .all
             .iter()
@@ -412,7 +413,7 @@ mod tests {
     #[test]
     fn top_is_subset_of_all_and_ordered() {
         let book = book_with_recent(5, |_| entry(4 * 3600, 2 * 3600, 100, 40.0));
-        let result = TodaySuggestions::from_local(&book, None);
+        let result = TodaySuggestions::from_local(&book, None, &FocusSessionBook::default());
         assert!(result.top.len() <= MAX_TOP);
         assert!(result.top.len() <= result.all.len());
         // top priorities are non-increasing.
@@ -424,11 +425,28 @@ mod tests {
     #[test]
     fn all_has_no_duplicate_categories() {
         let book = book_with_recent(5, |_| entry(4 * 3600, 2 * 3600, 100, 40.0));
-        let result = TodaySuggestions::from_local(&book, None);
+        let result = TodaySuggestions::from_local(&book, None, &FocusSessionBook::default());
         let mut cats: Vec<_> = result.all.iter().map(|s| s.category).collect();
         cats.sort();
         let before = cats.len();
         cats.dedup();
         assert_eq!(cats.len(), before, "duplicate categories present");
+    }
+}
+
+#[cfg(test)]
+mod focus_evidence_tests {
+    use super::*;
+    #[test]
+    fn recent_focus_record_suppresses_unused_focus_claim() {
+        let mut entry = WorkLogEntry::default();
+        entry.active_seconds = 4 * 3600;
+        let recent = vec![(today_key(), entry); 3];
+        let mut focus = FocusSessionBook::default();
+        assert!(rule_focus_gap(&recent, &focus).is_some());
+        focus.sessions.push(crate::models::FocusSession { started_at: current_timestamp_ms(), ..Default::default() });
+        assert!(rule_focus_gap(&recent, &focus).is_none());
+        focus.sessions[0].started_at -= 8 * 24 * 3600 * 1000;
+        assert!(rule_focus_gap(&recent, &focus).is_some());
     }
 }

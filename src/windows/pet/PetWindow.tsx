@@ -19,6 +19,7 @@ import {
 } from "../../services/windowApi";
 import { useHardwareStore } from "../../stores/hardwareStore";
 import { usePetStore } from "../../stores/petStore";
+import { useCompanionSettings } from "../../services/useCompanionSettings";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { CatState } from "../../types/pet";
 import { ContextMenu, PetSpeechBubble } from "../../ui/components";
@@ -85,7 +86,7 @@ export function PetWindow() {
   const rewardMessageUntil = usePetStore((state) => state.rewardMessageUntil);
   const markPanelOpen = usePetStore((state) => state.openPanel);
   const markPanelClosed = usePetStore((state) => state.closePanel);
-  const settings = useSettingsStore((state) => state.settings);
+  const settings = useCompanionSettings();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isNodding, setIsNodding] = useState(false);

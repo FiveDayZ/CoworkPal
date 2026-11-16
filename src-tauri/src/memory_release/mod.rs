@@ -13,8 +13,7 @@
 //!   user declines, the spawn returns a cancellation and we degrade to the
 //!   light tier.
 //!
-//! Auto-trigger watches system used memory against the configured GB threshold
-//! with a 60-second cooldown to avoid thrash.
+//! Auto-trigger requires sustained pressure for 30 seconds and backs off after low-gain releases.
 
 pub mod sysinfo_query;
 pub mod windows_api;
@@ -92,31 +91,57 @@ impl ReleaseResult {
     }
 }
 
-/// Shared state for the auto-release watcher. A single instance lives in
-/// `AppState` and is locked briefly on each tick.
+/// Automatic reclamation needs sustained pressure, not just a large used-GB count.
 #[derive(Debug, Default)]
 pub struct MemoryReleaseState {
-    last_auto_release: Mutex<Option<Instant>>,
+    policy: Mutex<AutoReleasePolicy>,
 }
 
-impl MemoryReleaseState {
-    pub async fn try_acquire(&self) -> Option<AutoReleaseGuard> {
-        let mut guard = self.last_auto_release.lock().await;
-        let now = Instant::now();
-        if let Some(last) = *guard {
-            if now.duration_since(last) < AUTO_RELEASE_COOLDOWN {
-                return None;
-            }
+#[derive(Debug, Default)]
+struct AutoReleasePolicy {
+    high_since: Option<Instant>,
+    last_attempt: Option<Instant>,
+    no_gain_attempts: u32,
+}
+
+impl AutoReleasePolicy {
+    fn should_release(&mut self, pressure: &MemoryPressure, threshold_gib: f64, now: Instant) -> bool {
+        if pressure.total_bytes == 0 || pressure.used_gib() < threshold_gib * 0.9 || pressure.load_percent <= 75 {
+            self.high_since = None;
+            self.no_gain_attempts = 0;
+            return false;
         }
-        *guard = Some(now);
-        Some(AutoReleaseGuard { _priv: () })
+        if pressure.used_gib() < threshold_gib || (pressure.load_percent < 85 && pressure.available_bytes > 512 * 1024 * 1024) {
+            self.high_since = None;
+            return false;
+        }
+        let since = *self.high_since.get_or_insert(now);
+        let cooldown = AUTO_RELEASE_COOLDOWN.saturating_mul(1u32 << self.no_gain_attempts.min(4));
+        if now.duration_since(since) < Duration::from_secs(30)
+            || self.last_attempt.is_some_and(|last| now.duration_since(last) < cooldown) {
+            return false;
+        }
+        self.last_attempt = Some(now);
+        self.high_since = None;
+        true
     }
 }
 
-/// Returned by `try_acquire` to prove the cooldown was satisfied. Dropping it
-/// does nothing — the timestamp is already recorded.
-pub struct AutoReleaseGuard {
-    _priv: (),
+impl MemoryReleaseState {
+    pub async fn should_release(&self, pressure: &MemoryPressure, threshold_gib: f64) -> bool {
+        self.policy.lock().await.should_release(pressure, threshold_gib, Instant::now())
+    }
+
+    pub async fn record_result(&self, released_bytes: u64) {
+        let mut policy = self.policy.lock().await;
+        policy.no_gain_attempts = if released_bytes < 64 * 1024 * 1024 {
+            policy.no_gain_attempts.saturating_add(1).min(4)
+        } else { 0 };
+    }
+
+    pub async fn reset_pressure(&self) {
+        self.policy.lock().await.high_since = None;
+    }
 }
 
 fn bytes_per_gib() -> f64 {
@@ -404,5 +429,46 @@ fn enable_elevated_privileges() {
             );
             let _ = CloseHandle(token);
         }
+    }
+}
+
+#[cfg(test)]
+mod pressure_policy_tests {
+    use super::*;
+    #[test]
+    fn marginal_pressure_restarts_the_sustained_timer() {
+        let now = Instant::now();
+        let mut policy = AutoReleasePolicy::default();
+        let mut pressure = MemoryPressure { total_bytes: 16 << 30, used_bytes: 15 << 30,
+            available_bytes: 1 << 30, load_percent: 94 };
+        assert!(!policy.should_release(&pressure, 8.0, now));
+        pressure.load_percent = 80;
+        assert!(!policy.should_release(&pressure, 8.0, now + Duration::from_secs(20)));
+        pressure.load_percent = 94;
+        assert!(!policy.should_release(&pressure, 8.0, now + Duration::from_secs(25)));
+        assert!(!policy.should_release(&pressure, 8.0, now + Duration::from_secs(54)));
+        assert!(policy.should_release(&pressure, 8.0, now + Duration::from_secs(55)));
+    }
+
+    #[test]
+    fn large_memory_use_alone_does_not_trigger_and_real_pressure_must_persist() {
+        let now = Instant::now();
+        let mut policy = AutoReleasePolicy::default();
+        let mut pressure = MemoryPressure { total_bytes: 64 << 30, used_bytes: 10 << 30,
+            available_bytes: 54 << 30, load_percent: 16 };
+        assert!(!policy.should_release(&pressure, 8.0, now));
+        pressure.used_bytes = 60 << 30;
+        pressure.available_bytes = 4 << 30;
+        pressure.load_percent = 94;
+        assert!(!policy.should_release(&pressure, 8.0, now));
+        assert!(!policy.should_release(&pressure, 8.0, now + Duration::from_secs(29)));
+        assert!(policy.should_release(&pressure, 8.0, now + Duration::from_secs(30)));
+        policy.no_gain_attempts = 2;
+        assert!(!policy.should_release(&pressure, 8.0, now + Duration::from_secs(90)));
+        assert!(policy.should_release(&pressure, 8.0, now + Duration::from_secs(270)));
+        pressure.load_percent = 70;
+        assert!(!policy.should_release(&pressure, 8.0, now + Duration::from_secs(280)));
+        assert!(policy.high_since.is_none());
+        assert_eq!(policy.no_gain_attempts, 0);
     }
 }

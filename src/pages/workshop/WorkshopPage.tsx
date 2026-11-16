@@ -1,3 +1,7 @@
+import { useUiStore } from "../../stores/uiStore";
+import { CompanionModeControl } from "../../components/CompanionModeControl";
+import { PerformanceHistoryPanel } from "./PerformanceHistoryPanel";
+import { WorkshopDecorations } from "./WorkshopDecorations";
 import { useEffect, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import {
@@ -8,7 +12,7 @@ import {
   formatTemperature,
 } from "../../services/formatters";
 import { useHardwareStore } from "../../stores/hardwareStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { useCompanionSettings } from "../../services/useCompanionSettings";
 import { useWorkshopStore } from "../../stores/workshopStore";
 import {
   normalizeModuleLevels,
@@ -45,6 +49,9 @@ const BASE_PARTS_PER_MINUTE = 1.6;
 const BASE_INSIGHT_PER_MINUTE = 0.13;
 
 export function WorkshopPage() {
+  const tab = useUiStore((state) => state.workshopTab);
+  const setTab = useUiStore((state) => state.setWorkshopTab);
+  const performanceOpen = useUiStore((state) => state.performanceHistoryOpen);
   const workshop = useWorkshopStore((store) => store.state);
   const quotes = useWorkshopStore((store) => store.quotes);
   const breakdown = useWorkshopStore((store) => store.breakdown);
@@ -52,7 +59,7 @@ export function WorkshopPage() {
   const upgradeModule = useWorkshopStore((store) => store.upgradeModule);
   const completeOrder = useWorkshopStore((store) => store.completeOrder);
   const refreshBreakdown = useWorkshopStore((store) => store.refreshBreakdown);
-  const settings = useSettingsStore((state) => state.settings);
+  const settings = useCompanionSettings();
   const snapshot = useHardwareStore((state) => state.snapshot);
   const [selectedModuleKey, setSelectedModuleKey] =
     useState<WorkshopModuleKey | null>(null);
@@ -60,6 +67,9 @@ export function WorkshopPage() {
   // Without this, a double-click could fire two saves before the store
   // refreshes currentParts/currentInsight, deducting resources twice.
   const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [orderPage, setOrderPage] = useState(0);
+  const orderCount = workshop?.activeOrders.length ?? 0;
+  const orderIndex = Math.min(orderPage, Math.max(0, orderCount - 1));
   const [orderBusy, setOrderBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -151,13 +161,85 @@ export function WorkshopPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedModuleKey, upgradeBusy]);
 
+  const productionPanel = (
+    <div className="cwp-workshop-gains-panel">
+        <div className="cwp-gains-column">
+          <div className="cwp-gains-title">
+            <PixelIcon name="settings" size={14} style={{ marginRight: "6px" }} /> 实时产出拆解
+          </div>
+          <div className="cwp-gains-list">
+            <GainItem label="硬件→零件" value={formatFactor(breakdown?.partsActivity)} />
+            <GainItem label="吞吐→灵感" value={formatFactor(breakdown?.insightActivity)} />
+            <GainItem label="工坊等级" value={formatMultiplier(breakdown?.workshopMultiplier)} />
+            <GainItem label="零件模块" value={formatMultiplier(breakdown?.partsModuleMultiplier)} />
+            <GainItem label="灵感模块" value={formatMultiplier(breakdown?.insightModuleMultiplier)} />
+            <GainItem label="稳定/专注" value={`${formatMultiplier(breakdown?.stabilityMultiplier)} / ${formatMultiplier(breakdown?.focusMultiplier)}`} />
+            <GainItem label="亲密协作" value={formatMultiplier(breakdown?.affinityMultiplier)} />
+          </div>
+        </div>
+        <div
+          className="cwp-gains-column"
+          style={{
+            borderLeft: "1px solid var(--color-border-soft)",
+            paddingLeft: "10px",
+          }}
+        >
+          <div className="cwp-gains-title">
+            <PixelIcon name="energy" size={14} style={{ marginRight: "6px" }} /> 当前产能
+          </div>
+          <div className="cwp-gains-desc">
+            零件 <strong>{formatRate(breakdown?.partsPerMinute)}</strong> / 分钟<br />
+            灵感 <strong>{formatRate(breakdown?.insightPerMinute)}</strong> / 分钟
+          </div>
+          <div className={`cwp-affinity-summary is-${breakdown?.affinityTier ?? "new"}`}>
+            <div>
+              <span>亲密关系 · {breakdown?.affinityTitle ?? "初识搭档"}</span>
+              <strong>
+                LV.{workshop?.catAffinityLevel ?? 1} · {(workshop?.catAffinityLevel ?? 1) >= MAX_AFFINITY_LEVEL ? "已满级" : `亲密度 ${workshop?.affinityExperience ?? 0}/100`}
+              </strong>
+            </div>
+            <i>
+              <b style={{ width: `${(workshop?.catAffinityLevel ?? 1) >= MAX_AFFINITY_LEVEL ? 100 : Math.max(0, Math.min(100, workshop?.affinityExperience ?? 0))}%` }} />
+            </i>
+            <small>
+              工坊产出 +{formatBonusPercent(breakdown?.affinityMultiplier)}
+              {breakdown?.nextAffinityLevel != null
+                ? ` · LV.${breakdown.nextAffinityLevel} ${breakdown.nextAffinityTitle}`
+                : " · 关系阶段已满"}
+            </small>
+          </div>
+        </div>
+      </div>
+  );
+
   return (
     <div className="cwp-page">
-      <div className="page-title-row">
-        <h2 className="page-title">迷你硬件工坊地图</h2>
+      <div className="cwp-workshop-heading">
+        <h2 className="page-title">工坊</h2>
+        <nav className="cwp-workshop-tabs" aria-label="工坊页面" role="tablist" onKeyDown={(event) => {
+          const tabs = ["map", "review", "display"] as const;
+          const index = tabs.indexOf(tab);
+          const next = event.key === "ArrowRight" ? (index + 1) % 3 : event.key === "ArrowLeft" ? (index + 2) % 3 : event.key === "Home" ? 0 : event.key === "End" ? 2 : -1;
+          if (next < 0) return;
+          event.preventDefault();
+          setTab(tabs[next]);
+          event.currentTarget.querySelector<HTMLButtonElement>(`[data-tab="${tabs[next]}"]`)?.focus();
+        }}>
+          {([["map", "工坊地图"], ["review", "工坊回顾台"], ["display", "工坊陈列台"]] as const).map(([id, label]) => (
+            <button key={id} id={`workshop-tab-${id}`} data-tab={id} role="tab" aria-selected={tab === id} aria-controls="workshop-panel" tabIndex={tab === id ? 0 : -1} className={tab === id ? "is-active" : ""} type="button" onClick={() => setTab(id)}>{label}</button>
+          ))}
+        </nav>
       </div>
 
-      <div className="cwp-workshop-content">
+      <div id="workshop-panel" role="tabpanel" aria-labelledby={`workshop-tab-${tab}`} className={`cwp-workshop-content is-${tab}`}>
+      {tab === "display" ? <WorkshopDecorations /> : tab === "review" ? <div className="cwp-workshop-review">
+        <CompanionModeControl />
+        <PerformanceHistoryPanel />
+        <section className="cwp-production-review">
+          <button type="button" className="cwp-section-toggle" aria-expanded={!performanceOpen} onClick={() => useUiStore.getState().setPerformanceHistoryOpen(performanceOpen ? false : true)}><strong>产出与亲密回顾</strong><span>{performanceOpen ? "展开" : "收起"}</span></button>
+          {!performanceOpen ? productionPanel : null}
+        </section>
+      </div> : <>
       <section className="cwp-workshop-grid">
         {modules.map((module) => {
           const levels = moduleLevels[module.key];
@@ -206,62 +288,18 @@ export function WorkshopPage() {
         })}
       </section>
 
-      <div className="cwp-workshop-gains-panel">
-        <div className="cwp-gains-column">
-          <div className="cwp-gains-title">
-            <PixelIcon name="settings" size={14} style={{ marginRight: "6px" }} /> 实时产出拆解
-          </div>
-          <div className="cwp-gains-list">
-            <GainItem label="硬件→零件" value={formatFactor(breakdown?.partsActivity)} />
-            <GainItem label="吞吐→灵感" value={formatFactor(breakdown?.insightActivity)} />
-            <GainItem label="工坊等级" value={formatMultiplier(breakdown?.workshopMultiplier)} />
-            <GainItem label="零件模块" value={formatMultiplier(breakdown?.partsModuleMultiplier)} />
-            <GainItem label="灵感模块" value={formatMultiplier(breakdown?.insightModuleMultiplier)} />
-            <GainItem label="稳定/专注" value={`${formatMultiplier(breakdown?.stabilityMultiplier)} / ${formatMultiplier(breakdown?.focusMultiplier)}`} />
-            <GainItem label="亲密协作" value={formatMultiplier(breakdown?.affinityMultiplier)} />
-          </div>
-        </div>
-        <div
-          className="cwp-gains-column"
-          style={{
-            borderLeft: "1px solid var(--color-border-soft)",
-            paddingLeft: "10px",
-          }}
-        >
-          <div className="cwp-gains-title">
-            <PixelIcon name="energy" size={14} style={{ marginRight: "6px" }} /> 当前产能
-          </div>
-          <div className="cwp-gains-desc">
-            零件 <strong>{formatRate(breakdown?.partsPerMinute)}</strong> / 分钟<br />
-            灵感 <strong>{formatRate(breakdown?.insightPerMinute)}</strong> / 分钟
-          </div>
-          <div className={`cwp-affinity-summary is-${breakdown?.affinityTier ?? "new"}`}>
-            <div>
-              <span>亲密关系 · {breakdown?.affinityTitle ?? "初识搭档"}</span>
-              <strong>
-                LV.{workshop?.catAffinityLevel ?? 1} · {(workshop?.catAffinityLevel ?? 1) >= MAX_AFFINITY_LEVEL ? "已满级" : `亲密度 ${workshop?.affinityExperience ?? 0}/100`}
-              </strong>
-            </div>
-            <i>
-              <b style={{ width: `${(workshop?.catAffinityLevel ?? 1) >= MAX_AFFINITY_LEVEL ? 100 : Math.max(0, Math.min(100, workshop?.affinityExperience ?? 0))}%` }} />
-            </i>
-            <small>
-              工坊产出 +{formatBonusPercent(breakdown?.affinityMultiplier)}
-              {breakdown?.nextAffinityLevel != null
-                ? ` · LV.${breakdown.nextAffinityLevel} ${breakdown.nextAffinityTitle}`
-                : " · 关系阶段已满"}
-            </small>
-          </div>
-        </div>
-      </div>
-
       <section className="cwp-workshop-orders" aria-label="工坊订单">
         <div className="cwp-orders-heading">
           <strong>今日工单</strong>
           <span>已完成 {workshop?.completedOrderCount ?? 0}</span>
+          {orderCount > 1 ? <div className="cwp-history-pagination">
+            <button type="button" aria-label="上一张工单" disabled={orderIndex === 0} onClick={() => setOrderPage(orderIndex - 1)}>‹</button>
+            <span>{orderIndex + 1}/{orderCount}</span>
+            <button type="button" aria-label="下一张工单" disabled={orderIndex >= orderCount - 1} onClick={() => setOrderPage(orderIndex + 1)}>›</button>
+          </div> : null}
         </div>
         <div className="cwp-order-grid">
-          {(workshop?.activeOrders ?? []).map((order) => {
+          {(workshop?.activeOrders ?? []).slice(orderIndex, orderIndex + 1).map((order) => {
             const affordable = currentParts + RESOURCE_EPSILON >= order.requiredParts
               && currentInsight + RESOURCE_EPSILON >= order.requiredInsight;
             return (
@@ -322,6 +360,7 @@ export function WorkshopPage() {
           <PixelIcon name="energy" size={14} /> {upgradeBusy ? "升级中…" : isWorkshopMaxed ? "已达上限" : workshopCost === undefined ? "…" : "升级工坊"}
         </button>
       </div>
+      </>}
       </div>
 
       {selectedModule && (
@@ -491,7 +530,7 @@ function SubUpgradeRow({
 function buildModules(
   levels: ReturnType<typeof normalizeModuleLevels>,
   snapshot: ReturnType<typeof useHardwareStore.getState>["snapshot"],
-  settings: ReturnType<typeof useSettingsStore.getState>["settings"],
+  settings: import("../../types/settings").AppSettings | null,
 ): ModuleData[] {
   const cpu = snapshot?.cpuUsagePercent ?? null;
   const gpu = snapshot?.gpuUsagePercent ?? null;

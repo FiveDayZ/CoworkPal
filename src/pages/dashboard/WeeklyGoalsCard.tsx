@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAchievementStore } from "../../stores/achievementStore";
 import { useUiStore } from "../../stores/uiStore";
-import { badgeAssets } from "../../ui/assets";
+import { badgeAssets } from "../../ui/badgeAssets";
 import { PixelIcon } from "../../ui/PixelIcon";
 import { rewardLabel } from "../../types/rewards";
 

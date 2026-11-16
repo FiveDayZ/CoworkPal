@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNotesStore } from "../../stores/notesStore";
+import { useUiStore } from "../../stores/uiStore";
 import type { FocusSession } from "../../types/focus";
 import { useFocusStore } from "../../stores/focusStore";
 import { PixelIcon } from "../../ui/PixelIcon";
@@ -17,9 +19,15 @@ export function FocusPage() {
   const start = useFocusStore((state) => state.start);
   const complete = useFocusStore((state) => state.complete);
   const abandon = useFocusStore((state) => state.abandon);
-  const [taskLabel, setTaskLabel] = useState("");
+  const draftNote = useFocusStore((state) => state.draftNote);
+  const notes = useNotesStore((state) => state.book?.notes);
+  const [taskLabel, setTaskLabel] = useState(draftNote?.title.slice(0, 40) ?? "");
+  const [noteId, setNoteId] = useState(draftNote?.id ?? "");
+  useEffect(() => { void useNotesStore.getState().loadNotes(); }, []);
   const [durationMinutes, setDurationMinutes] = useState<number>(25);
   const [now, setNow] = useState(Date.now());
+  const [reviewId, setReviewId] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,7 +37,7 @@ export function FocusPage() {
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [activeSession]);
+  }, [activeSession?.id]);
 
   const history = useMemo(
     () =>
@@ -39,13 +47,17 @@ export function FocusPage() {
         .slice(0, 8),
     [book],
   );
+  const historyPageCount = Math.max(1, Math.ceil(history.length / 3));
+  const currentHistoryPage = Math.min(historyPage, historyPageCount - 1);
+  const visibleHistory = history.slice(currentHistoryPage * 3, currentHistoryPage * 3 + 3);
   const todaySummary = useMemo(() => summarizeToday(book?.sessions ?? []), [book]);
   const timing = activeSession ? getSessionTiming(activeSession, now) : null;
 
   async function handleStart() {
     setActionError(null);
     try {
-      await start(taskLabel, durationMinutes);
+      await start(taskLabel, durationMinutes, noteId || null);
+      setNoteId("");
       setTaskLabel("");
     } catch (error) {
       setActionError(errorMessage(error, "无法开始专注会话"));
@@ -177,6 +189,13 @@ export function FocusPage() {
               >
                 {isStarting ? "正在启动..." : "开始专注"}
               </button>
+              <details className="cwp-focus-note-link" open={noteId ? true : undefined}>
+                <summary>{noteId ? "已关联笔记" : "关联笔记（可选）"}</summary>
+                <select aria-label="关联笔记" value={noteId} onChange={(event) => setNoteId(event.target.value)}>
+                  <option value="">不关联笔记</option>
+                  {(notes ?? []).filter((note) => !note.archived).map((note) => <option key={note.id} value={note.id}>{note.title || "无标题笔记"}</option>)}
+                </select>
+              </details>
             </form>
           )}
           {actionError ? (
@@ -187,6 +206,7 @@ export function FocusPage() {
         </section>
 
         <section className="cwp-focus-records" aria-label="专注记录">
+          {reviewId && history.some((session) => session.id === reviewId) ? <FocusReview key={reviewId} session={history.find((session) => session.id === reviewId)!} onClose={() => setReviewId(null)} /> : <>
           <div className="cwp-focus-today">
             <div className="cwp-focus-section-title">
               <strong>今日专注</strong>
@@ -231,8 +251,8 @@ export function FocusPage() {
             </div>
           ) : history.length > 0 ? (
             <div className="cwp-focus-history-list">
-              {history.map((session) => (
-                <HistoryRow key={session.id} session={session} />
+              {visibleHistory.map((session) => (
+                <HistoryRow key={session.id} session={session} onReview={() => setReviewId(session.id)} />
               ))}
             </div>
           ) : (
@@ -242,32 +262,62 @@ export function FocusPage() {
               <span>完成第一项任务后会出现在这里。</span>
             </div>
           )}
+          {history.length > 3 ? <div className="cwp-history-pagination">
+            <button type="button" className="cwp-compact-button" disabled={currentHistoryPage === 0} onClick={() => setHistoryPage(Math.max(0, currentHistoryPage - 1))}>上一页</button>
+            <span>{currentHistoryPage + 1}/{historyPageCount}</span>
+            <button type="button" className="cwp-compact-button" disabled={historyPage >= historyPageCount - 1} onClick={() => setHistoryPage((page) => page + 1)}>下一页</button>
+          </div> : null}
+          </>}
         </section>
       </div>
     </div>
   );
 }
 
-function HistoryRow({ session }: { session: FocusSession }) {
+function HistoryRow({ session, onReview }: { session: FocusSession; onReview: () => void }) {
   const durationSeconds = creditedSeconds(session);
   const completed = session.status === "completed";
+  return <article className="cwp-focus-history-row">
+    <span className={`cwp-focus-history-state ${completed ? "is-completed" : "is-abandoned"}`}>
+      {completed ? (session.rewardVersion > 0 && durationSeconds < session.plannedDurationSeconds ? "提前" : "完成") : "中止"}
+    </span>
+    <div className="cwp-focus-history-task">
+      <strong title={session.taskLabel}>{session.taskLabel}</strong>
+      <span>{formatSessionTime(session.endedAt ?? session.startedAt)}</span>
+      <span className="cwp-focus-history-reward">{focusRewardLabel(session)}</span>
+    </div>
+    <div className="cwp-focus-history-result">
+      <strong>{formatCompactDuration(durationSeconds)}</strong>
+      <span>{completed ? `质量 ${Math.round(session.focusQuality * 100)}%` : "未结算"}</span>
+      <button type="button" className="cwp-focus-review-link" onClick={onReview}>复盘 ›</button>
+    </div>
+  </article>;
+}
 
-  return (
-    <article className="cwp-focus-history-row">
-      <span className={`cwp-focus-history-state ${completed ? "is-completed" : "is-abandoned"}`}>
-        {completed ? (session.rewardVersion > 0 && durationSeconds < session.plannedDurationSeconds ? "提前" : "完成") : "中止"}
-      </span>
-      <div className="cwp-focus-history-task">
-        <strong title={session.taskLabel}>{session.taskLabel}</strong>
-        <span>{formatSessionTime(session.endedAt ?? session.startedAt)}</span>
-        <span className="cwp-focus-history-reward">{focusRewardLabel(session)}</span>
-      </div>
-      <div className="cwp-focus-history-result">
-        <strong>{formatCompactDuration(durationSeconds)}</strong>
-        <span>{completed ? `质量 ${Math.round(session.focusQuality * 100)}%` : "未结算"}</span>
-      </div>
-    </article>
-  );
+function FocusReview({ session, onClose }: { session: FocusSession; onClose: () => void }) {
+  const [outcome, setOutcome] = useState(session.outcome ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const noteExists = useNotesStore((state) => state.book?.notes.some((note) => note.id === session.noteId));
+  async function save() {
+    setSaving(true); setError(null);
+    try { await useFocusStore.getState().saveOutcome(session.id, outcome); onClose(); }
+    catch (error) { setError(errorMessage(error, "结果保存失败")); }
+    finally { setSaving(false); }
+  }
+  return <div className="cwp-focus-review-pane">
+    <div className="cwp-section-title"><strong>任务复盘</strong><button autoFocus type="button" className="cwp-compact-button" disabled={saving} onClick={onClose}>返回记录</button></div>
+    <strong>{session.taskLabel}</strong>
+    <span>{formatSessionTime(session.endedAt ?? session.startedAt)} · {formatCompactDuration(creditedSeconds(session))}</span>
+    <label htmlFor="focus-outcome">任务结果</label>
+    <textarea id="focus-outcome" maxLength={500} value={outcome} onChange={(event) => setOutcome(event.target.value)} placeholder="完成了什么？下一步是什么？" disabled={saving} />
+    <small>{outcome.length}/500</small>
+    <div className="cwp-inline-actions">
+      <button type="button" className="cwp-compact-button is-primary" disabled={saving} onClick={() => void save()}>{saving ? "保存中…" : "保存结果"}</button>
+      {session.noteId ? <button type="button" className="cwp-compact-button" disabled={!noteExists || saving} onClick={() => { useUiStore.getState().setMainRoute("notes"); useNotesStore.getState().openView(session.noteId!); }}>{noteExists ? "关联笔记" : "笔记已删除"}</button> : null}
+    </div>
+    {error ? <p role="alert">{error}</p> : null}
+  </div>;
 }
 
 function getSessionTiming(session: FocusSession, now: number) {

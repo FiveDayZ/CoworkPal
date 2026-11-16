@@ -18,11 +18,11 @@ export function CoCatPerformancePanel({
 
       <dl>
         <div>
-          <dt>FPS</dt>
+          <dt>Updates/s</dt>
           <dd>{report.fps}</dd>
         </div>
         <div>
-          <dt>Frame</dt>
+          <dt>Interval</dt>
           <dd>{report.averageFrameMs.toFixed(1)}ms</dd>
         </div>
         <div>

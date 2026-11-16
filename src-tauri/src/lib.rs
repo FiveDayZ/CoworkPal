@@ -137,7 +137,9 @@ pub fn run() {
             commands::save_window_position,
             commands::exit_app,
             commands::get_focus_sessions,
+            commands::get_performance_history,
             commands::start_focus_session,
+            commands::update_focus_outcome,
             commands::complete_focus_session,
             commands::abandon_focus_session,
             commands::get_notes,
@@ -314,18 +316,14 @@ fn start_memory_auto_release_pump(app: tauri::AppHandle) {
                 )
             };
             if !enabled || !auto_enabled {
+                state.memory_release.reset_pressure().await;
                 continue;
             }
 
             let Some(pressure) = sysinfo_query::sample_pressure() else {
                 continue;
             };
-            if pressure.used_gib() < threshold_gib {
-                continue;
-            }
-
-            // Cooldown check — only one auto release per 60s window.
-            if state.memory_release.try_acquire().await.is_none() {
+            if !state.memory_release.should_release(&pressure, threshold_gib).await {
                 continue;
             }
 
@@ -334,8 +332,12 @@ fn start_memory_auto_release_pump(app: tauri::AppHandle) {
                 pressure.used_gib(),
                 threshold_gib
             );
-            if let Err(error) = perform_release(&state, &app, ReleaseKind::AutoLight).await {
-                tracing::warn!("auto memory release failed: {error}");
+            match perform_release(&state, &app, ReleaseKind::AutoLight).await {
+                Ok(result) => state.memory_release.record_result(result.released_bytes).await,
+                Err(error) => {
+                    state.memory_release.record_result(0).await;
+                    tracing::warn!("auto memory release failed: {error}");
+                }
             }
         }
     });

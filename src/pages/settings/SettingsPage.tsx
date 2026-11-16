@@ -917,12 +917,12 @@ export function SettingsPage() {
                 </label>
               </div>
               <div className="cwp-settings-row-inline">
-                <span className="cwp-settings-label">超过阈值自动释放</span>
+                <span className="cwp-settings-label">持续内存压力时自动释放</span>
                 <label className="cwp-switch-label">
                   <input
                     type="checkbox"
                     checked={settings?.memoryAutoReleaseEnabled ?? false}
-                    aria-label="超过阈值自动释放"
+                    aria-label="持续内存压力时自动释放"
                     disabled={!settings?.memoryReleaseEnabled}
                     onChange={(e) =>
                       safeUpdate({
@@ -933,6 +933,7 @@ export function SettingsPage() {
                   <span className="cwp-switch-slider"></span>
                 </label>
               </div>
+              <p className="cwp-settings-hint">达到容量阈值，且占用 ≥85% 或可用 ≤512MB 持续 30 秒后触发；收益很小时会延长冷却。</p>
               <div className="cwp-settings-row-inline">
                 <span className="cwp-settings-label">自动释放阈值</span>
                 <input

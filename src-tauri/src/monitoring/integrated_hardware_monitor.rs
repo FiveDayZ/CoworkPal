@@ -36,6 +36,7 @@ pub struct IntegratedHardwareMonitorProbe {
     launch_suppressed: bool,
     diagnostic_logged: bool,
     error_logged: bool,
+    interval_ms: Option<u64>,
     #[cfg(windows)]
     process: Option<windows::Win32::Foundation::HANDLE>,
 }
@@ -55,18 +56,25 @@ impl IntegratedHardwareMonitorProbe {
             launch_suppressed: false,
             diagnostic_logged: false,
             error_logged: false,
+            interval_ms: None,
             #[cfg(windows)]
             process: None,
         }
     }
 
-    pub fn sample(&mut self, enabled: bool) -> Option<IntegratedHardwareMonitorSample> {
+    pub fn sample(&mut self, enabled: bool, interval_ms: u64) -> Option<IntegratedHardwareMonitorSample> {
         if !enabled {
             self.stop();
             return None;
         }
 
         self.ensure_running();
+        let interval_ms = interval_ms.clamp(2000, 5000);
+        if self.interval_ms != Some(interval_ms) {
+            if std::fs::write(sidecar_path(&self.output_path, ".interval-ms"), interval_ms.to_string()).is_ok() {
+                self.interval_ms = Some(interval_ms);
+            }
+        }
         self.log_helper_sidecars();
         read_fresh_sample(&self.output_path, crate::models::current_timestamp_ms())
     }
@@ -153,9 +161,11 @@ impl IntegratedHardwareMonitorProbe {
         self.launch_suppressed = false;
         self.diagnostic_logged = false;
         self.error_logged = false;
+        self.interval_ms = None;
         let _ = std::fs::remove_file(&self.output_path);
         let _ = std::fs::remove_file(sidecar_path(&self.output_path, ".diagnostic.log"));
         let _ = std::fs::remove_file(sidecar_path(&self.output_path, ".error.log"));
+        let _ = std::fs::remove_file(sidecar_path(&self.output_path, ".interval-ms"));
     }
 
     #[cfg(windows)]

@@ -1,3 +1,4 @@
+import { localDateKey } from "../services/dateKeys";
 import { create } from "zustand";
 import {
   getDailyWorkAssessment,
@@ -34,7 +35,7 @@ export interface WorkLogStore {
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 export const useWorkLogStore = create<WorkLogStore>((set, get) => ({

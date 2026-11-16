@@ -65,7 +65,6 @@ function reloadPageStores() {
 export function MainWindow() {
   const route = useUiStore((state) => state.mainRoute);
   const setRoute = useUiStore((state) => state.setMainRoute);
-  const workshop = useWorkshopStore((state) => state.state);
   const settings = useSettingsStore((state) => state.settings);
   const achievementSummary = useAchievementStore((state) => state.summary);
   const pendingAchievementUnlockCount = useAchievementStore(
@@ -147,38 +146,7 @@ export function MainWindow() {
           }
           onDragStart={() => void startDraggingCurrentWindow()}
           stats={
-            <div className="cwp-window-stats">
-              <div className="cwp-stat-pill" title="工坊等级">
-                <span className="cwp-stat-pill-label">LV.</span>
-                <span style={{ color: "var(--color-brand-orange-strong)", fontWeight: 700 }}>
-                  {workshop?.workshopLevel ?? 1}
-                </span>
-              </div>
-              <div className="cwp-stat-pill" title="攒下来的零件">
-                <span className="cwp-stat-pill-label" style={{ display: "inline-flex", alignItems: "center" }}>
-                  <PixelIcon name="wrench" size={12} style={{ color: "var(--color-brand-orange-strong)" }} />
-                </span>
-                <span style={{ color: "var(--color-text-primary)", marginLeft: "4px" }}>
-                  {formatParts(workshop?.parts ?? 0)}
-                </span>
-              </div>
-              <div className="cwp-stat-pill" title="获得灵感">
-                <span className="cwp-stat-pill-label" style={{ display: "inline-flex", alignItems: "center" }}>
-                  <PixelIcon name="lightbulb" size={12} style={{ color: "var(--color-insight-gold)" }} />
-                </span>
-                <span style={{ color: "var(--color-insight-gold)", marginLeft: "4px" }}>
-                  {formatParts(workshop?.insight ?? 0)}
-                </span>
-              </div>
-              <div className="cwp-stat-pill" title="成就点数">
-                <span className="cwp-stat-pill-label" style={{ display: "inline-flex", alignItems: "center" }}>
-                  <PixelIcon name="achievement" size={12} style={{ color: "#e8aa55" }} />
-                </span>
-                <span style={{ color: "#e8aa55", marginLeft: "4px" }}>
-                  {formatParts(achievementSummary?.totalPoints ?? 0)}
-                </span>
-              </div>
-            </div>
+            <WindowStats />
           }
         />
 
@@ -272,5 +240,44 @@ function AchievementSidebarMarker({
     >
       {count > 0 ? count : "新"}
     </span>
+  );
+}
+
+function WindowStats() {
+  const workshop = useWorkshopStore((state) => state.state);
+  const achievementSummary = useAchievementStore((state) => state.summary);
+  return (
+            <div className="cwp-window-stats">
+              <div className="cwp-stat-pill" title="工坊等级">
+                <span className="cwp-stat-pill-label">LV.</span>
+                <span style={{ color: "var(--color-brand-orange-strong)", fontWeight: 700 }}>
+                  {workshop?.workshopLevel ?? 1}
+                </span>
+              </div>
+              <div className="cwp-stat-pill" title="攒下来的零件">
+                <span className="cwp-stat-pill-label" style={{ display: "inline-flex", alignItems: "center" }}>
+                  <PixelIcon name="wrench" size={12} style={{ color: "var(--color-brand-orange-strong)" }} />
+                </span>
+                <span style={{ color: "var(--color-text-primary)", marginLeft: "4px" }}>
+                  {formatParts(workshop?.parts ?? 0)}
+                </span>
+              </div>
+              <div className="cwp-stat-pill" title="获得灵感">
+                <span className="cwp-stat-pill-label" style={{ display: "inline-flex", alignItems: "center" }}>
+                  <PixelIcon name="lightbulb" size={12} style={{ color: "var(--color-insight-gold)" }} />
+                </span>
+                <span style={{ color: "var(--color-insight-gold)", marginLeft: "4px" }}>
+                  {formatParts(workshop?.insight ?? 0)}
+                </span>
+              </div>
+              <div className="cwp-stat-pill" title="成就点数">
+                <span className="cwp-stat-pill-label" style={{ display: "inline-flex", alignItems: "center" }}>
+                  <PixelIcon name="achievement" size={12} style={{ color: "#e8aa55" }} />
+                </span>
+                <span style={{ color: "#e8aa55", marginLeft: "4px" }}>
+                  {formatParts(achievementSummary?.totalPoints ?? 0)}
+                </span>
+              </div>
+            </div>
   );
 }

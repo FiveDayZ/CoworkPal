@@ -43,6 +43,7 @@ export interface UseCoCatAnimationOptions {
 }
 
 export interface CoCatAnimationFrame {
+  sampledAtMs: number;
   animationState: CoCatAnimationState;
   eyeState: CoCatEyeState;
   isGoggleShimmering: boolean;
@@ -56,6 +57,7 @@ export interface CoCatAnimationFrame {
 }
 
 const initialFrame: CoCatAnimationFrame = {
+  sampledAtMs: 0,
   animationState: "idle",
   eyeState: "normal",
   isGoggleShimmering: false,
@@ -394,6 +396,7 @@ export function useCoCatAnimation(options: UseCoCatAnimationOptions) {
     currentPoseRef.current = pose;
 
     return {
+      sampledAtMs: now,
       animationState: nextState,
       eyeState: resolveEyeState(nextState, now < blinkUntilRef.current),
       isGoggleShimmering: now < shimmerUntilRef.current,

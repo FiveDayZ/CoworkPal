@@ -17,7 +17,7 @@ impl FakeHardwareSensorAdapter {
 }
 
 impl HardwareSensorAdapter for FakeHardwareSensorAdapter {
-    fn sample(&mut self) -> HardwareSnapshot {
+    fn sample(&mut self, _settings: &crate::models::AppSettings, _background: bool) -> HardwareSnapshot {
         self.tick = self.tick.wrapping_add(1);
         let wave = (self.tick % 40) as f32;
         let cpu = 20.0 + wave;

@@ -307,9 +307,30 @@ impl Default for CatRuntimeState {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CompanionMode {
+    #[default]
+    Normal,
+    Quiet,
+    Economy,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkshopDecoration {
+    #[default]
+    None,
+    Orders,
+    Focus,
+    Weekly,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
+    pub companion_mode: CompanionMode,
+    pub workshop_decoration: WorkshopDecoration,
     pub schema_version: u32,
     pub cat_name: String,
     pub onboarding_version: u32,
@@ -418,6 +439,8 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             schema_version: APP_SETTINGS_SCHEMA_VERSION,
+            companion_mode: CompanionMode::Normal,
+            workshop_decoration: WorkshopDecoration::None,
             cat_name: "CoCat".to_string(),
             onboarding_version: 0,
             primary_metric: PrimaryMetric::Cpu,
@@ -475,6 +498,8 @@ impl Default for AppSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettingsPatch {
+    pub companion_mode: Option<CompanionMode>,
+    pub workshop_decoration: Option<WorkshopDecoration>,
     pub cat_name: Option<String>,
     pub onboarding_version: Option<u32>,
     pub primary_metric: Option<PrimaryMetric>,
@@ -516,6 +541,20 @@ pub struct AppSettingsPatch {
 }
 
 impl AppSettings {
+    pub fn effective(&self) -> Self {
+        let mut settings = self.clone();
+        if self.companion_mode != CompanionMode::Normal {
+            settings.enable_sound = false;
+            settings.enable_notifications = false;
+            settings.enable_pet_bubble = false;
+            settings.enable_static_cat_mode = true;
+        }
+        if self.companion_mode == CompanionMode::Economy {
+            settings.enable_low_power_mode = true;
+        }
+        settings
+    }
+
     pub fn toggle_minimal_mode(&mut self) {
         if self.minimal_mode_enabled {
             let restore = self.minimal_mode_restore.take().unwrap_or_default();
@@ -551,6 +590,8 @@ impl AppSettings {
     }
 
     pub fn apply_patch(&mut self, patch: AppSettingsPatch) {
+        if let Some(value) = patch.companion_mode { self.companion_mode = value; }
+        if let Some(value) = patch.workshop_decoration { self.workshop_decoration = value; }
         // Explicit settings take precedence over the minimal-mode preset.
         if self.minimal_mode_enabled
             && (patch.is_cat_visible == Some(true)
@@ -726,6 +767,8 @@ impl Default for WorkshopModuleLevels {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct WorkshopState {
+    /// Ordering for full-state and sampling events from this running instance.
+    pub revision: u64,
     pub schema_version: u32,
     pub parts: f64,
     pub insight: f64,
@@ -746,9 +789,24 @@ pub struct WorkshopState {
 }
 
 pub const WORKSHOP_STATE_SCHEMA_VERSION: u32 = 3;
-pub const MAX_AFFINITY_LEVEL: u32 = 100;
+pub const MAX_AFFINITY_LEVEL: u32 = 999;
 
 impl WorkshopState {
+    pub fn decoration_unlocked(&self, decoration: WorkshopDecoration, focus: &FocusSessionBook) -> bool {
+        match decoration {
+            WorkshopDecoration::None => true,
+            WorkshopDecoration::Orders => self.completed_order_count >= 3,
+            WorkshopDecoration::Focus => focus.sessions.iter().filter(|session| {
+                let elapsed_ms = if session.reward_version > 0 { session.credited_duration_ms } else {
+                    session.ended_at.unwrap_or(session.started_at).saturating_sub(session.started_at).max(0) as u64
+                };
+                session.status == FocusSessionStatus::Completed
+                    && elapsed_ms.min(session.planned_duration_seconds.saturating_mul(1000)) >= 300_000
+            }).count() >= 3,
+            WorkshopDecoration::Weekly => self.reward_receipts.keys().any(|key| key.starts_with("week:") && key.ends_with(":all")),
+        }
+    }
+
     pub fn add_affinity_experience(&mut self, amount: u32) {
         let experience = self.affinity_experience.saturating_add(amount);
         self.cat_affinity_level = self.cat_affinity_level.max(1)
@@ -820,6 +878,7 @@ impl Default for WorkshopOrder {
 impl Default for WorkshopState {
     fn default() -> Self {
         Self {
+            revision: 0,
             schema_version: WORKSHOP_STATE_SCHEMA_VERSION,
             parts: 280.0,
             insight: 12.0,
@@ -869,6 +928,9 @@ pub struct FocusSession {
     pub id: String,
     /// What the user said they'd focus on.
     pub task_label: String,
+    pub note_id: Option<String>,
+    pub outcome: String,
+    pub outcome_updated_at: i64,
     /// Planned duration the user committed to (25/50 min, etc.).
     pub planned_duration_seconds: u64,
     pub started_at: i64,
@@ -895,6 +957,9 @@ impl Default for FocusSession {
         Self {
             id: String::new(),
             task_label: String::new(),
+            note_id: None,
+            outcome: String::new(),
+            outcome_updated_at: 0,
             planned_duration_seconds: 25 * 60,
             started_at: 0,
             ended_at: None,
@@ -913,6 +978,19 @@ impl Default for FocusSession {
 }
 
 impl FocusSession {
+    pub fn set_outcome(&mut self, outcome: &str, now: i64) -> Result<(), String> {
+        if self.status == FocusSessionStatus::Active {
+            return Err("请先结束专注，再记录结果".to_string());
+        }
+        let outcome = outcome.trim();
+        if outcome.chars().count() > 500 || outcome.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+            return Err("专注结果最多 500 个字符，不能包含控制字符".to_string());
+        }
+        self.outcome = outcome.to_string();
+        self.outcome_updated_at = now;
+        Ok(())
+    }
+
     pub fn normalized_production_multiplier(&self) -> f64 {
         if self.reward_version > 0 {
             return if self.status == FocusSessionStatus::Active
@@ -5178,5 +5256,69 @@ mod assessment_tests {
         assert_eq!(back.notes[0].kind, NoteKind::Memo);
         assert_eq!(back.notes[0].memo_due_at, Some(2000));
         assert_eq!(back.notes[0].color, NoteColor::Gold);
+    }
+}
+
+#[cfg(test)]
+mod task_review_and_scene_tests {
+    use super::*;
+    #[test]
+    fn decorations_require_real_milestones_and_can_always_be_unequipped() {
+        let mut workshop = WorkshopState::default();
+        let mut focus = FocusSessionBook::default();
+        assert!(workshop.decoration_unlocked(WorkshopDecoration::None, &focus));
+        for decoration in [WorkshopDecoration::Orders, WorkshopDecoration::Focus, WorkshopDecoration::Weekly] {
+            assert!(!workshop.decoration_unlocked(decoration, &focus));
+        }
+        workshop.completed_order_count = 3;
+        assert!(workshop.decoration_unlocked(WorkshopDecoration::Orders, &focus));
+        for i in 0..3 {
+            focus.sessions.push(FocusSession { id: i.to_string(), status: FocusSessionStatus::Completed,
+                credited_duration_ms: 300_000, reward_version: 1, ..Default::default() });
+        }
+        assert!(workshop.decoration_unlocked(WorkshopDecoration::Focus, &focus));
+        focus.sessions[0].status = FocusSessionStatus::Abandoned;
+        assert!(!workshop.decoration_unlocked(WorkshopDecoration::Focus, &focus));
+        focus.sessions[0].status = FocusSessionStatus::Completed;
+        focus.sessions[0].credited_duration_ms = 299_000;
+        assert!(!workshop.decoration_unlocked(WorkshopDecoration::Focus, &focus));
+        workshop.reward_receipts.insert("week:one:goal".into(), RewardReceipt::default());
+        assert!(!workshop.decoration_unlocked(WorkshopDecoration::Weekly, &focus));
+        workshop.reward_receipts.insert("week:one:all".into(), RewardReceipt::default());
+        assert!(workshop.decoration_unlocked(WorkshopDecoration::Weekly, &focus));
+    }
+
+    #[test]
+    fn old_sessions_keep_defaults_and_review_validates_before_mutating() {
+        let mut session: FocusSession = serde_json::from_str(r#"{"id":"old","status":"completed"}"#).unwrap();
+        assert!(session.note_id.is_none());
+        assert_eq!(session.outcome, "");
+        session.set_outcome("  已完成\n下一步复查  ", 42).unwrap();
+        assert_eq!(session.outcome, "已完成\n下一步复查");
+        assert_eq!(session.outcome_updated_at, 42);
+        assert!(session.set_outcome(&"字".repeat(501), 43).is_err());
+        assert!(session.set_outcome("bad\0value", 43).is_err());
+        assert_eq!(session.outcome_updated_at, 42);
+        session.status = FocusSessionStatus::Active;
+        assert!(session.set_outcome("", 44).is_err());
+    }
+    #[test]
+    fn scene_overrides_are_reversible_and_old_settings_default_to_normal() {
+        let mut settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.companion_mode, CompanionMode::Normal);
+        settings.enable_sound = true;
+        settings.enable_notifications = true;
+        settings.enable_pet_bubble = true;
+        settings.companion_mode = CompanionMode::Quiet;
+        let quiet = settings.effective();
+        assert!(!quiet.enable_sound && !quiet.enable_notifications && !quiet.enable_pet_bubble);
+        assert!(quiet.enable_static_cat_mode);
+        assert!(!quiet.enable_low_power_mode);
+        settings.companion_mode = CompanionMode::Economy;
+        assert!(settings.effective().enable_low_power_mode);
+        settings.companion_mode = CompanionMode::Normal;
+        assert!(settings.effective().enable_sound && settings.effective().enable_pet_bubble);
+        assert!(!settings.enable_static_cat_mode && !settings.enable_low_power_mode);
+        assert!(serde_json::from_str::<AppSettingsPatch>(r#"{"companionMode":"unsupported"}"#).is_err());
     }
 }

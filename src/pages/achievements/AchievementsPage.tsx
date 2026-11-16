@@ -11,7 +11,7 @@ import type {
   AchievementCategory,
   AchievementDifficulty,
 } from "../../types/achievement";
-import { badgeAssets } from "../../ui/assets";
+import { badgeAssets } from "../../ui/badgeAssets";
 
 type AchievementFilter = "all" | "unlocked" | "locked";
 type DifficultyFilter = "all" | AchievementDifficulty;

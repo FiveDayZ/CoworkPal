@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useAchievementStore } from "../stores/achievementStore";
 import { PixelIcon } from "../ui/PixelIcon";
-import { badgeAssets } from "../ui/assets";
+import { badgeAssets } from "../ui/badgeAssets";
 
 const displayMs = 4500;
 

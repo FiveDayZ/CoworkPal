@@ -9,7 +9,6 @@ return await HardwareMonitorProgram.RunAsync(args);
 
 internal static class HardwareMonitorProgram
 {
-    private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(2);
     private static readonly Version RequiredPawnIoVersion = new(2, 2, 0, 0);
     private const string PawnIoInstallerSha256 =
         "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032";
@@ -73,7 +72,7 @@ internal static class HardwareMonitorProgram
             IsGpuEnabled = true,
         };
         bool opened = false;
-        int missingCpuSamples = 0;
+        DateTime? missingCpuSince = null;
         try
         {
             string pawnIoVersion = GetPawnIoVersion()?.ToString() ?? "unavailable";
@@ -95,21 +94,21 @@ internal static class HardwareMonitorProgram
                     SensorSample sample = ReadSensors(computer, pawnIoVersion);
                     WriteSampleAtomically(outputPath, sample);
                     TryWriteCpuDiagnostic(outputPath, sample);
-                    missingCpuSamples = sample.CpuTemperatureCelsius is null ? missingCpuSamples + 1 : 0;
+                    missingCpuSince = sample.CpuTemperatureCelsius is null ? missingCpuSince ?? DateTime.UtcNow : null;
                 }, outputPath);
                 if (runOnce)
                 {
                     return sampled ? 0 : 1;
                 }
                 // Reopen sensors after a fault or sustained loss (for example after sleep).
-                if (!sampled || missingCpuSamples >= 15)
+                if (!sampled || (missingCpuSince is DateTime missingSince && DateTime.UtcNow - missingSince >= TimeSpan.FromSeconds(30)))
                 {
                     CloseComputer(computer, outputPath);
                     opened = false;
-                    missingCpuSamples = 0;
+                    missingCpuSince = null;
                 }
 
-                await Task.Delay(SampleInterval);
+                await Task.Delay(ReadSampleInterval(outputPath));
             }
             while (true);
 
@@ -147,6 +146,18 @@ internal static class HardwareMonitorProgram
         catch (Exception error) { TryWriteError(outputPath, error); }
     }
 
+    private static TimeSpan ReadSampleInterval(string outputPath)
+    {
+        try
+        {
+            if (int.TryParse(File.ReadAllText(outputPath + ".interval-ms"), out int interval))
+                return TimeSpan.FromMilliseconds(Math.Clamp(interval, 2000, 5000));
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        return TimeSpan.FromSeconds(2);
+    }
+
     private static int TestSampleRecovery()
     {
         string directory = Path.Combine(Path.GetTempPath(), "coworkpal-monitor-test-" + Guid.NewGuid());
@@ -154,6 +165,13 @@ internal static class HardwareMonitorProgram
         string output = Path.Combine(directory, "sample.json");
         try
         {
+            if (ReadSampleInterval(output).TotalMilliseconds != 2000) return 13;
+            File.WriteAllText(output + ".interval-ms", "5000");
+            if (ReadSampleInterval(output).TotalMilliseconds != 5000) return 14;
+            File.WriteAllText(output + ".interval-ms", "999999");
+            if (ReadSampleInterval(output).TotalMilliseconds != 5000) return 15;
+            File.WriteAllText(output + ".interval-ms", "bad");
+            if (ReadSampleInterval(output).TotalMilliseconds != 2000) return 16;
             foreach (Exception error in new Exception[] {
                 new IOException("sharing violation"), new UnauthorizedAccessException("temporary access failure"),
                 new InvalidOperationException("sensor refresh failed") })

@@ -1,6 +1,8 @@
 mod fake;
 mod integrated_hardware_monitor;
 mod sysinfo_adapter;
+mod workshop_tick;
+pub mod timeline;
 #[cfg(windows)]
 mod windows_perf;
 
@@ -45,7 +47,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
     app_state::AppState,
-    events::{FOCUS_SESSION_UPDATED, HARDWARE_METRICS, WORKLOG_UPDATED, WORKSHOP_UPDATED},
+    events::{FOCUS_SESSION_UPDATED, HARDWARE_METRICS, WORKLOG_UPDATED},
     models::{FocusSessionStatus, HardwareMetricsSnapshot, HardwareSnapshot},
     persistence::PeriodicAchievementDelta,
     pet::{is_focus_distracted, PetStateService},
@@ -53,7 +55,7 @@ use crate::{
 };
 
 pub trait HardwareSensorAdapter: Send + Sync {
-    fn sample(&mut self) -> HardwareSnapshot;
+    fn sample(&mut self, settings: &crate::models::AppSettings, background: bool) -> HardwareSnapshot;
 }
 
 pub fn create_default_adapter() -> Box<dyn HardwareSensorAdapter> {
@@ -75,7 +77,7 @@ pub fn start_hardware_snapshot_pump(app: AppHandle) {
             let tick_start = Instant::now();
             let (snapshot, interval_ms) = {
                 let state = app.state::<AppState>();
-                let settings = state.settings.read().await.clone();
+                let settings = state.settings.read().await.effective();
                 let mut interval_ms = resolve_sampling_interval_ms(&app, &settings);
 
                 // While a focus session is active, force a foreground-grade
@@ -104,8 +106,9 @@ pub fn start_hardware_snapshot_pump(app: AppHandle) {
                 // that block for hundreds of ms. Run it on a blocking thread
                 // so the Tauri async runtime is not stalled on every tick.
                 let adapter = state.hardware_adapter.clone();
+                let background = !has_visible_monitor_surface(&app);
                 let snapshot = tokio::task::spawn_blocking(move || match adapter.lock() {
-                    Ok(mut adapter) => adapter.sample(),
+                    Ok(mut adapter) => adapter.get_or_insert_with(create_default_adapter).sample(&settings, background),
                     Err(error) => {
                         tracing::warn!("hardware adapter lock failed: {error}");
                         HardwareSnapshot::default()
@@ -122,6 +125,8 @@ pub fn start_hardware_snapshot_pump(app: AppHandle) {
                     *last_snapshot = Some(snapshot.clone());
                 }
 
+                let settings = state.settings.read().await;
+                state.performance_history.write().await.record(&snapshot, &settings);
                 (snapshot, interval_ms)
             };
 
@@ -277,7 +282,7 @@ async fn update_work_log_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
     // mouse/keyboard counts — the hardware fields were missing, so achievements
     // like "1小时高负载", "10GiB数据流", "CPU推进10小时", "低功耗守护者" etc.
     // were stuck at 0.
-    let low_power_enabled = state.settings.read().await.enable_low_power_mode;
+    let low_power_enabled = state.settings.read().await.effective().enable_low_power_mode;
     let low_power_seconds = if low_power_enabled { tick_seconds } else { 0 };
 
     state
@@ -361,7 +366,7 @@ async fn update_workshop_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
         .read()
         .await
         .active_session().cloned();
-    let settings = state.settings.read().await.clone();
+    let settings = state.settings.read().await.effective();
     let (updated_workshop, online_delta, parts_delta, insight_delta) = {
         let mut workshop = state.workshop.write().await;
         let previous_online_seconds = workshop.total_online_seconds;
@@ -415,7 +420,7 @@ async fn update_workshop_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
         let insight_delta = (workshop.insight - previous_insight).max(0.0);
 
         state.persistence.mark_workshop_dirty();
-        (workshop.clone(), online_delta, parts_delta, insight_delta)
+        (workshop_tick::WorkshopTick::from(&*workshop), online_delta, parts_delta, insight_delta)
     };
 
     state
@@ -429,8 +434,8 @@ async fn update_workshop_for_snapshot(app: &AppHandle, snapshot: &HardwareSnapsh
         })
         .await;
 
-    if let Err(error) = app.emit(WORKSHOP_UPDATED, updated_workshop) {
-        tracing::warn!("failed to emit {WORKSHOP_UPDATED}: {error}");
+    if let Err(error) = app.emit(crate::events::WORKSHOP_TICK, updated_workshop) {
+        tracing::warn!("failed to emit workshop tick: {error}");
     }
 }
 

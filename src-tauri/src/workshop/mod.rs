@@ -10,15 +10,9 @@ use crate::models::{
 
 const BASE_PARTS_PER_MINUTE: f64 = 1.6;
 const BASE_INSIGHT_PER_MINUTE: f64 = 0.13;
-const ECONOMY_REFERENCE_PARTS_PER_HOUR: f64 = 115.0;
-const ECONOMY_REFERENCE_INSIGHT_PER_HOUR: f64 = 6.8;
-const MODULE_PARTS_UPGRADE_PARTS_WEIGHT: f64 = 1.15;
-const MODULE_PARTS_UPGRADE_INSIGHT_WEIGHT: f64 = 0.75;
-const MODULE_PROCESS_UPGRADE_PARTS_WEIGHT: f64 = 0.9;
-const MODULE_PROCESS_UPGRADE_INSIGHT_WEIGHT: f64 = 1.2;
 const RESOURCE_EPSILON: f64 = 0.001;
-pub const MAX_WORKSHOP_LEVEL: u32 = 255;
-pub const MAX_MODULE_SUB_LEVEL: u32 = 255;
+pub const MAX_WORKSHOP_LEVEL: u32 = 999;
+pub const MAX_MODULE_SUB_LEVEL: u32 = 999;
 /// Cap a single tick's credited time. This MUST match the work-log's cap
 /// (models.rs record_snapshot clamps to 60s) so the workshop's online-seconds
 /// tracking and the work-log's active-seconds tracking stay consistent when the
@@ -73,12 +67,8 @@ pub fn upgrade_quotes(workshop: &WorkshopState) -> WorkshopUpgradeQuotes {
             (
                 module_key.to_string(),
                 ModuleUpgradeCosts {
-                    parts: module_upgrade_cost(levels.parts, "parts", workshop.workshop_level),
-                    process: module_upgrade_cost(
-                        levels.process,
-                        "process",
-                        workshop.workshop_level,
-                    ),
+                    parts: module_upgrade_cost(levels.parts, "parts"),
+                    process: module_upgrade_cost(levels.process, "process"),
                 },
             )
         })
@@ -108,7 +98,7 @@ pub fn apply_module_upgrade(
         "process" => module_levels(workshop, module_key)?.process,
         _ => return Err(format!("unknown workshop upgrade track: {track}")),
     };
-    let cost = module_upgrade_cost(current_level, track, workshop.workshop_level)
+    let cost = module_upgrade_cost(current_level, track)
         .ok_or_else(|| "该模块已达升级上限".to_string())?;
     deduct_resources(workshop, cost)?;
 
@@ -125,49 +115,30 @@ fn workshop_upgrade_cost(level: u32) -> Option<ResourceCost> {
     if level >= MAX_WORKSHOP_LEVEL {
         return None;
     }
-    let safe_level = level.max(1) as f64;
-    let target_hours = (0.85 + safe_level * 0.45 + safe_level.powf(1.55) * 0.42)
-        * late_game_cost_multiplier(level.max(1));
     Some(ResourceCost {
-        parts: (ECONOMY_REFERENCE_PARTS_PER_HOUR * target_hours).round() as u64,
-        insight: (ECONOMY_REFERENCE_INSIGHT_PER_HOUR * target_hours).round() as u64,
+        parts: linear_upgrade_cost(level, 198, 420_259),
+        insight: linear_upgrade_cost(level, 12, 24_850),
     })
 }
 
-fn module_upgrade_cost(level: u32, track: &str, workshop_level: u32) -> Option<ResourceCost> {
-    if level >= MAX_MODULE_SUB_LEVEL {
-        return None;
-    }
-    let safe_level = level.max(1) as f64;
-    let safe_workshop_level = workshop_level.max(1) as f64;
-    let target_hours =
-        (0.35 + safe_level * 0.28 + safe_level.powf(1.42) * 0.18 + safe_workshop_level * 0.06)
-            * late_game_cost_multiplier(level.max(workshop_level).max(1));
-    let (parts_weight, insight_weight) = match track {
-        "parts" => (
-            MODULE_PARTS_UPGRADE_PARTS_WEIGHT,
-            MODULE_PARTS_UPGRADE_INSIGHT_WEIGHT,
-        ),
-        "process" => (
-            MODULE_PROCESS_UPGRADE_PARTS_WEIGHT,
-            MODULE_PROCESS_UPGRADE_INSIGHT_WEIGHT,
-        ),
+fn module_upgrade_cost(level: u32, track: &str) -> Option<ResourceCost> {
+    if level >= MAX_MODULE_SUB_LEVEL { return None; }
+    let (initial, final_cost) = match track {
+        "parts" => ((115, 4), (113_697, 4_385)),
+        "process" => ((90, 7), (88_980, 7_015)),
         _ => return None,
     };
     Some(ResourceCost {
-        parts: (ECONOMY_REFERENCE_PARTS_PER_HOUR * target_hours * parts_weight).round() as u64,
-        insight: (ECONOMY_REFERENCE_INSIGHT_PER_HOUR * target_hours * insight_weight)
-            .round()
-            .max(1.0) as u64,
+        parts: linear_upgrade_cost(level, initial.0, final_cost.0),
+        insight: linear_upgrade_cost(level, initial.1, final_cost.1),
     })
 }
 
-fn late_game_cost_multiplier(level: u32) -> f64 {
-    if level <= 30 {
-        1.0
-    } else {
-        1.0 + (level.saturating_sub(30) as f64 * 0.008).min(0.55)
-    }
+fn linear_upgrade_cost(level: u32, initial: u64, final_cost: u64) -> u64 {
+    // Keep the former first/final upgrade prices, evenly spread over 998 purchases.
+    let steps = u64::from(MAX_WORKSHOP_LEVEL - 2);
+    let position = u64::from(level.clamp(1, MAX_WORKSHOP_LEVEL - 1) - 1);
+    initial + ((final_cost - initial) * position + steps / 2) / steps
 }
 
 fn deduct_resources(workshop: &mut WorkshopState, cost: ResourceCost) -> Result<(), String> {
@@ -653,8 +624,7 @@ mod tests {
     use super::{
         affinity_multiplier, affinity_profile, apply_module_upgrade, apply_workshop_upgrade,
         calculate_output, complete_order, ensure_daily_orders, production_breakdown,
-        upgrade_quotes, ProductionService, ResourceCost, ECONOMY_REFERENCE_INSIGHT_PER_HOUR,
-        ECONOMY_REFERENCE_PARTS_PER_HOUR,
+        upgrade_quotes, ProductionService, ResourceCost,
     };
 
     #[test]
@@ -741,26 +711,30 @@ mod tests {
     }
 
     #[test]
-    fn reference_economy_simulation_reports_decade_milestones() {
-        let mut workshop = WorkshopState {
-            parts: 0.0,
-            insight: 0.0,
-            ..Default::default()
-        };
-        let mut milestones = Vec::new();
-
-        for day in 1..=365 {
-            workshop.parts += ECONOMY_REFERENCE_PARTS_PER_HOUR * 4.0;
-            workshop.insight += ECONOMY_REFERENCE_INSIGHT_PER_HOUR * 4.0;
-            while apply_workshop_upgrade(&mut workshop).is_ok() {
-                if workshop.workshop_level.is_multiple_of(10) {
-                    milestones.push((workshop.workshop_level, day));
+    fn every_upgrade_price_is_evenly_spread_and_preserves_endpoint_costs() {
+        for (track, first, last) in [
+            ("workshop", (198, 12), (420_259, 24_850)),
+            ("parts", (115, 4), (113_697, 4_385)),
+            ("process", (90, 7), (88_980, 7_015)),
+        ] {
+            let cost = |level| if track == "workshop" { super::workshop_upgrade_cost(level) }
+                else { super::module_upgrade_cost(level, track) }.unwrap();
+            assert_eq!((cost(1).parts, cost(1).insight), first);
+            assert_eq!((cost(998).parts, cost(998).insight), last);
+            for level in 1..998 {
+                let a = cost(level);
+                let b = cost(level + 1);
+                for (delta, total) in [(b.parts - a.parts, last.0 - first.0), (b.insight - a.insight, last.1 - first.1)] {
+                    assert!(delta == total / 997 || delta == total.div_ceil(997));
                 }
             }
+            if track != "workshop" {
+                let mut workshop = WorkshopState::default();
+                let before = super::upgrade_quotes(&workshop).modules;
+                workshop.workshop_level = 999;
+                assert_eq!(before, super::upgrade_quotes(&workshop).modules);
+            }
         }
-
-        assert_eq!(milestones, vec![(10, 20), (20, 106), (30, 286)]);
-        assert_eq!(workshop.workshop_level, 33);
     }
 
     #[test]
@@ -844,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn affinity_levels_boost_output_in_tiers_up_to_level_100() {
+    fn affinity_levels_boost_output_in_tiers_up_to_level_999() {
         let settings = AppSettings::default();
         let snapshot = balanced_snapshot();
         let base = calculate_output(&settings, &snapshot, &WorkshopState::default(), 1.0);
@@ -854,7 +828,7 @@ mod tests {
         };
         let boosted = calculate_output(&settings, &snapshot, &level_eleven, 1.0);
         let capped = WorkshopState {
-            cat_affinity_level: 100,
+            cat_affinity_level: 999,
             ..Default::default()
         };
         let capped_output = calculate_output(&settings, &snapshot, &capped, 1.0);
@@ -862,9 +836,9 @@ mod tests {
         assert_close(affinity_multiplier(11), 1.05);
         assert_close(boosted.parts_per_minute / base.parts_per_minute, 1.05);
         assert_close(boosted.insight_per_minute / base.insight_per_minute, 1.05);
-        assert_close(capped_output.parts_per_minute / base.parts_per_minute, 1.82);
-        assert_close(capped_output.insight_per_minute / base.insight_per_minute, 1.82);
-        for (level, expected) in [(1, 1.0), (20, 1.095), (50, 1.32), (100, 1.82), (101, 1.82)] {
+        assert_close(capped_output.parts_per_minute / base.parts_per_minute, 10.81);
+        assert_close(capped_output.insight_per_minute / base.insight_per_minute, 10.81);
+        for (level, expected) in [(1, 1.0), (20, 1.095), (50, 1.32), (100, 1.82), (101, 1.83), (999, 10.81), (1000, 10.81)] {
             assert_close(affinity_multiplier(level), expected);
         }
         assert_eq!(affinity_profile(20), ("最佳拍档", "bonded", Some(50), Some("灵魂搭档")));
@@ -873,9 +847,9 @@ mod tests {
     }
 
     #[test]
-    fn upgrades_reach_255_and_reject_further_debits_on_every_track() {
+    fn upgrades_reach_999_and_reject_further_debits_on_every_track() {
         let mut workshop = WorkshopState { workshop_level: 100, parts: 1e12, insight: 1e12, ..Default::default() };
-        while workshop.workshop_level < 255 {
+        while workshop.workshop_level < 999 {
             let previous = super::workshop_upgrade_cost(workshop.workshop_level).unwrap();
             apply_workshop_upgrade(&mut workshop).unwrap();
             if let Some(next) = super::workshop_upgrade_cost(workshop.workshop_level) {
@@ -890,7 +864,7 @@ mod tests {
             for track in ["parts", "process"] {
                 let levels = super::module_levels_mut(&mut workshop, module).unwrap();
                 if track == "parts" { levels.parts = 100; } else { levels.process = 100; }
-                for _ in 100..255 { apply_module_upgrade(&mut workshop, module, track).unwrap(); }
+                for _ in 100..999 { apply_module_upgrade(&mut workshop, module, track).unwrap(); }
                 let balance = (workshop.parts, workshop.insight);
                 assert!(apply_module_upgrade(&mut workshop, module, track).is_err());
                 assert_eq!((workshop.parts, workshop.insight), balance);
@@ -903,10 +877,10 @@ mod tests {
 
     #[test]
     fn production_keeps_growing_across_all_level_tiers() {
-        for (level, expected) in [(1, 0.0), (100, 99.0), (101, 99.75), (200, 174.0), (201, 174.5), (255, 201.5)] {
+        for (level, expected) in [(1, 0.0), (100, 99.0), (101, 99.75), (200, 174.0), (201, 174.5), (255, 201.5), (999, 573.5), (1000, 573.5)] {
             assert_close(super::level_steps(level), expected);
         }
-        for level in 2..=255 {
+        for level in 2..=999 {
             let lower = ModuleUpgradeLevels { parts: level - 1, process: level - 1 };
             let upper = ModuleUpgradeLevels { parts: level, process: level };
             assert!(super::module_bonus(&[(&upper, 0.06, 0.035)]) > super::module_bonus(&[(&lower, 0.06, 0.035)]));
@@ -940,13 +914,13 @@ mod tests {
 
         assert_eq!(workshop.cat_affinity_level, 5);
         assert_eq!(workshop.affinity_experience, 8);
-        workshop.cat_affinity_level = 99;
+        workshop.cat_affinity_level = 998;
         workshop.affinity_experience = 99;
         let order = workshop.active_orders[0].clone();
         complete_order(&mut workshop, &order.id, 2_000).unwrap();
-        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
+        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (999, 0));
         workshop.add_affinity_experience(u32::MAX);
-        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (100, 0));
+        assert_eq!((workshop.cat_affinity_level, workshop.affinity_experience), (999, 0));
     }
 
     #[test]

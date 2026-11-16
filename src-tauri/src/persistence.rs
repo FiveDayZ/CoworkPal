@@ -285,11 +285,10 @@ async fn flush_dirty_locked(state: &AppState) -> Result<(), String> {
         .work_logs_dirty
         .swap(false, Ordering::AcqRel)
     {
-        let work_logs = state.work_logs.read().await;
-        let snapshot = work_logs.clone();
+        let _save_guard = state.work_log_save_lock.lock().await;
+        let snapshot = state.work_logs.read().await.clone();
         let storage = state.storage.clone();
         let result = tokio::task::spawn_blocking(move || storage.save_work_logs(&snapshot)).await;
-        drop(work_logs);
         if let Err(error) = flatten_save_result(result) {
             state.persistence.mark_work_logs_dirty();
             errors.push(format!("work_logs.json: {error}"));

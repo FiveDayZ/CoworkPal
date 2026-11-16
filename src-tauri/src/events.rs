@@ -40,6 +40,8 @@ pub const UPDATE_PROGRESS: &str = "update:progress";
 /// Payload is the updated `FocusSessionBook` (so the frontend always has the
 /// full list + the live active session in one shape).
 pub const FOCUS_SESSION_UPDATED: &str = "focus:session-updated";
+pub const FOCUS_SESSION_TICK: &str = "focus:session-tick";
+pub const WORKSHOP_TICK: &str = "workshop:tick";
 
 pub const REWARD_GRANTED: &str = "reward:granted";
 
